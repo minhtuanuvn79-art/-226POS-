@@ -631,52 +631,45 @@ window.renderProductList = function() {
     const tbody = document.getElementById('import-table-body'); 
     if (!tbody) return;
     
-    // Lấy dữ liệu mới nhất
+    // Lấy dữ liệu mới nhất từ bộ nhớ
     const savedProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     window.products = savedProducts;
     tbody.innerHTML = '';
 
-    // Lấy từ khóa tìm kiếm
+    // Lấy các giá trị lọc
     const searchInput = document.getElementById('search-product-manage');
     const keyword = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
-    // Lấy danh sách ID nhóm đã được người dùng tích chọn
     const checkedGroupCbs = document.querySelectorAll('.group-filter-cb:checked');
     const selectedGroupIds = Array.from(checkedGroupCbs).map(cb => cb.value);
 
-    // Lấy thông số từ bộ lọc Tồn Kho
     const stockFilter = document.getElementById('stock-filter');
     const stockVal = stockFilter ? stockFilter.value : 'all';
 
-    // Tiến hành lọc dữ liệu chéo 3 lớp
+    // 1. Logic lọc dữ liệu
     const filtered = window.products.filter(p => {
-        // Lớp 1: Lọc từ khóa
+        // Lọc từ khóa
         const matchKw = (p.name || '').toLowerCase().includes(keyword) || 
                         (p.code || '').toLowerCase().includes(keyword) ||
                         (p.barcode || '').toLowerCase().includes(keyword);
         
-        // Lớp 2: Lọc Nhóm hàng
+        // Lọc Nhóm hàng
         let matchGroup = true;
         if (selectedGroupIds.length > 0) {
             matchGroup = selectedGroupIds.includes(p.group);
         }
 
-        // Lớp 3: Lọc Tồn kho (FIX: Ép kiểu dữ liệu về Số thực - Float)
+        // Lọc Tồn kho
         let matchStock = true;
-        const stockLevel = parseFloat(p.stock) || 0; // Đảm bảo luôn là số học
+        const stockLevel = parseFloat(p.stock) || 0;
 
-        if (stockVal === 'below_min') {
-            matchStock = (stockLevel <= 5); // Định mức báo đỏ: 5
-        } else if (stockVal === 'above_max') {
-            matchStock = (stockLevel > 100); 
-        } else if (stockVal === 'in_stock') {
-            matchStock = (stockLevel > 0);
-        } else if (stockVal === 'out_of_stock') {
-            matchStock = (stockLevel <= 0);
-        } else if (stockVal === 'custom') {
+        if (stockVal === 'below_min') matchStock = (stockLevel <= 5);
+        else if (stockVal === 'above_max') matchStock = (stockLevel > 100); 
+        else if (stockVal === 'in_stock') matchStock = (stockLevel > 0);
+        else if (stockVal === 'out_of_stock') matchStock = (stockLevel <= 0);
+        else if (stockVal === 'custom') {
             const minInput = document.getElementById('stock-min');
             const maxInput = document.getElementById('stock-max');
-            // Kiểm tra xem ô input có rỗng không, nếu rỗng thì bỏ qua điều kiện đó
             const minCondition = (minInput && minInput.value.trim() !== '') ? (stockLevel >= parseFloat(minInput.value)) : true;
             const maxCondition = (maxInput && maxInput.value.trim() !== '') ? (stockLevel <= parseFloat(maxInput.value)) : true;
             matchStock = minCondition && maxCondition;
@@ -685,14 +678,16 @@ window.renderProductList = function() {
         return matchKw && matchGroup && matchStock;
     });
 
-    // Xử lý khi không có dữ liệu
+    // 2. Xử lý khi không có dữ liệu
     if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 50px; color: #aaa;">Không tìm thấy hàng hóa phù hợp với bộ lọc</td></tr>`;
-        document.getElementById('product-pagination').innerHTML = ''; // Ẩn phân trang
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 50px; color: #aaa;">Không tìm thấy hàng hóa phù hợp</td></tr>`;
+        const paginationDiv = document.getElementById('product-pagination');
+        if (paginationDiv) paginationDiv.innerHTML = '';
+        updateSelectedCount(); // Cập nhật lại nút xóa
         return;
     }
 
-    // --- LOGIC PHÂN TRANG ---
+    // 3. Logic phân trang
     const totalPages = Math.ceil(filtered.length / productsPerPage);
     if (window.currentProductPage > totalPages) window.currentProductPage = totalPages;
     if (window.currentProductPage < 1) window.currentProductPage = 1;
@@ -701,16 +696,17 @@ window.renderProductList = function() {
     const endIndex = startIndex + productsPerPage;
     const paginatedProducts = filtered.slice(startIndex, endIndex);
 
-    // Vẽ dữ liệu đã cắt ra màn hình
+    // 4. Vẽ dữ liệu ra bảng
     paginatedProducts.forEach((p, index) => {
         const stockLevel = parseFloat(p.stock) || 0;
         const isLowStock = stockLevel <= 5;
         const stockStyle = isLowStock ? 'color: #d9534f; font-weight: bold;' : '';
-        const stt = startIndex + index + 1; 
 
         tbody.innerHTML += `
             <tr style="cursor:pointer; transition: 0.2s;">
-                <td onclick="openEditProductModal('${p.id}')" style="text-align: center; color: #888; font-size: 12px;">${stt}</td>
+                <td style="text-align: center;">
+                    <input type="checkbox" class="product-item-check" data-id="${p.id}" onclick="updateSelectedCount()">
+                </td>
                 <td onclick="openEditProductModal('${p.id}')" style="color:var(--kv-blue); font-weight:bold;">${p.code || ''}</td>
                 <td onclick="openEditProductModal('${p.id}')" style="color:#555;">${p.barcode || '---'}</td>
                 <td onclick="openEditProductModal('${p.id}')" style="font-weight: 500;">${p.name || ''}</td>
@@ -728,8 +724,11 @@ window.renderProductList = function() {
         `;
     });
 
-    // Gọi hàm render nút bấm
+    // 5. Cập nhật phân trang và nút xóa hàng loạt
     window.renderPaginationControls('product-pagination', window.currentProductPage, totalPages, 'changeProductPage');
+    
+    // Quan trọng: Kiểm tra lại trạng thái các Checkbox và nút Xóa hàng loạt
+    updateSelectedCount();
 };
 
 // 3. Hàm tạo các nút bấm trang (Dán ngay dưới hàm renderProductList)
@@ -4761,4 +4760,65 @@ window.showConfirm = function(message, onConfirmCallback) {
         modal.style.display = 'none';
         if (typeof onConfirmCallback === 'function') onConfirmCallback();
     };
+};
+// ==========================================
+// TÍNH NĂNG XÓA HÀNG LOẠT (BULK DELETE)
+// ==========================================
+
+// 1. Chọn hoặc bỏ chọn tất cả các dòng đang hiển thị
+window.toggleAllProductCheckboxes = function(source) {
+    const checkboxes = document.querySelectorAll('.product-item-check');
+    checkboxes.forEach(cb => {
+        cb.checked = source.checked;
+    });
+    updateSelectedCount();
+};
+
+// 2. Cập nhật số lượng đếm và hiển thị/ẩn nút xóa
+window.updateSelectedCount = function() {
+    const checked = document.querySelectorAll('.product-item-check:checked');
+    const count = checked.length;
+    const btnDelete = document.getElementById('btn-bulk-delete');
+    const countSpan = document.getElementById('selected-count');
+    const checkAll = document.getElementById('check-all-products');
+    
+    if (btnDelete) {
+        btnDelete.style.display = count > 0 ? 'inline-block' : 'none';
+        if (countSpan) countSpan.innerText = count;
+    }
+    
+    // Nếu bỏ tích một ô lẻ thì ô "Chọn tất cả" cũng phải bỏ tích theo
+    if (checkAll && count === 0) checkAll.checked = false;
+};
+
+// 3. Thực thi lệnh xóa các ID đã chọn
+window.bulkDeleteProducts = function() {
+    const checked = document.querySelectorAll('.product-item-check:checked');
+    const idsToDelete = Array.from(checked).map(cb => cb.getAttribute('data-id'));
+    
+    if (idsToDelete.length === 0) return;
+
+    showConfirm(`Bạn có chắc chắn muốn xóa **${idsToDelete.length}** hàng hóa đã chọn?`, function() {
+        // Lấy dữ liệu gốc
+        let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+        
+        // Lọc bỏ các sản phẩm có ID nằm trong danh sách xóa
+        allProducts = allProducts.filter(p => !idsToDelete.includes(p.id));
+        
+        // Lưu trữ cục bộ
+        localStorage.setItem('kv_products', JSON.stringify(allProducts));
+        window.products = allProducts; // Cập nhật biến global
+
+        // Đồng bộ lên Firebase
+        if (typeof window.uploadToCloud === 'function') {
+            window.uploadToCloud('products', allProducts);
+        }
+        
+        // Reset trạng thái ô Chọn tất cả
+        const checkAll = document.getElementById('check-all-products');
+        if (checkAll) checkAll.checked = false;
+
+        showToast(`Đã xóa thành công ${idsToDelete.length} mặt hàng!`, "success");
+        renderProductList(); // Vẽ lại bảng mới
+    });
 };
