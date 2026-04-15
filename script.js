@@ -3064,16 +3064,24 @@ function syncAccountsToFirebase() {
         window.fbSet(window.fbRef(window.fbDb, 'accounts'), accounts);
     }
 }
-// Hàm dùng chung để đẩy bất cứ thứ gì lên Cloud
-function uploadToCloud(path, data) {
-    if (window.fbSet && window.fbDb && window.fbRef) {
-        window.fbSet(window.fbRef(window.fbDb, path), data)
-            .then(() => console.log(`Đã đồng bộ ${path} thành công.`))
-            .catch(err => console.error(`Lỗi đồng bộ ${path}:`, err));
-    } else {
-        console.warn("Firebase chưa sẵn sàng.");
+window.uploadToCloud = function(path, data) {
+    // Kiểm tra xem có internet không trước khi ghi
+    if (!navigator.onLine) {
+        alert("Máy đang ngoại tuyến! Dữ liệu xóa sẽ không được đồng bộ về nhà.");
+        return;
     }
-}
+
+    set(ref(db, path), data)
+        .then(() => {
+            console.log(`✅ Đồng bộ [${path}] thành công.`);
+            // Thông báo nhỏ để bạn yên tâm trước khi tắt máy về nhà
+            if(typeof showToast === 'function') showToast("Dữ liệu đã được đồng bộ lên Cloud", "success");
+        })
+        .catch((error) => {
+            console.error(`❌ Lỗi Firebase:`, error);
+            alert("Cảnh báo: Không thể xóa dữ liệu trên Cloud. Vui lòng kiểm tra lại mạng!");
+        });
+};
 
 // Áp dụng cho Tài khoản: Tìm hàm saveAccount() của bạn và thêm dòng này vào cuối
 function saveAccount() {
@@ -4825,34 +4833,28 @@ window.updateSelectedCount = function() {
     if (checkAll && count === 0) checkAll.checked = false;
 };
 
-// 3. Thực thi lệnh xóa các ID đã chọn
 window.bulkDeleteProducts = function() {
     const checked = document.querySelectorAll('.product-item-check:checked');
     const idsToDelete = Array.from(checked).map(cb => cb.getAttribute('data-id'));
     
     if (idsToDelete.length === 0) return;
 
-    showConfirm(`Bạn có chắc chắn muốn xóa **${idsToDelete.length}** hàng hóa đã chọn?`, function() {
-        // Lấy dữ liệu gốc
+    showConfirm(`Xóa ${idsToDelete.length} hàng hóa?`, function() {
+        // 1. Lấy dữ liệu mới nhất từ LocalStorage để tránh ghi đè dữ liệu cũ
         let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
         
-        // Lọc bỏ các sản phẩm có ID nằm trong danh sách xóa
-        allProducts = allProducts.filter(p => !idsToDelete.includes(p.id));
+        // 2. Lọc bỏ
+        const updatedProducts = allProducts.filter(p => !idsToDelete.includes(p.id));
         
-        // Lưu trữ cục bộ
-        localStorage.setItem('kv_products', JSON.stringify(allProducts));
-        window.products = allProducts; // Cập nhật biến global
+        // 3. Cập nhật local
+        localStorage.setItem('kv_products', JSON.stringify(updatedProducts));
+        window.products = updatedProducts;
 
-        // Đồng bộ lên Firebase
-        if (typeof window.uploadToCloud === 'function') {
-            window.uploadToCloud('products', allProducts);
-        }
+        // 4. Đẩy lên Cloud (Quan trọng: Đợi phản hồi từ Firebase)
+        window.uploadToCloud('products', updatedProducts);
         
-        // Reset trạng thái ô Chọn tất cả
-        const checkAll = document.getElementById('check-all-products');
-        if (checkAll) checkAll.checked = false;
-
-        showToast(`Đã xóa thành công ${idsToDelete.length} mặt hàng!`, "success");
-        renderProductList(); // Vẽ lại bảng mới
+        // 5. Vẽ lại giao diện
+        renderProductList();
+        updateSelectedCount();
     });
 };
