@@ -7,6 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:,">
 </head>
 <body>
 
@@ -1310,9 +1311,11 @@
     </div>
 </div>
 <script type="module">
+    // 1. Nhập các thư viện cần thiết từ CDN của Firebase
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
     import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
+    // 2. Cấu hình dự án POS của bạn
     const firebaseConfig = {
         apiKey: "AIzaSyBDUQwwIcBYUAWLc8OG3XICeZ2EpVGJV8M",
         authDomain: "pos-9128b.firebaseapp.com",
@@ -1324,27 +1327,38 @@
         measurementId: "G-KJG1G0W35W"
     };
 
+    // 3. Khởi tạo Firebase
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // CÔNG KHAI CÔNG CỤ RA GLOBAL ĐỂ script.js SỬ DỤNG
+    // 4. Công khai các công cụ ra Global (Cửa sổ trình duyệt) để script.js có thể gọi được
     window.fbDb = db;
     window.fbRef = ref;
     window.fbSet = set;
     window.fbOnValue = onValue;
     window.fbUpdate = update;
 
+    // 5. Hàm đẩy dữ liệu lên Cloud
     window.uploadToCloud = function(path, data) {
         set(ref(db, path), data)
-            .then(() => console.log(`✅ Đã đồng bộ ${path} thành công.`))
-            .catch((error) => console.error(`❌ Lỗi đồng bộ ${path}:`, error));
+            .then(() => console.log(`✅ Đã đồng bộ [${path}] lên Firebase thành công.`))
+            .catch((error) => console.error(`❌ Lỗi đồng bộ [${path}]:`, error));
     };
 
-    // Khi Firebase đã nạp xong, mới cho phép hệ thống khởi chạy
-    console.log("🚀 Hệ thống đồng bộ Firebase đã sẵn sàng!");
-    if (typeof window.initApp === 'function') {
-        window.initApp(); 
-    }
+    // 6. Xử lý logic khởi chạy ứng dụng sau khi trang nạp xong hoàn toàn
+    window.onload = function() {
+        console.log("🚀 Hệ thống đồng bộ Firebase đã sẵn sàng!");
+        
+        // Kiểm tra nếu hàm initApp trong script.js đã tồn tại thì mới chạy
+        if (typeof window.initApp === 'function') {
+            window.initApp(); 
+        } else {
+            // Trường hợp file script.js nạp chậm, đợi thêm 300ms
+            setTimeout(() => {
+                if (typeof window.initApp === 'function') window.initApp();
+            }, 300);
+        }
+    };
 </script>
 
 <script src="script.js"></script>

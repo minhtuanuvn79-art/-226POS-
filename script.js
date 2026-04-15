@@ -2851,10 +2851,12 @@ function showShortcutModal() {
 window.initApp = function() {
     console.log("🏁 226 POS: Đang khởi tạo ứng dụng...");
     
-    // 1. Khởi tạo nhóm hàng
-    if (typeof initGroups === 'function') initGroups();
+    // 1. Khởi tạo cấu trúc nhóm hàng nếu chưa có
+    if (typeof initGroups === 'function') {
+        initGroups();
+    }
 
-    // 2. Khôi phục trạng thái đăng nhập
+    // 2. Khôi phục trạng thái đăng nhập từ LocalStorage
     const savedUser = localStorage.getItem('kv_current_user');
     const savedView = localStorage.getItem('kv_current_view');
     
@@ -2862,6 +2864,7 @@ window.initApp = function() {
         currentUser = JSON.parse(savedUser);
         hideAll();
         
+        // Điều hướng về màn hình người dùng đang dùng dở trước khi F5
         if (savedView === 'pos-view') {
             document.getElementById('pos-view').style.display = 'flex';
             initPOSData();
@@ -2871,38 +2874,69 @@ window.initApp = function() {
             openDashTab(savedTab);
         }
     } else {
+        // Nếu chưa đăng nhập, trả về màn hình login
         hideAll();
         document.getElementById('login-view').style.display = 'flex';
     }
 
-    // 3. ĐỒNG BỘ REALTIME TOÀN DIỆN TỪ FIREBASE (FIX LỖI ĐA THIẾT BỊ)
+    // 3. THIẾT LẬP ĐỒNG BỘ REALTIME TỪ FIREBASE (Giải quyết lỗi đa thiết bị)
     if (window.fbDb && window.fbOnValue) {
-        // Khai báo các đường dẫn cần đồng bộ
+        // Danh sách các bảng dữ liệu cần theo dõi biến động từ Cloud
         const syncPaths = [
-            { path: 'products', storageKey: 'kv_products', renderFunc: () => { if (localStorage.getItem('kv_current_tab') === 'tab-danh-sach-hang') renderProductList(); } },
-            { path: 'invoices', storageKey: 'kv_invoices', renderFunc: () => { if (localStorage.getItem('kv_current_tab') === 'tab-hoa-don') renderInvoices(); if (localStorage.getItem('kv_current_tab') === 'tab-tong-quan') window.renderDashboard(); } },
-            { path: 'import_orders', storageKey: 'kv_import_orders', renderFunc: () => { if (localStorage.getItem('kv_current_tab') === 'tab-nhap-hang') renderImportOrders(); } },
-            { path: 'inventory_checks', storageKey: 'kv_inventory_checks', renderFunc: () => { if (localStorage.getItem('kv_current_tab') === 'tab-kiem-kho') renderInventoryChecks(); } },
-            { path: 'groups', storageKey: 'kv_groups', renderFunc: () => { if (typeof renderGroupData === 'function') renderGroupData(); } },
+            { 
+                path: 'products', 
+                storageKey: 'kv_products', 
+                renderFunc: () => { if (localStorage.getItem('kv_current_tab') === 'tab-danh-sach-hang') renderProductList(); } 
+            },
+            { 
+                path: 'invoices', 
+                storageKey: 'kv_invoices', 
+                renderFunc: () => { 
+                    if (localStorage.getItem('kv_current_tab') === 'tab-hoa-don') renderInvoices(); 
+                    if (localStorage.getItem('kv_current_tab') === 'tab-tong-quan') window.renderDashboard(); 
+                } 
+            },
+            { 
+                path: 'import_orders', 
+                storageKey: 'kv_import_orders', 
+                renderFunc: () => { if (localStorage.getItem('kv_current_tab') === 'tab-nhap-hang') renderImportOrders(); } 
+            },
+            { 
+                path: 'inventory_checks', 
+                storageKey: 'kv_inventory_checks', 
+                renderFunc: () => { if (localStorage.getItem('kv_current_tab') === 'tab-kiem-kho') renderInventoryChecks(); } 
+            },
+            { 
+                path: 'groups', 
+                storageKey: 'kv_groups', 
+                renderFunc: () => { if (typeof renderGroupData === 'function') renderGroupData(); } 
+            },
             { path: 'pricebooks', storageKey: 'kv_pricebooks', renderFunc: () => {} },
             { path: 'accounts', storageKey: 'kv_accounts', renderFunc: () => {} }
         ];
 
-        // Lắng nghe sự thay đổi của từng đường dẫn
+        // Lắng nghe sự thay đổi của từng bảng dữ liệu trên Firebase
         syncPaths.forEach(item => {
             window.fbOnValue(window.fbRef(window.fbDb, item.path), (snapshot) => {
                 const data = snapshot.val();
                 if (data) {
-                    // Cập nhật dữ liệu tươi vào LocalStorage
+                    // Cập nhật dữ liệu mới nhất vào LocalStorage để các hàm khác sử dụng
                     const dataArray = Array.isArray(data) ? data.filter(Boolean) : Object.values(data);
                     localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                     
-                    // Kích hoạt vẽ lại giao diện tương ứng
+                    // Thực thi hàm vẽ lại giao diện (nếu đang ở đúng tab đó)
                     item.renderFunc();
                 }
             });
         });
     }
+
+    // 4. Tự động cập nhật bộ lọc nhân viên (Cần thiết cho Quản lý & Bán hàng)
+    setTimeout(() => {
+        if (typeof window.renderICCreatorFilter === 'function') window.renderICCreatorFilter();
+        if (typeof window.renderInvCreatorFilter === 'function') window.renderInvCreatorFilter();
+        if (typeof window.renderImpCreatorFilter === 'function') window.renderImpCreatorFilter();
+    }, 1000);
 };
 // ==========================================
 // TÍNH NĂNG BỘ LỌC TỒN KHO (TAB THIẾT LẬP GIÁ)
