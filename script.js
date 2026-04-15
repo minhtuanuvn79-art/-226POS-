@@ -317,10 +317,17 @@ function initGroups() {
     renderGroupData();
 }
 
-function renderGroupData() {
-    renderSidebarGroups();
-    renderGroupSelects();
-}
+// Đảm bảo hàm này luôn được gọi trong initApp hoặc sau khi dán Excel
+window.renderGroupData = function() {
+    // 1. Vẽ lại cây danh mục ở Sidebar hàng hóa
+    if (typeof window.renderSidebarGroups === 'function') {
+        window.renderSidebarGroups();
+    }
+    // 2. Vẽ lại danh sách chọn (Select) trong Modal chi tiết
+    if (typeof window.renderGroupSelects === 'function') {
+        window.renderGroupSelects();
+    }
+};
 // 1. Hàm đệ quy xây dựng HTML dạng chuỗi lồng nhau (Hỗ trợ đổ dữ liệu vào 2 tab độc lập)
 window.renderSidebarGroups = function() {
     const container1 = document.getElementById('sidebar-group-list');
@@ -387,30 +394,27 @@ window.toggleGroupChildren = function(groupId, iconEl) {
 };
 
 function renderGroupSelects() {
-    const pmGroup = document.getElementById('pm-group');
+    const pmGroup = document.getElementById('pm-group'); // Thanh chọn trong modal
     const parentGroup = document.getElementById('group-parent');
     
-    if(!pmGroup || !parentGroup) return;
+    if(!pmGroup && !parentGroup) return;
 
-    const pmVal = pmGroup.value;
-    const parentVal = parentGroup.value;
-
+    // Lấy dữ liệu mới nhất từ bộ nhớ
+    const currentGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
     let html = '<option value="">Chọn nhóm hàng</option>';
 
+    // Hàm đệ quy để hiện nhóm đa cấp (có thụt lề cho đẹp)
     function renderSelectTree(parentId, prefix) {
-        const children = productGroups.filter(g => g.parentId === parentId);
+        const children = currentGroups.filter(g => g.parentId === parentId);
         children.forEach(child => {
             html += `<option value="${child.id}">${prefix}${child.name}</option>`;
-            renderSelectTree(child.id, prefix + '&nbsp;&nbsp;&nbsp;|_ '); 
+            renderSelectTree(child.id, prefix + '--- '); 
         });
     }
     renderSelectTree(null, '');
 
-    pmGroup.innerHTML = html;
-    parentGroup.innerHTML = html;
-
-    pmGroup.value = pmVal;
-    parentGroup.value = parentVal;
+    if (pmGroup) pmGroup.innerHTML = html;
+    if (parentGroup) parentGroup.innerHTML = html;
 }
 
 function openGroupModal(id = null) {
@@ -3110,22 +3114,26 @@ window.processBulkImport = function() {
     }
 };
 
-// Hàm hỗ trợ: Tự động khởi tạo Nhóm hàng đa cấp
 window.updateGroupsFromImport = function(importedProds) {
+    // 1. Lấy danh sách nhóm hiện tại từ bộ nhớ máy
     let groups = JSON.parse(localStorage.getItem('kv_groups')) || [];
     let isChanged = false;
 
+    // 2. Duyệt qua từng sản phẩm mới được dán vào
     importedProds.forEach(p => {
+        // Kiểm tra xem sản phẩm này có thông tin nhóm (dạng chữ) không
         if (p.group && p.group.trim() !== '') {
-            // Hỗ trợ bóc tách nhóm đa cấp nếu có ký tự ">>"
+            // Hỗ trợ bóc tách nhóm đa cấp (ví dụ: "Bánh kẹo >> Bánh quy")
             const groupPath = p.group.split('>>').map(g => g.trim());
             let currentParentId = null;
 
+            // Duyệt qua từng cấp của tên nhóm để tạo cấu trúc cây
             groupPath.forEach(gName => {
-                // Kiểm tra xem tên nhóm này ở cấp này đã tồn tại chưa
+                // Tìm xem nhóm có tên này và cùng cấp cha đã tồn tại chưa
                 let existingGroup = groups.find(g => g.name === gName && g.parentId === currentParentId);
                 
                 if (!existingGroup) {
+                    // Nếu chưa có, tạo mới ID và lưu vào danh sách nhóm hệ thống
                     const newGroupId = 'g_' + Date.now() + Math.floor(Math.random() * 1000);
                     existingGroup = {
                         id: newGroupId,
@@ -3135,18 +3143,36 @@ window.updateGroupsFromImport = function(importedProds) {
                     groups.push(existingGroup);
                     isChanged = true;
                 }
+                // Chuyển cấp cha xuống nhóm vừa tìm được/tạo được để xét cấp tiếp theo
                 currentParentId = existingGroup.id;
             });
             
-            // Thay thế tên nhóm dạng chữ bằng ID nhóm cuối cùng để máy hiểu
+            // QUAN TRỌNG: Gán lại ID nhóm cuối cùng cho sản phẩm (thay thế tên chữ)
+            // Điều này giúp bộ lọc Sidebar có thể khớp dữ liệu
             p.group = currentParentId;
+        } else {
+            // Nếu không có tên nhóm, để trống ID
+            p.group = '';
         }
     });
 
+    // 3. Nếu có nhóm mới được tạo, lưu lại và cập nhật giao diện
     if (isChanged) {
+        // Cập nhật biến toàn cục và LocalStorage
+        window.productGroups = groups;
         localStorage.setItem('kv_groups', JSON.stringify(groups));
-        if (typeof window.uploadToCloud === 'function') window.uploadToCloud('groups', groups);
-        if (typeof renderGroupData === 'function') renderGroupData();
+        
+        // Đồng bộ lên Firebase Cloud (nếu có mạng)
+        if (typeof window.uploadToCloud === 'function') {
+            window.uploadToCloud('groups', groups);
+        }
+
+        // Kích hoạt vẽ lại Sidebar và Modal để hiện danh sách nhóm mới
+        if (typeof window.renderGroupData === 'function') {
+            window.renderGroupData();
+        }
+        
+        console.log("✅ Đã tự động khởi tạo danh mục nhóm hàng mới từ Excel.");
     }
 };
 // Hàm vẽ giao diện nút phân trang dùng chung cho mọi Tab
@@ -4157,17 +4183,18 @@ window.renderICCreatorFilter = function() {
 };
 
 window.initApp = function() {
-    console.log("🚀 226 POS: Đang khởi tạo và đồng bộ dữ liệu Realtime...");
+    console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ dữ liệu...");
 
-    // 1. LẮNG NGHE FIREBASE (Giải quyết lỗi đồng bộ đa thiết bị)
+    // 1. THIẾT LẬP LẮNG NGHE DỮ LIỆU REALTIME TỪ FIREBASE
+    // Việc này đảm bảo khi máy khác thay đổi dữ liệu, máy của bạn sẽ cập nhật ngay lập tức
     if (window.fbDb && window.fbOnValue) {
         const syncPaths = [
             { 
                 path: 'products', 
                 storageKey: 'kv_products', 
                 renderFunc: () => { 
-                    // Cập nhật biến cục bộ và vẽ lại các tab liên quan đến hàng hóa
                     window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
+                    // Chỉ vẽ lại nếu người dùng đang ở tab/màn hình tương ứng
                     if (localStorage.getItem('kv_current_tab') === 'tab-danh-sach-hang') renderProductList(); 
                     if (localStorage.getItem('kv_current_tab') === 'tab-thiet-lap-gia') renderPriceSetupTable();
                     if (localStorage.getItem('kv_current_view') === 'pos-view') renderPOSCart();
@@ -4184,7 +4211,9 @@ window.initApp = function() {
                 path: 'groups', 
                 storageKey: 'kv_groups', 
                 renderFunc: () => { 
-                    if (typeof renderGroupData === 'function') renderGroupData(); 
+                    // Cập nhật biến toàn cục và vẽ lại toàn bộ giao diện nhóm hàng (Sidebar + Modal)
+                    window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+                    if (typeof window.renderGroupData === 'function') window.renderGroupData(); 
                 } 
             },
             { 
@@ -4193,42 +4222,62 @@ window.initApp = function() {
                 renderFunc: () => { 
                     if (localStorage.getItem('kv_current_tab') === 'tab-kiem-kho') renderInventoryChecks(); 
                 } 
+            },
+            { 
+                path: 'import_orders', 
+                storageKey: 'kv_import_orders', 
+                renderFunc: () => { 
+                    if (localStorage.getItem('kv_current_tab') === 'tab-nhap-hang') renderImportOrders(); 
+                } 
             }
         ];
 
         syncPaths.forEach(item => {
             window.fbOnValue(window.fbRef(window.fbDb, item.path), (snapshot) => {
                 const data = snapshot.val();
-                // Lọc bỏ các phần tử null nếu dữ liệu bị xóa trên Cloud
+                // Lọc bỏ giá trị null và chuyển đổi object thành array nếu cần
                 const dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data)) : [];
                 localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                 
-                // Ép vẽ lại giao diện ngay lập tức để người dùng thấy dữ liệu mới nhất
+                // Thực thi hàm vẽ lại giao diện tương ứng
                 item.renderFunc();
             });
         });
     }
 
-    // 2. KHÔI PHỤC GIAO DIỆN (Chống mất dữ liệu khi F5)
+    // 2. KHÔI PHỤC TRẠNG THÁI ĐĂNG NHẬP VÀ ĐIỀU HƯỚNG MÀN HÌNH
     const savedUser = localStorage.getItem('kv_current_user');
     const savedView = localStorage.getItem('kv_current_view');
     
     if (savedUser) {
         currentUser = JSON.parse(savedUser);
-        hideAll(); // Ẩn màn hình đăng nhập
+        hideAll(); // Ẩn màn hình đăng nhập mặc định
         
         if (savedView === 'pos-view') {
+            // Nếu trước khi F5 đang ở màn hình bán hàng
             document.getElementById('pos-view').style.display = 'flex';
-            initPOSData(); // Khởi tạo tab và đồng hồ cho màn hình bán hàng
+            initPOSData(); 
         } else {
+            // Nếu trước khi F5 đang ở màn hình quản lý (Dashboard)
             document.getElementById('dashboard-view').style.display = 'flex';
-            // Mở lại tab cuối cùng người dùng đang xem (Tổng quan, Hàng hóa,...)
-            openDashTab(localStorage.getItem('kv_current_tab') || 'tab-tong-quan');
+            
+            // Nạp lại dữ liệu nhóm hàng trước để các bộ lọc có dữ liệu
+            window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+            if (typeof window.renderGroupData === 'function') window.renderGroupData();
+
+            // Mở lại tab cuối cùng đang xem (Tổng quan, Hàng hóa, Hóa đơn...)
+            const lastTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
+            openDashTab(lastTab);
         }
     } else {
-        // Nếu chưa đăng nhập, luôn quay về màn hình Login
+        // Nếu chưa đăng nhập, luôn hiển thị màn hình Login
         hideAll();
         document.getElementById('login-view').style.display = 'flex';
+    }
+
+    // 3. KHỞI TẠO CÁC TIỆN ÍCH HỆ THỐNG
+    if (typeof window.initPrintStatusUI === 'function') {
+        window.initPrintStatusUI(); // Hiển thị nút trạng thái in F2 ở góc màn hình
     }
 };
 // ==========================================
