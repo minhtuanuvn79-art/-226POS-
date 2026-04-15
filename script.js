@@ -634,12 +634,13 @@ window.renderProductList = function() {
     const tbody = document.getElementById('import-table-body'); 
     if (!tbody) return;
     
-    // Lấy dữ liệu mới nhất từ bộ nhớ
+    // 1. Lấy dữ liệu mới nhất từ bộ nhớ
     const savedProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    const savedGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
     window.products = savedProducts;
     tbody.innerHTML = '';
 
-    // Lấy các giá trị lọc
+    // 2. Lấy các thông số lọc từ giao diện
     const searchInput = document.getElementById('search-product-manage');
     const keyword = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
@@ -649,20 +650,20 @@ window.renderProductList = function() {
     const stockFilter = document.getElementById('stock-filter');
     const stockVal = stockFilter ? stockFilter.value : 'all';
 
-    // 1. Logic lọc dữ liệu
+    // 3. Logic lọc dữ liệu
     const filtered = window.products.filter(p => {
-        // Lọc từ khóa
+        // Lọc theo từ khóa (Mã, Tên, Mã vạch)
         const matchKw = (p.name || '').toLowerCase().includes(keyword) || 
                         (p.code || '').toLowerCase().includes(keyword) ||
                         (p.barcode || '').toLowerCase().includes(keyword);
         
-        // Lọc Nhóm hàng
+        // Lọc theo Nhóm hàng
         let matchGroup = true;
         if (selectedGroupIds.length > 0) {
             matchGroup = selectedGroupIds.includes(p.group);
         }
 
-        // Lọc Tồn kho
+        // Lọc theo Tồn kho
         let matchStock = true;
         const stockLevel = parseFloat(p.stock) || 0;
 
@@ -681,29 +682,33 @@ window.renderProductList = function() {
         return matchKw && matchGroup && matchStock;
     });
 
-    // 2. Xử lý khi không có dữ liệu
+    // 4. Xử lý khi không có dữ liệu
     if (filtered.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 50px; color: #aaa;">Không tìm thấy hàng hóa phù hợp</td></tr>`;
         const paginationDiv = document.getElementById('product-pagination');
         if (paginationDiv) paginationDiv.innerHTML = '';
-        updateSelectedCount(); // Cập nhật lại nút xóa
+        if (typeof updateSelectedCount === 'function') updateSelectedCount(); 
         return;
     }
 
-    // 3. Logic phân trang
+    // 5. Logic phân trang
+    const productsPerPage = 100;
     const totalPages = Math.ceil(filtered.length / productsPerPage);
-    if (window.currentProductPage > totalPages) window.currentProductPage = totalPages;
+    if (window.currentProductPage > totalPages) window.currentProductPage = totalPages || 1;
     if (window.currentProductPage < 1) window.currentProductPage = 1;
 
     const startIndex = (window.currentProductPage - 1) * productsPerPage;
-    const endIndex = startIndex + productsPerPage;
-    const paginatedProducts = filtered.slice(startIndex, endIndex);
+    const paginatedProducts = filtered.slice(startIndex, startIndex + productsPerPage);
 
-    // 4. Vẽ dữ liệu ra bảng
-    paginatedProducts.forEach((p, index) => {
+    // 6. Vẽ dữ liệu ra bảng
+    paginatedProducts.forEach((p) => {
         const stockLevel = parseFloat(p.stock) || 0;
         const isLowStock = stockLevel <= 5;
         const stockStyle = isLowStock ? 'color: #d9534f; font-weight: bold;' : '';
+        
+        // Dò tìm tên nhóm từ ID
+        const groupObj = savedGroups.find(g => g.id === p.group);
+        const groupName = groupObj ? groupObj.name : '<span style="color:#ccc">Chưa phân nhóm</span>';
 
         tbody.innerHTML += `
             <tr style="cursor:pointer; transition: 0.2s;">
@@ -712,14 +717,17 @@ window.renderProductList = function() {
                 </td>
                 <td onclick="openEditProductModal('${p.id}')" style="color:var(--kv-blue); font-weight:bold;">${p.code || ''}</td>
                 <td onclick="openEditProductModal('${p.id}')" style="color:#555;">${p.barcode || '---'}</td>
-                <td onclick="openEditProductModal('${p.id}')" style="font-weight: 500;">${p.name || ''}</td>
+                <td onclick="openEditProductModal('${p.id}')">
+                    <div style="font-weight: 500;">${p.name || ''}</div>
+                    <div style="font-size: 11px; color: #888;"><i class="fa-solid fa-tag"></i> ${groupName}</div>
+                </td>
                 <td onclick="openEditProductModal('${p.id}')" style="text-align: right; color: var(--kv-pink); font-weight: bold;">${(p.price || 0).toLocaleString('vi-VN')}</td>
                 <td onclick="openEditProductModal('${p.id}')" style="text-align: right; color: #555;">${(p.cost || 0).toLocaleString('vi-VN')}</td>
                 <td onclick="openEditProductModal('${p.id}')" style="text-align: center; ${stockStyle}">
                     ${stockLevel} ${isLowStock ? '<i class="fa-solid fa-triangle-exclamation" title="Sắp hết hàng"></i>' : ''}
                 </td>
                 <td style="text-align: center;">
-                    <button onclick="deleteProduct('${p.id}', '${p.name}')" style="background:none; border:none; color:#d9534f; cursor:pointer; padding:5px;">
+                    <button onclick="deleteProduct('${p.id}', '${p.name.replace(/'/g, "\\'")}')" style="background:none; border:none; color:#d9534f; cursor:pointer; padding:5px;">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </td>
@@ -727,11 +735,12 @@ window.renderProductList = function() {
         `;
     });
 
-    // 5. Cập nhật phân trang và nút xóa hàng loạt
-    window.renderPaginationControls('product-pagination', window.currentProductPage, totalPages, 'changeProductPage');
+    // 7. Cập nhật phân trang và nút chức năng
+    if (typeof window.renderPaginationControls === 'function') {
+        window.renderPaginationControls('product-pagination', window.currentProductPage, totalPages, 'changeProductPage');
+    }
     
-    // Quan trọng: Kiểm tra lại trạng thái các Checkbox và nút Xóa hàng loạt
-    updateSelectedCount();
+    if (typeof updateSelectedCount === 'function') updateSelectedCount();
 };
 
 // 3. Hàm tạo các nút bấm trang (Dán ngay dưới hàm renderProductList)
@@ -3040,17 +3049,9 @@ window.processBulkImport = function() {
         return;
     }
 
-    // Tách văn bản thành các dòng
     const lines = rawText.split('\n').filter(line => line.trim() !== '');
-    if (lines.length < 2) {
-        alert("Dữ liệu quá ngắn. Vui lòng copy bao gồm cả dòng tiêu đề và ít nhất 1 dòng dữ liệu.");
-        return;
-    }
-
-    // Phân tích tiêu đề (dòng đầu tiên) phân cách bởi phím Tab (\t)
     const headers = lines[0].split('\t').map(h => h.trim().toLowerCase());
     
-    // Tìm index của các cột dựa trên từ khóa (Rất linh hoạt, không sợ sai thứ tự cột)
     const colMap = {
         code: headers.findIndex(h => h.includes('mã hàng')),
         barcode: headers.findIndex(h => h.includes('mã vạch')),
@@ -3062,66 +3063,50 @@ window.processBulkImport = function() {
     };
 
     if (colMap.name === -1) {
-        alert("Không tìm thấy cột 'Tên hàng' trong tiêu đề. Vui lòng kiểm tra lại dữ liệu copy!");
+        alert("Không tìm thấy cột 'Tên hàng'!");
         return;
     }
 
-    let importCount = 0;
-    const newProducts = [];
-
-    // Hàm tiện ích: Làm sạch số tiền (biến "8,000" hoặc "8.000" thành 8000)
+    let newProducts = [];
     const parseExcelNumber = (val) => {
         if (!val) return 0;
         return parseFloat(val.toString().replace(/,/g, '').replace(/\./g, '').trim()) || 0;
     };
 
-    // Duyệt qua từng dòng dữ liệu (từ dòng 2 trở đi)
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split('\t');
-        if (cols.length < headers.length - 2) continue; // Bỏ qua dòng rác hoặc thiếu cột
-
-        const name = colMap.name !== -1 ? cols[colMap.name]?.trim() : '';
-        if (!name) continue; // Tên hàng là bắt buộc
+        const name = cols[colMap.name]?.trim();
+        if (!name) continue;
 
         const basePrice = colMap.price !== -1 ? parseExcelNumber(cols[colMap.price]) : 0;
-        const baseCost = colMap.cost !== -1 ? parseExcelNumber(cols[colMap.cost]) : 0;
 
-        const newProd = {
+        newProducts.push({
             id: 'ID' + Date.now() + i,
             code: colMap.code !== -1 && cols[colMap.code] ? cols[colMap.code].trim() : ('HH' + Date.now() + i),
             barcode: colMap.barcode !== -1 ? cols[colMap.barcode]?.trim() : '',
             name: name,
             price: basePrice,
-            cost: baseCost,
+            cost: colMap.cost !== -1 ? parseExcelNumber(cols[colMap.cost]) : 0,
             stock: colMap.stock !== -1 ? parseExcelNumber(cols[colMap.stock]) : 0,
-            group: colMap.group !== -1 ? cols[colMap.group]?.trim() : '', 
+            group: colMap.group !== -1 ? cols[colMap.group]?.trim() : '', // Lưu tạm tên nhóm dạng chữ
             sellDirect: true,
             units: [{ name: 'Cái', rate: 1, isBase: true, price: basePrice }]
-        };
-
-        newProducts.push(newProd);
-        importCount++;
+        });
     }
 
-    if (importCount > 0) {
-        // Cập nhật và tạo nhóm hàng tự động nếu có ký tự >>
-        updateGroupsFromImport(newProducts);
+    if (newProducts.length > 0) {
+        // --- BƯỚC QUAN TRỌNG NHẤT: Tạo nhóm và lấy ID nhóm thay cho tên chữ ---
+        updateGroupsFromImport(newProducts); 
 
-        // Lấy danh sách hàng hóa hiện tại, gộp với danh sách mới
-        window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
-        window.products = [...window.products, ...newProducts];
+        let currentProds = JSON.parse(localStorage.getItem('kv_products')) || [];
+        window.products = [...currentProds, ...newProducts];
         
-        // Lưu trữ
         localStorage.setItem('kv_products', JSON.stringify(window.products));
-        if (typeof window.uploadToCloud === 'function') {
-            window.uploadToCloud('products', window.products);
-        }
+        if (typeof window.uploadToCloud === 'function') window.uploadToCloud('products', window.products);
 
-        alert(`Tuyệt vời! Đã tạo thành công ${importCount} hàng hóa mới.`);
+        alert(`Đã tạo thành công ${newProducts.length} hàng hóa và cập nhật danh mục nhóm!`);
         closeBulkImportModal();
-        if (typeof renderProductList === 'function') renderProductList();
-    } else {
-        alert("Không nhận diện được dữ liệu hợp lệ. Đảm bảo bạn copy từ Excel đúng định dạng.");
+        renderProductList();
     }
 };
 
@@ -3132,30 +3117,29 @@ window.updateGroupsFromImport = function(importedProds) {
 
     importedProds.forEach(p => {
         if (p.group && p.group.trim() !== '') {
-            // Tách các cấp nhóm dựa vào ký tự >> (Giống cách xuất của KiotViet)
+            // Hỗ trợ bóc tách nhóm đa cấp nếu có ký tự ">>"
             const groupPath = p.group.split('>>').map(g => g.trim());
             let currentParentId = null;
 
             groupPath.forEach(gName => {
-                // Kiểm tra xem nhánh này đã tồn tại chưa
+                // Kiểm tra xem tên nhóm này ở cấp này đã tồn tại chưa
                 let existingGroup = groups.find(g => g.name === gName && g.parentId === currentParentId);
                 
                 if (!existingGroup) {
-                    const newGroup = {
-                        id: 'g_' + Date.now() + Math.floor(Math.random() * 10000),
+                    const newGroupId = 'g_' + Date.now() + Math.floor(Math.random() * 1000);
+                    existingGroup = {
+                        id: newGroupId,
                         name: gName,
                         parentId: currentParentId
                     };
-                    groups.push(newGroup);
-                    currentParentId = newGroup.id;
+                    groups.push(existingGroup);
                     isChanged = true;
-                } else {
-                    currentParentId = existingGroup.id;
                 }
+                currentParentId = existingGroup.id;
             });
             
-            // Cập nhật ID nhóm cuối cùng vào sản phẩm
-            p.group = currentParentId; 
+            // Thay thế tên nhóm dạng chữ bằng ID nhóm cuối cùng để máy hiểu
+            p.group = currentParentId;
         }
     });
 
