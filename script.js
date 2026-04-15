@@ -26,14 +26,15 @@ let editingUnitIndex = null;
 let tempPriceBookValues = {};
 // Hàm tự động thêm dấu chấm khi gõ
 window.formatCurrency = function(input) {
-    let value = input.value.replace(/\D/g, ''); // Xóa ký tự không phải số
+    let value = input.value.replace(/\D/g, ''); 
     if (value === '') {
-        input.value = '';
+        input.value = '0';
         return;
     }
     input.value = parseInt(value, 10).toLocaleString('vi-VN');
 };
 
+// Quy đổi từ chuỗi "1.000" sang số 1000 để tính toán chính xác
 window.parseCurrency = function(formattedString) {
     if (!formattedString) return 0;
     return parseFloat(formattedString.toString().replace(/\./g, '')) || 0;
@@ -205,15 +206,17 @@ function createAccount() {
     switchAdminTab('list');
 }
 
-function deleteAccount(username) {
-    if(username === 'admin') { alert("Không thể xóa Admin gốc!"); return; }
-    if(confirm(`Xóa tài khoản: ${username}?`)) {
+window.deleteAccount = function(username) {
+    if(username === 'admin') { alert("Không thể xóa tài khoản Quản trị hệ thống!"); return; }
+    
+    showConfirm(`Xóa nhân viên: ${username}?`, function() {
         accounts = accounts.filter(acc => acc.username !== username);
         localStorage.setItem('kv_accounts', JSON.stringify(accounts));
-        window.uploadToCloud('accounts', accounts);
+        
+        if (window.uploadToCloud) window.uploadToCloud('accounts', accounts);
         renderAccountList();
-    }
-}
+    });
+};
 
 let userEditing = null;
 function openEditModal(username) {
@@ -1538,7 +1541,6 @@ function renderICItemsTable() {
     document.getElementById('ic-total-actual-qty').innerText = sumActual;
 }
 
-// LƯU PHIẾU KIỂM KHO (Đã sửa lỗi nhân bản phiếu)
 window.saveInventoryCheck = function(action) {
     if (currentICItems.length === 0) { 
         alert("Vui lòng thêm hàng để kiểm!"); 
@@ -1548,7 +1550,7 @@ window.saveInventoryCheck = function(action) {
     const icCode = document.getElementById('ic-code').value || ("KK" + Date.now().toString().slice(-6));
     
     const icData = {
-        id: editingICId || Date.now(), // Nếu đang sửa thì giữ nguyên ID cũ, nếu mới thì tạo ID mới
+        id: editingICId || Date.now(), // Ưu tiên dùng ID cũ nếu đang sửa
         code: icCode,
         creator: currentUser.fullname,
         status: action,
@@ -1557,23 +1559,18 @@ window.saveInventoryCheck = function(action) {
     };
 
     if (editingICId) {
-        // TRƯỜNG HỢP SỬA: Tìm vị trí phiếu cũ và thay thế bằng dữ liệu mới
         const idx = inventoryChecks.findIndex(x => x.id === editingICId);
-        if (idx !== -1) {
-            inventoryChecks[idx] = icData;
-        }
+        if (idx !== -1) inventoryChecks[idx] = icData;
     } else {
-        // TRƯỜNG HỢP TẠO MỚI: Thêm vào đầu danh sách
         inventoryChecks.unshift(icData);
     }
 
-    // Nếu chọn "Hoàn thành": Cập nhật số lượng tồn kho thực tế vào danh mục hàng hóa
+    // Nếu hoàn thành, cập nhật tồn kho vào danh mục sản phẩm
     if (action === 'done') {
-        const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+        let latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
         currentICItems.forEach(item => {
             const prod = latestProducts.find(p => p.id === item.productId);
             if (prod) {
-                // Cập nhật tồn kho dựa trên đơn vị tính đã chọn trong phiếu kiểm
                 const rate = item.units[item.selectedUnitIdx]?.rate || 1;
                 prod.stock = item.realQty * rate; 
             }
@@ -1582,16 +1579,12 @@ window.saveInventoryCheck = function(action) {
         if (window.uploadToCloud) window.uploadToCloud('products', latestProducts);
     }
 
-    // Lưu lại danh sách phiếu kiểm và đồng bộ
     localStorage.setItem('kv_inventory_checks', JSON.stringify(inventoryChecks));
     if (window.uploadToCloud) window.uploadToCloud('inventory_checks', inventoryChecks);
 
-    // Reset biến tạm và đóng giao diện
-    editingICId = null;
-    currentICItems = [];
+    editingICId = null; 
     closeCreateCheckView();
     renderInventoryChecks();
-    
     alert(action === 'done' ? "Cân bằng kho thành công!" : "Đã lưu phiếu tạm.");
 };
 
@@ -2203,11 +2196,22 @@ function addIOToList(productId) {
     renderIOItemsTable();
 }
 
-// Xóa 1 dòng theo vị trí Index (Chính xác tuyệt đối)
-function removeIOItem(index) {
+window.removeIOItem = function(index) {
+    // Xóa phần tử theo vị trí index
     currentIOItems.splice(index, 1);
+    
+    // Vẽ lại bảng để cập nhật lại STT và các ID dòng
     renderIOItemsTable();
-}
+    
+    // Nếu danh sách trống, reset các ô tổng về 0
+    if (currentIOItems.length === 0) {
+        document.getElementById('io-total-qty').innerText = '0';
+        const totalAmountEl = document.getElementById('io-total-amount');
+        totalAmountEl.innerText = '0';
+        totalAmountEl.dataset.val = '0';
+        calculateIOTotals();
+    }
+};
 
 // Đổi đơn vị tính theo Index
 function changeIOUnit(index, unitIdx) {
@@ -2221,30 +2225,34 @@ function changeIOUnit(index, unitIdx) {
 }
 
 // HÀM MỚI: Cập nhật số liệu tức thời KHÔNG vẽ lại toàn bộ bảng
-function updateIOItemState(index, field, value) {
+window.updateIOItemState = function(index, field, value) {
     const item = currentIOItems[index];
     if (item) {
+        // Chuyển đổi giá trị nhập vào thành số
         item[field] = parseFloat(value) || 0;
         
-        // 1. Chỉ cập nhật lại Cột Thành Tiền của đúng dòng đó
-        const rowTotal = item.qty * (item.cost - item.discount);
+        // 1. Cập nhật cột Thành Tiền của dòng hiện tại
+        const rowTotal = item.qty * (item.cost - (item.discount || 0));
         const rowTotalEl = document.getElementById(`io-row-total-${index}`);
-        if (rowTotalEl) rowTotalEl.innerText = rowTotal.toLocaleString();
+        if (rowTotalEl) rowTotalEl.innerText = rowTotal.toLocaleString('vi-VN');
         
-        // 2. Tính toán và cập nhật Tổng Tiền Phía Dưới
+        // 2. Tính toán lại tổng số lượng và tổng tiền hàng
         let totalQty = 0;
         let totalAmount = 0;
         currentIOItems.forEach(i => {
             totalQty += i.qty;
-            totalAmount += i.qty * (i.cost - i.discount);
+            totalAmount += i.qty * (i.cost - (i.discount || 0));
         });
         
+        // Cập nhật lên giao diện
         document.getElementById('io-total-qty').innerText = totalQty;
-        document.getElementById('io-total-amount').innerText = totalAmount.toLocaleString();
-        document.getElementById('io-total-amount').dataset.val = totalAmount; 
+        const totalAmountEl = document.getElementById('io-total-amount');
+        totalAmountEl.innerText = totalAmount.toLocaleString('vi-VN');
+        totalAmountEl.dataset.val = totalAmount; // Lưu giá trị số để calculateIOTotals dùng
+        
         calculateIOTotals();
     }
-}
+};
 
 // Cải tiến hàm vẽ bảng: Gắn ID cho dòng và dùng sự kiện oninput
 function renderIOItemsTable() {
@@ -2517,14 +2525,12 @@ document.getElementById('pos-search-input').addEventListener('keydown', function
 });
 
 function getProductPrice(productObj, priceBookId) {
-    // Ép kiểu chuỗi để tránh lỗi ID lúc là số, lúc là chữ
     if (!priceBookId || String(priceBookId) === 'default') return productObj.price || 0;
     
     const latestPBs = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
-    
-    // Tìm bảng giá với ID trùng khớp (Đã ép kiểu String an toàn tuyệt đối)
     const pb = latestPBs.find(x => String(x.id) === String(priceBookId));
     
+    // Nếu bảng giá có thiết lập giá riêng cho ID sản phẩm này thì lấy, không thì lấy giá gốc
     if (pb && pb.prices && pb.prices[productObj.id] !== undefined) {
         return pb.prices[productObj.id];
     }
@@ -2848,96 +2854,7 @@ function showShortcutModal() {
     document.getElementById('shortcut-modal').style.display = 'flex';
 }
 
-window.initApp = function() {
-    console.log("🏁 226 POS: Đang khởi tạo ứng dụng...");
-    
-    // 1. Khởi tạo cấu trúc nhóm hàng nếu chưa có
-    if (typeof initGroups === 'function') {
-        initGroups();
-    }
 
-    // 2. Khôi phục trạng thái đăng nhập từ LocalStorage
-    const savedUser = localStorage.getItem('kv_current_user');
-    const savedView = localStorage.getItem('kv_current_view');
-    
-    if (savedUser) {
-        currentUser = JSON.parse(savedUser);
-        hideAll();
-        
-        // Điều hướng về màn hình người dùng đang dùng dở trước khi F5
-        if (savedView === 'pos-view') {
-            document.getElementById('pos-view').style.display = 'flex';
-            initPOSData();
-        } else {
-            document.getElementById('dashboard-view').style.display = 'flex';
-            const savedTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
-            openDashTab(savedTab);
-        }
-    } else {
-        // Nếu chưa đăng nhập, trả về màn hình login
-        hideAll();
-        document.getElementById('login-view').style.display = 'flex';
-    }
-
-    // 3. THIẾT LẬP ĐỒNG BỘ REALTIME TỪ FIREBASE (Giải quyết lỗi đa thiết bị)
-    if (window.fbDb && window.fbOnValue) {
-        // Danh sách các bảng dữ liệu cần theo dõi biến động từ Cloud
-        const syncPaths = [
-            { 
-                path: 'products', 
-                storageKey: 'kv_products', 
-                renderFunc: () => { if (localStorage.getItem('kv_current_tab') === 'tab-danh-sach-hang') renderProductList(); } 
-            },
-            { 
-                path: 'invoices', 
-                storageKey: 'kv_invoices', 
-                renderFunc: () => { 
-                    if (localStorage.getItem('kv_current_tab') === 'tab-hoa-don') renderInvoices(); 
-                    if (localStorage.getItem('kv_current_tab') === 'tab-tong-quan') window.renderDashboard(); 
-                } 
-            },
-            { 
-                path: 'import_orders', 
-                storageKey: 'kv_import_orders', 
-                renderFunc: () => { if (localStorage.getItem('kv_current_tab') === 'tab-nhap-hang') renderImportOrders(); } 
-            },
-            { 
-                path: 'inventory_checks', 
-                storageKey: 'kv_inventory_checks', 
-                renderFunc: () => { if (localStorage.getItem('kv_current_tab') === 'tab-kiem-kho') renderInventoryChecks(); } 
-            },
-            { 
-                path: 'groups', 
-                storageKey: 'kv_groups', 
-                renderFunc: () => { if (typeof renderGroupData === 'function') renderGroupData(); } 
-            },
-            { path: 'pricebooks', storageKey: 'kv_pricebooks', renderFunc: () => {} },
-            { path: 'accounts', storageKey: 'kv_accounts', renderFunc: () => {} }
-        ];
-
-        // Lắng nghe sự thay đổi của từng bảng dữ liệu trên Firebase
-        syncPaths.forEach(item => {
-            window.fbOnValue(window.fbRef(window.fbDb, item.path), (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    // Cập nhật dữ liệu mới nhất vào LocalStorage để các hàm khác sử dụng
-                    const dataArray = Array.isArray(data) ? data.filter(Boolean) : Object.values(data);
-                    localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
-                    
-                    // Thực thi hàm vẽ lại giao diện (nếu đang ở đúng tab đó)
-                    item.renderFunc();
-                }
-            });
-        });
-    }
-
-    // 4. Tự động cập nhật bộ lọc nhân viên (Cần thiết cho Quản lý & Bán hàng)
-    setTimeout(() => {
-        if (typeof window.renderICCreatorFilter === 'function') window.renderICCreatorFilter();
-        if (typeof window.renderInvCreatorFilter === 'function') window.renderInvCreatorFilter();
-        if (typeof window.renderImpCreatorFilter === 'function') window.renderImpCreatorFilter();
-    }, 1000);
-};
 // ==========================================
 // TÍNH NĂNG BỘ LỌC TỒN KHO (TAB THIẾT LẬP GIÁ)
 // ==========================================
@@ -3065,22 +2982,16 @@ function syncAccountsToFirebase() {
     }
 }
 window.uploadToCloud = function(path, data) {
-    // Kiểm tra xem có internet không trước khi ghi
     if (!navigator.onLine) {
-        alert("Máy đang ngoại tuyến! Dữ liệu xóa sẽ không được đồng bộ về nhà.");
+        showToast("Máy mất mạng! Dữ liệu không thể đồng bộ về nhà.", "error");
         return;
     }
 
-    set(ref(db, path), data)
-        .then(() => {
-            console.log(`✅ Đồng bộ [${path}] thành công.`);
-            // Thông báo nhỏ để bạn yên tâm trước khi tắt máy về nhà
-            if(typeof showToast === 'function') showToast("Dữ liệu đã được đồng bộ lên Cloud", "success");
-        })
-        .catch((error) => {
-            console.error(`❌ Lỗi Firebase:`, error);
-            alert("Cảnh báo: Không thể xóa dữ liệu trên Cloud. Vui lòng kiểm tra lại mạng!");
-        });
+    if (window.fbSet && window.fbDb) {
+        window.fbSet(window.fbRef(window.fbDb, path), data)
+            .then(() => showToast(`Đã đồng bộ ${path} lên Cloud thành công`, "success"))
+            .catch((err) => showToast("Lỗi Firebase: " + err.message, "error"));
+    }
 };
 
 // Áp dụng cho Tài khoản: Tìm hàm saveAccount() của bạn và thêm dòng này vào cuối
@@ -3094,16 +3005,18 @@ function saveAccount() {
 
 
 window.deleteProduct = function(productId, productName) {
-    showConfirm(`Bạn có chắc chắn muốn xóa hàng hóa:\n**${productName}**?\nLưu ý: Hành động này không thể hoàn tác.`, function() {
-        window.products = window.products.filter(p => p.id !== productId);
-        localStorage.setItem('kv_products', JSON.stringify(window.products));
+    showConfirm(`Bạn có chắc muốn xóa vĩnh viễn hàng hóa: <b>${productName}</b>?`, function() {
+        // Lọc bỏ sản phẩm khỏi mảng hiện tại
+        products = products.filter(p => p.id !== productId);
+        localStorage.setItem('kv_products', JSON.stringify(products));
         
+        // Đồng bộ lên Firebase ngay lập tức
         if (typeof window.uploadToCloud === 'function') {
-            window.uploadToCloud('products', window.products);
+            window.uploadToCloud('products', products);
         }
         
-        showToast("Đã xóa hàng hóa thành công!", "success");
-        renderProductList();
+        showToast("Đã xóa hàng hóa thành công", "success");
+        renderProductList(); // Vẽ lại bảng danh sách hàng
     });
 };
 // File kết thúc tại đây, không có thêm dấu ngoặc nào bên dưới
@@ -3950,39 +3863,42 @@ window.switchToDashboard = function() {
 // ==========================================
 
 window.deleteInvoice = function(invoiceId) {
-    showConfirm(`Bạn có chắc chắn muốn HỦY hóa đơn ${invoiceId}?\n(Hàng hóa trong hóa đơn này sẽ được cộng trả lại vào kho)`, function() {
+    showConfirm(`Bạn có muốn HỦY hóa đơn ${invoiceId}? Hàng sẽ được trả lại kho.`, function() {
         let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
         let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
-        const invoiceIndex = allInvoices.findIndex(inv => inv.id === invoiceId);
-        if (invoiceIndex === -1) { showToast("Không tìm thấy hóa đơn này!", "error"); return; }
+        const invIdx = allInvoices.findIndex(inv => inv.id === invoiceId);
+        if (invIdx === -1) return;
 
-        const invoiceToCancel = allInvoices[invoiceIndex];
-        if (invoiceToCancel.status === 'cancel') { showToast("Hóa đơn này đã được hủy trước đó!", "error"); return; }
-
-        allInvoices[invoiceIndex].status = 'cancel';
-
-        // Hoàn trả tồn kho
-        if (invoiceToCancel.items && invoiceToCancel.items.length > 0) {
-            invoiceToCancel.items.forEach(soldItem => {
-                const prodIndex = allProducts.findIndex(p => p.id === soldItem.productId);
-                if (prodIndex !== -1) {
-                    const rate = soldItem.units && soldItem.units[soldItem.selectedUnitIdx] ? soldItem.units[soldItem.selectedUnitIdx].rate : 1;
-                    allProducts[prodIndex].stock += (soldItem.qty * rate);
-                }
-            });
+        const inv = allInvoices[invIdx];
+        if (inv.status === 'cancel') { 
+            showToast("Hóa đơn này đã hủy rồi!", "warning"); 
+            return; 
         }
 
+        // Logic Hoàn Kho: Duyệt từng món trong hóa đơn để cộng lại vào kho
+        inv.items.forEach(item => {
+            const pIdx = allProducts.findIndex(p => p.id === item.productId);
+            if (pIdx !== -1) {
+                // Tính toán tỷ lệ đơn vị tính (nếu có)
+                const rate = item.units && item.units[item.selectedUnitIdx] ? item.units[item.selectedUnitIdx].rate : 1;
+                allProducts[pIdx].stock += (item.qty * rate);
+            }
+        });
+
+        allInvoices[invIdx].status = 'cancel';
+
+        // Lưu dữ liệu mới
         localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
         localStorage.setItem('kv_products', JSON.stringify(allProducts));
-        if (typeof window.uploadToCloud === 'function') {
+        
+        if (window.uploadToCloud) {
             window.uploadToCloud('invoices', allInvoices);
             window.uploadToCloud('products', allProducts);
         }
 
-        showToast("Đã hủy hóa đơn và hoàn trả hàng vào kho thành công!", "success");
-        if (typeof window.renderInvoices === 'function') window.renderInvoices();
-        if (typeof window.renderProductList === 'function') window.renderProductList();
+        showToast("Đã hủy hóa đơn và hoàn kho!", "success");
+        renderInvoices();
     });
 };
 // ==========================================
@@ -4256,13 +4172,81 @@ window.renderICCreatorFilter = function() {
     }
 };
 
-// Đảm bảo hệ thống nạp lại danh sách mỗi khi có thay đổi dữ liệu từ Firebase
-const originalInitApp = window.initApp;
 window.initApp = function() {
-    if (typeof originalInitApp === 'function') originalInitApp();
-    setTimeout(window.renderICCreatorFilter, 1000); // Nạp trễ 1s để đợi Firebase tải xong
-};
+    console.log("🚀 226 POS: Đang khởi tạo và đồng bộ dữ liệu Realtime...");
 
+    // 1. LẮNG NGHE FIREBASE (Giải quyết lỗi đồng bộ đa thiết bị)
+    if (window.fbDb && window.fbOnValue) {
+        const syncPaths = [
+            { 
+                path: 'products', 
+                storageKey: 'kv_products', 
+                renderFunc: () => { 
+                    // Cập nhật biến cục bộ và vẽ lại các tab liên quan đến hàng hóa
+                    window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
+                    if (localStorage.getItem('kv_current_tab') === 'tab-danh-sach-hang') renderProductList(); 
+                    if (localStorage.getItem('kv_current_tab') === 'tab-thiet-lap-gia') renderPriceSetupTable();
+                    if (localStorage.getItem('kv_current_view') === 'pos-view') renderPOSCart();
+                } 
+            },
+            { 
+                path: 'invoices', 
+                storageKey: 'kv_invoices', 
+                renderFunc: () => { 
+                    if (localStorage.getItem('kv_current_tab') === 'tab-hoa-don') renderInvoices(); 
+                } 
+            },
+            { 
+                path: 'groups', 
+                storageKey: 'kv_groups', 
+                renderFunc: () => { 
+                    if (typeof renderGroupData === 'function') renderGroupData(); 
+                } 
+            },
+            { 
+                path: 'inventory_checks', 
+                storageKey: 'kv_inventory_checks', 
+                renderFunc: () => { 
+                    if (localStorage.getItem('kv_current_tab') === 'tab-kiem-kho') renderInventoryChecks(); 
+                } 
+            }
+        ];
+
+        syncPaths.forEach(item => {
+            window.fbOnValue(window.fbRef(window.fbDb, item.path), (snapshot) => {
+                const data = snapshot.val();
+                // Lọc bỏ các phần tử null nếu dữ liệu bị xóa trên Cloud
+                const dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data)) : [];
+                localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
+                
+                // Ép vẽ lại giao diện ngay lập tức để người dùng thấy dữ liệu mới nhất
+                item.renderFunc();
+            });
+        });
+    }
+
+    // 2. KHÔI PHỤC GIAO DIỆN (Chống mất dữ liệu khi F5)
+    const savedUser = localStorage.getItem('kv_current_user');
+    const savedView = localStorage.getItem('kv_current_view');
+    
+    if (savedUser) {
+        currentUser = JSON.parse(savedUser);
+        hideAll(); // Ẩn màn hình đăng nhập
+        
+        if (savedView === 'pos-view') {
+            document.getElementById('pos-view').style.display = 'flex';
+            initPOSData(); // Khởi tạo tab và đồng hồ cho màn hình bán hàng
+        } else {
+            document.getElementById('dashboard-view').style.display = 'flex';
+            // Mở lại tab cuối cùng người dùng đang xem (Tổng quan, Hàng hóa,...)
+            openDashTab(localStorage.getItem('kv_current_tab') || 'tab-tong-quan');
+        }
+    } else {
+        // Nếu chưa đăng nhập, luôn quay về màn hình Login
+        hideAll();
+        document.getElementById('login-view').style.display = 'flex';
+    }
+};
 // ==========================================
 // TÍNH NĂNG XUẤT FILE EXCEL HÀNG HÓA
 // ==========================================
@@ -4839,22 +4823,20 @@ window.bulkDeleteProducts = function() {
     
     if (idsToDelete.length === 0) return;
 
-    showConfirm(`Xóa ${idsToDelete.length} hàng hóa?`, function() {
-        // 1. Lấy dữ liệu mới nhất từ LocalStorage để tránh ghi đè dữ liệu cũ
+    showConfirm(`Bạn muốn xóa ${idsToDelete.length} hàng hóa đã chọn?`, function() {
+        // Lấy dữ liệu mới nhất từ bộ nhớ máy
         let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
         
-        // 2. Lọc bỏ
+        // Lọc bỏ những mã đã chọn
         const updatedProducts = allProducts.filter(p => !idsToDelete.includes(p.id));
         
-        // 3. Cập nhật local
+        // Cập nhật LocalStorage và Cloud cùng lúc
         localStorage.setItem('kv_products', JSON.stringify(updatedProducts));
         window.products = updatedProducts;
-
-        // 4. Đẩy lên Cloud (Quan trọng: Đợi phản hồi từ Firebase)
+        
         window.uploadToCloud('products', updatedProducts);
         
-        // 5. Vẽ lại giao diện
         renderProductList();
-        updateSelectedCount();
+        updateSelectedCount(); // Ẩn nút xóa hàng loạt
     });
 };

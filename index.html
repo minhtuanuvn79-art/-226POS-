@@ -1346,19 +1346,19 @@
     };
 
     // 6. Xử lý logic khởi chạy ứng dụng sau khi trang nạp xong hoàn toàn
-    window.onload = function() {
-        console.log("🚀 Hệ thống đồng bộ Firebase đã sẵn sàng!");
-        
-        // Kiểm tra nếu hàm initApp trong script.js đã tồn tại thì mới chạy
-        if (typeof window.initApp === 'function') {
-            window.initApp(); 
-        } else {
-            // Trường hợp file script.js nạp chậm, đợi thêm 300ms
-            setTimeout(() => {
-                if (typeof window.initApp === 'function') window.initApp();
-            }, 300);
-        }
-    };
+    // Thay thế đoạn window.onload cũ trong index.html
+// Trong file index.html (đoạn thẻ script module)
+window.onload = function() {
+    console.log("🚀 226 POS sẵn sàng...");
+    // Đảm bảo các biến Global từ script.js đã được nạp
+    if (typeof window.initApp === 'function') {
+        window.initApp(); 
+    }
+    // Khởi tạo trạng thái in F2
+    if (typeof window.initPrintStatusUI === 'function') {
+        window.initPrintStatusUI();
+    }
+};
 </script>
 
 <script src="script.js"></script>
