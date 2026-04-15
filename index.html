@@ -194,7 +194,50 @@
 
             <div id="tab-danh-sach-hang" class="tab-section">
     <div class="list-layout">
-        <div class="list-sidebar">...</div> 
+        <div class="list-sidebar">
+    <div class="filter-block">
+        <div class="filter-title" style="display: flex; justify-content: space-between; align-items: center;">
+            Nhóm hàng 
+            <span style="color: var(--kv-pink); cursor: pointer; font-size: 12px; font-weight: normal;" onclick="openGroupModal()">
+                <i class="fa-solid fa-plus"></i> Tạo mới
+            </span>
+        </div>
+        
+        <div id="group-dropdown-trigger" onclick="toggleGroupDropdown()" style="display: flex; justify-content: space-between; align-items: center; border: 1px solid #ddd; padding: 8px 10px; border-radius: 4px; cursor: pointer; background: white; font-size: 13px;">
+            <span id="group-filter-display" style="color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">Tất cả nhóm hàng</span>
+            <i class="fa-solid fa-chevron-down" style="color: #888;"></i>
+        </div>
+
+        <div id="group-filter-dropdown" style="display: none; position: absolute; width: 220px; background: white; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); z-index: 100; margin-top: 5px;">
+            <div style="padding: 10px; border-bottom: 1px solid #eee;">
+                <input type="text" id="search-group-filter" placeholder="Tìm nhanh nhóm..." oninput="filterGroupTree()" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
+            </div>
+            <div id="sidebar-group-list" style="max-height: 250px; overflow-y: auto; padding: 5px;"></div>
+            <div style="padding: 10px; border-top: 1px solid #eee; display: flex; justify-content: space-between; background: #fafafa;">
+                <span onclick="selectAllGroups()" style="color: var(--kv-blue); font-size: 12px; cursor: pointer;">Chọn hết</span>
+                <button onclick="applyGroupFilter()" style="background: var(--kv-blue); color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;">Áp dụng</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="filter-block">
+        <div class="filter-title">Tồn kho</div>
+        <select id="stock-filter" class="filter-select" onchange="handleStockFilterChange()">
+            <option value="all">Tất cả</option>
+            <option value="below_min">Dưới định mức tồn (≤ 5)</option>
+            <option value="above_max">Vượt định mức tồn (> 100)</option>
+            <option value="in_stock">Còn hàng trong kho</option>
+            <option value="out_of_stock">Hết hàng</option>
+            <option value="custom">Tùy chỉnh số lượng</option>
+        </select>
+        
+        <div id="custom-stock-range" style="display: none; margin-top: 10px; gap: 5px; align-items: center;">
+            <input type="number" id="stock-min" placeholder="Từ" style="width: 45%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
+            <span>-</span>
+            <input type="number" id="stock-max" placeholder="Đến" style="width: 45%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
+        </div>
+    </div>
+</div>
 
         <div class="list-main">
             <div class="list-toolbar">
