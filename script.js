@@ -2469,17 +2469,8 @@ let activeTabIndex = 0;
 let tabCounter = 0;
 let clockInterval;
 
-// HÀM MỚI: LƯU TOÀN BỘ TRẠNG THÁI POS VÀO BỘ NHỚ TRÌNH DUYỆT
-window.savePOSState = function() {
-    localStorage.setItem('kv_pos_state', JSON.stringify({
-        tabs: posTabs,
-        activeIndex: activeTabIndex,
-        counter: tabCounter
-    }));
-};
-
 window.initPOSData = function() {
-    // 1. KHỞI TẠO DANH SÁCH TAB (HÓA ĐƠN)
+    // 1. Khởi tạo Tab hóa đơn nếu chưa có
     if (posTabs.length === 0) {
         posTabs.push({
             id: 'tab-' + Date.now(),
@@ -2491,50 +2482,42 @@ window.initPOSData = function() {
         activeTabIndex = 0;
     }
 
-    // 2. VẼ GIAO DIỆN
+    // 2. Vẽ giao diện
     renderPOSTabs(); 
     renderPOSCart(); 
 
-    // 3. THIẾT LẬP Ô TÌM KIẾM (Xử lý quét mã và bôi đen)
+    // 3. Xử lý Ô TÌM KIẾM & MÁY QUÉT
     const searchInput = document.getElementById('pos-search-input');
     const searchDropdown = document.getElementById('pos-search-dropdown');
 
     if (searchInput) {
-        // Tự động bôi đen khi focus
-        searchInput.addEventListener('focus', function() {
+        // Tự động bôi đen khi click/focus
+        searchInput.onfocus = function() {
             setTimeout(() => { this.select(); }, 50);
-        });
+        };
 
-        // Giữ bôi đen khi thả chuột
-        searchInput.addEventListener('mouseup', function(e) {
-            if (this.value !== "") {
-                e.preventDefault();
-                this.select();
-            }
-        });
-
-        // XỬ LÝ QUÉT MÃ VẠCH / NHẤN ENTER
+        // BẮT SỰ KIỆN QUÉT MÃ (ENTER)
         searchInput.onkeydown = function(e) {
             if (e.key === 'Enter') {
-                e.preventDefault(); // Chặn xuống dòng hoặc submit form
+                e.preventDefault(); // Chặn hành động mặc định của trình duyệt
                 const keyword = this.value.trim();
                 if (!keyword) return;
 
-                // Gọi hàm tìm kiếm và lấy danh sách kết quả
+                // Tìm kiếm sản phẩm
                 const results = window.searchPOSProduct(keyword);
 
                 if (results && results.length > 0) {
-                    // LẤY SẢN PHẨM ĐẦU TIÊN THÊM VÀO GIỎ
+                    // Lấy thằng đầu tiên (đã được sort ưu tiên mã chính xác) thêm vào giỏ
                     addPOSItem(results[0].id);
                     
-                    // Xóa trắng ô nhập để chờ lần quét tiếp theo
+                    // Xóa trắng ô nhập để chờ quét mã tiếp theo
                     this.value = '';
                     if (searchDropdown) searchDropdown.style.display = 'none';
                     
-                    // Giữ con trỏ chuột ở lại ô nhập
+                    // Giữ con trỏ ở lại để quét liên tục
                     this.focus();
                 } else {
-                    showToast("Không tìm thấy hàng hóa với mã này!", "error");
+                    showToast("Không tìm thấy mã hàng này!", "error");
                 }
             }
         };
@@ -2542,7 +2525,7 @@ window.initPOSData = function() {
         searchInput.focus();
     }
 
-    // 4. "NAM CHÂM" FOCUS (Click ra ngoài tự quay lại ô tìm kiếm)
+    // 4. "NAM CHÂM" FOCUS: Click ra vùng trống tự quay về ô tìm kiếm
     const posView = document.getElementById('pos-view');
     if (posView) {
         posView.onclick = function(e) {
@@ -2554,26 +2537,25 @@ window.initPOSData = function() {
     }
 
     if (typeof window.initPOSShortcuts === 'function') window.initPOSShortcuts();
-    console.log("🚀 POS System: Đã sẵn sàng quét mã vạch.");
 };
 
 window.searchPOSProduct = function(keyword) {
     const dropdown = document.getElementById('pos-search-dropdown');
     if (!keyword || !keyword.trim()) { 
-        dropdown.style.display = 'none'; 
-        return []; // TRẢ VỀ MẢNG RỖNG KHI TRỐNG
+        if (dropdown) dropdown.style.display = 'none'; 
+        return []; 
     }
     
     const kw = keyword.toLowerCase().trim();
     const latestProducts = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
 
-    // Tìm kiếm mờ
+    // Tìm kiếm mờ (Fuzzy Match) dựa trên tên, mã hàng, mã vạch
     const matches = latestProducts.filter(p => {
         const fullText = `${p.name} ${p.code} ${p.barcode}`.toLowerCase();
         return window.fuzzyMatch(fullText, kw);
     });
 
-    // ƯU TIÊN: Đưa mã khớp 100% (mã vạch hoặc mã hàng) lên đầu danh sách để máy quét nhận diện đúng
+    // ƯU TIÊN TUYỆT ĐỐI: Đưa hàng khớp 100% mã vạch hoặc mã hàng lên đầu để máy quét đọc đúng
     matches.sort((a, b) => {
         const aExact = (a.code.toLowerCase() === kw || a.barcode === kw);
         const bExact = (b.code.toLowerCase() === kw || b.barcode === kw);
@@ -2583,12 +2565,14 @@ window.searchPOSProduct = function(keyword) {
     });
 
     if (matches.length === 0) {
-        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy</div>';
-        dropdown.style.display = 'block';
-    } else {
+        if (dropdown) {
+            dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy</div>';
+            dropdown.style.display = 'block';
+        }
+    } else if (dropdown) {
         dropdown.innerHTML = matches.map(p => {
             const currentTab = posTabs[activeTabIndex];
-            const price = getProductPrice(p, currentTab.priceBook).price || p.price;
+            const price = getProductPrice(p, currentTab.priceBook);
             return `<div class="pos-dropdown-item" onclick="addPOSItem('${p.id}')">
                 <div><strong>${p.code}</strong> - ${p.name}</div>
                 <div style="font-weight:bold; color:var(--kv-pink);">${price.toLocaleString()}</div>
@@ -2597,7 +2581,7 @@ window.searchPOSProduct = function(keyword) {
         dropdown.style.display = 'block';
     }
     
-    return matches; // TRẢ VỀ KẾT QUẢ ĐỂ HÀM ENTER SỬ DỤNG
+    return matches; // Trả về mảng để xử lý logic Quét mã/Enter
 };
 
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
@@ -2717,29 +2701,35 @@ function closePOSTab(index, event) {
     savePOSState(); // Lưu trạng thái
 }
 
-window.addPOSItem = function(productId, keepInput = false) {
-    document.getElementById('pos-search-dropdown').style.display = 'none';
-    if (!keepInput) document.getElementById('pos-search-input').value = '';
-    
+window.addPOSItem = function(productId) {
     const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
     const p = allProds.find(x => x.id === productId);
-    if(!p) return;
+    if (!p) return;
 
     const tab = posTabs[activeTabIndex];
-    const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1 }];
-    const activePrice = getProductPrice(p, tab.priceBook);
+    // Đảm bảo dùng 'cart' để khớp với hàm renderPOSCart bạn đang có
+    const existing = tab.cart.find(x => x.productId === productId);
     
-    const existing = tab.items.find(x => x.productId === productId && x.selectedUnitIdx === 0);
-    
-    if (existing) existing.qty += 1;
-    else tab.items.unshift({ 
-        productId: p.id, code: p.code, name: p.name, qty: 1, 
-        basePrice: activePrice, price: activePrice * productUnits[0].rate, 
-        units: productUnits, selectedUnitIdx: 0 
-    });
+    if (existing) {
+        existing.qty += 1;
+    } else {
+        const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1 }];
+        const price = getProductPrice(p, tab.priceBook);
+        
+        tab.cart.unshift({ 
+            productId: p.id, 
+            code: p.code, 
+            name: p.name, 
+            qty: 1, 
+            price: price,
+            units: productUnits, 
+            selectedUnitIdx: 0,
+            unit: productUnits[0].name
+        });
+    }
     
     renderPOSCart();
-    savePOSState(); // Lưu trạng thái
+    savePOSState();
 };
 
 window.renderPOSCart = function() {
