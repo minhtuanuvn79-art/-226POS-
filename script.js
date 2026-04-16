@@ -33,14 +33,7 @@ window.formatCurrency = function(input) {
     }
     input.value = parseInt(value, 10).toLocaleString('vi-VN');
 };
-// Hàm kiểm tra xem tên hàng có chứa đầy đủ các ký tự viết tắt theo thứ tự không
-window.fuzzyMatch = function(text, query) {
-    text = text.toLowerCase();
-    query = query.toLowerCase().split(' '); // Tách "aq 15" thành ["aq", "15"]
-    
-    // Kiểm tra xem tất cả các từ trong query có xuất hiện trong text không
-    return query.every(word => text.includes(word));
-};
+
 // Quy đổi từ chuỗi "1.000" sang số 1000 để tính toán chính xác
 window.parseCurrency = function(formattedString) {
     if (!formattedString) return 0;
@@ -468,8 +461,13 @@ function saveGroup() {
     const name = document.getElementById('group-name').value.trim();
     const parentId = document.getElementById('group-parent').value;
     
-    if(!name) { alert("Vui lòng nhập tên nhóm!"); return; }
+    // 1. Kiểm tra dữ liệu đầu vào
+    if(!name) { 
+        alert("Vui lòng nhập tên nhóm!"); 
+        return; 
+    }
 
+    // 2. Cập nhật hoặc Thêm mới vào mảng productGroups
     if(editingGroupId) {
         const g = productGroups.find(x => x.id === editingGroupId);
         if (g) {
@@ -477,7 +475,6 @@ function saveGroup() {
             g.parentId = parentId || null;
         }
     } else {
-        // Thêm vào biến toàn cục đang sử dụng
         productGroups.push({
             id: 'g_' + Date.now(),
             name: name,
@@ -485,17 +482,24 @@ function saveGroup() {
         });
     }
 
-    // Cập nhật lại localStorage để đồng bộ nội bộ
+    // 3. Lưu dữ liệu vào LocalStorage của trình duyệt
     localStorage.setItem('kv_groups', JSON.stringify(productGroups));
+    if (typeof window.uploadToCloud === 'function') window.uploadToCloud('groups', productGroups);
 
-    // Đẩy lên Firebase
+    // 4. ĐỒNG BỘ LÊN FIREBASE CLOUD (Điểm quan trọng nhất)
     if (typeof window.uploadToCloud === 'function') {
+        // Đẩy toàn bộ mảng nhóm hàng lên đường dẫn 'groups' trên database
         window.uploadToCloud('groups', productGroups);
+    } else {
+        console.warn("Hàm uploadToCloud chưa sẵn sàng, dữ liệu chỉ lưu tại máy này.");
     }
 
+    // 5. Cập nhật giao diện và đóng Modal
     closeGroupModal();
     renderGroupData(); 
-    renderProductList(); 
+    renderProductList(); // Cập nhật lại bộ lọc ở sidebar hàng hóa
+    
+    // Reset trạng thái sửa
     editingGroupId = null;
 }
 
@@ -1098,21 +1102,17 @@ function updateMainProductPrice(productId, newPrice) {
 }
 
 function updatePriceBookValue(pbId, productId, newPrice) {
-    // 1. Tìm bảng giá trong biến toàn cục
     const pb = priceBooks.find(x => x.id === pbId);
     if (pb) {
-        if (!pb.prices) pb.prices = {}; // Đảm bảo object prices tồn tại
-        
-        if (newPrice === '' || newPrice === null) {
+        if (newPrice === '') {
             delete pb.prices[productId]; 
         } else {
             pb.prices[productId] = parseFloat(newPrice);
         }
-        
-        // 2. Lưu vào bộ nhớ máy
         localStorage.setItem('kv_pricebooks', JSON.stringify(priceBooks));
+        if (typeof window.uploadToCloud === 'function') window.uploadToCloud('pricebooks', priceBooks);
         
-        // 3. Đẩy lên Cloud ngay lập tức
+        // THÊM DÒNG NÀY:
         if (typeof window.uploadToCloud === 'function') {
             window.uploadToCloud('pricebooks', priceBooks);
         }
@@ -1364,47 +1364,33 @@ function printIC(id) {
 
 // ---------------- THAO TÁC TRONG MÀN HÌNH TẠO PHIẾU ----------------
 
-window.openCreateCheckView = function(checkId = null) {
-    // 1. Chuyển đổi giao diện
-    document.getElementById('ic-list-section').style.display = 'none';
-    document.getElementById('ic-create-section').style.display = 'block';
+function openCreateCheckView(id = null) {
+    editingICId = id;
+    currentICItems = [];
+    document.getElementById('inventory-check-view').style.display = 'flex';
+    document.getElementById('ic-creator-name').innerText = currentUser.fullname;
+    
+    const now = new Date();
+    document.getElementById('ic-current-time').innerText = now.toLocaleString('vi-VN');
 
-    const inputSearch = document.getElementById('ic-search-input');
-
-    if (checkId) {
-        // Sửa phiếu kiểm
-        editingICId = checkId;
-        const allIC = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
-        const ic = allIC.find(x => x.id === checkId);
-        if (ic) {
-            document.getElementById('ic-code').value = ic.id;
-            document.getElementById('ic-note').value = ic.note || '';
-            currentICItems = JSON.parse(JSON.stringify(ic.items));
-        }
+    if (id) {
+        const ic = inventoryChecks.find(x => x.id === id);
+        document.getElementById('ic-code').value = ic.code;
+        document.getElementById('ic-note').value = ic.note || '';
+        document.getElementById('ic-status-badge').innerText = 'Phiếu tạm';
+        document.getElementById('ic-status-badge').className = 'status-badge status-temp';
+        currentICItems = JSON.parse(JSON.stringify(ic.items)); 
     } else {
-        // Tạo phiếu kiểm mới
-        editingICId = null;
-        document.getElementById('ic-code').value = 'PK' + Date.now();
+        document.getElementById('ic-code').value = '';
         document.getElementById('ic-note').value = '';
-        currentICItems = [];
+        document.getElementById('ic-status-badge').innerText = 'Phiếu tạm';
+        document.getElementById('ic-status-badge').className = 'status-badge status-temp';
     }
-
-    // 2. Tự động bôi đen ô tìm kiếm kiểm kho
-    if (inputSearch) {
-        inputSearch.addEventListener('focus', function() {
-            setTimeout(() => { this.select(); }, 50);
-        });
-        inputSearch.addEventListener('mouseup', function(e) {
-            if (this.value !== "") {
-                e.preventDefault();
-                this.select();
-            }
-        });
-    }
-
-    renderICItemList();
-    if(inputSearch) inputSearch.focus();
-};
+    
+    document.getElementById('ic-search-input').value = '';
+    document.getElementById('ic-search-dropdown').style.display = 'none';
+    renderICItemsTable();
+}
 
 function closeCreateCheckView() {
     if(currentICItems.length > 0 && !editingICId) {
@@ -1415,56 +1401,39 @@ function closeCreateCheckView() {
 
 window.searchICProduct = function(keyword) {
     const dropdown = document.getElementById('ic-search-dropdown');
-    const input = document.getElementById('ic-search-input');
-    
-    // 1. Nếu ô tìm kiếm trống, ẩn dropdown và thoát
-    if (!keyword || !keyword.trim()) { 
+    if (!keyword.trim()) { 
         dropdown.style.display = 'none'; 
         return; 
     }
     
     const kw = keyword.toLowerCase().trim();
-    // Luôn lấy dữ liệu mới nhất từ products (đã được nạp trong window.products)
-    const latestProducts = products || JSON.parse(localStorage.getItem('kv_products')) || [];
 
-    // 2. Thực hiện lọc hàng hóa bằng thuật toán tìm kiếm mờ nâng cao
-    const matches = latestProducts.filter(p => {
-        // Gộp Tên, Mã hàng, Mã vạch thành một chuỗi duy nhất để tìm kiếm
-        const fullText = `${p.name} ${p.code} ${p.barcode}`.toLowerCase();
-        return window.fuzzyMatch(fullText, kw);
+    // Tìm tất cả hàng hóa chứa ký tự bạn vừa gõ (không cần khớp 100%)
+    const matches = products.filter(p => {
+        const name = (p.name || "").toLowerCase();
+        const code = (p.code || "").toLowerCase();
+        const barcode = (p.barcode || "").toLowerCase();
+        
+        // Chỉ cần từ khóa xuất hiện ở bất kỳ đâu trong tên, mã, hoặc mã vạch
+        return name.includes(kw) || code.includes(kw) || barcode.includes(kw);
     });
 
-    // 3. Hiển thị kết quả ra giao diện
     if (matches.length > 0) {
-        // Sắp xếp ưu tiên: Kết quả nào khớp từ khóa ở đầu chuỗi sẽ hiện lên trước
-        matches.sort((a, b) => {
-            const firstWord = kw.split(' ')[0];
-            return a.name.toLowerCase().indexOf(firstWord) - b.name.toLowerCase().indexOf(firstWord);
-        });
-
         dropdown.innerHTML = matches.map(p => `
-            <div class="ic-dropdown-item" onclick="addICToList('${p.id}')" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer;">
-                <div style="display: flex; flex-direction: column; gap: 4px;">
-                    <div style="font-weight: bold; color: var(--kv-blue); font-size: 13px;">${p.code}</div>
-                    <div style="font-size: 14px; color: #333;">${p.name}</div>
-                    <small style="color: #888; font-size: 11px;">Mã vạch: ${p.barcode || '---'}</small>
+            <div class="ic-dropdown-item" onclick="addICToList('${p.id}')">
+                <div style="display: flex; flex-direction: column;">
+                    <strong style="color: var(--kv-blue);">${p.code}</strong>
+                    <span style="font-size: 13px;">${p.name}</span>
+                    <small style="color: #888;">Mã vạch: ${p.barcode || '---'}</small>
                 </div>
-                <div style="text-align: right; min-width: 100px;">
-                    <div style="font-weight: bold; color: var(--kv-pink); font-size: 14px;">${(p.price || 0).toLocaleString()}</div>
-                    <div style="font-size: 12px; color: #555; margin-top: 4px;">
-                        <i class="fa-solid fa-box-open" style="font-size: 10px; opacity: 0.5;"></i> Tồn: <strong>${p.stock || 0}</strong>
-                    </div>
+                <div style="text-align: right;">
+                    <span style="font-weight: bold; color: var(--kv-pink);">${(p.price || 0).toLocaleString()}</span>
+                    <div style="font-size: 11px; color: #555;">Tồn: ${p.stock || 0}</div>
                 </div>
             </div>`).join('');
-        
         dropdown.style.display = 'block';
     } else {
-        // 4. Trường hợp không tìm thấy
-        dropdown.innerHTML = `
-            <div style="padding: 20px; color: #888; text-align: center; font-size: 13px;">
-                <i class="fa-solid fa-magnifying-glass" style="display: block; font-size: 24px; margin-bottom: 10px; opacity: 0.3;"></i>
-                Không tìm thấy hàng hóa nào khớp với "<strong>${keyword}</strong>"
-            </div>`;
+        dropdown.innerHTML = '<div style="padding: 10px; color: #888; text-align: center;">Không tìm thấy hàng hóa</div>';
         dropdown.style.display = 'block';
     }
 };
@@ -2125,51 +2094,49 @@ window.toggleImportDetail = function(id) {
     row.style.display = (row.style.display === 'none') ? 'table-row' : 'none';
 };
 
-window.openCreateImportView = function(orderId = null) {
-    // 1. Hiển thị màn hình nhập hàng và ẩn danh sách
-    document.getElementById('io-list-section').style.display = 'none';
-    document.getElementById('io-create-section').style.display = 'block';
+window.openCreateImportView = function(editId = null) {
+    // 1. Reset dữ liệu cũ trước khi mở màn hình
+    currentIOItems = [];
+    editingIOId = editId; // Gán ID để tí nữa hàm Save biết là đang Sửa
 
-    const titleEl = document.querySelector('#io-create-section .kv-title');
-    const inputSearch = document.getElementById('io-search-input');
+    // 2. Hiện màn hình tạo phiếu, ẩn danh sách
+    document.getElementById('import-order-view').style.display = 'flex';
+    document.getElementById('io-creator-name').innerText = currentUser.fullname;
+    document.getElementById('io-current-time').value = new Date().toLocaleString('vi-VN');
 
-    if (orderId) {
-        // Trường hợp Sửa phiếu nhập cũ
-        titleEl.innerText = 'Cập nhật phiếu nhập hàng';
-        editingIOId = orderId;
-        const allIO = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
-        const io = allIO.find(x => x.id === orderId);
-        if (io) {
-            document.getElementById('io-code').value = io.id;
-            document.getElementById('io-supplier').value = io.supplierName || '';
-            document.getElementById('io-note').value = io.note || '';
-            currentIOItems = JSON.parse(JSON.stringify(io.items));
+    if (editId) {
+        // TRƯỜNG HỢP SỬA: Tìm phiếu trong kho dữ liệu
+        const allImps = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
+        const found = allImps.find(x => x.id === editId);
+        
+        if (found) {
+            // Đổ dữ liệu header
+            document.getElementById('io-code').value = found.id;
+            document.getElementById('io-supplier').value = found.supplierName || '';
+            document.getElementById('io-note').value = found.note || '';
+            document.getElementById('io-status-badge').innerText = found.status === 'done' ? 'Đã nhập hàng' : 'Phiếu tạm';
+            
+            // Đổ dữ liệu tiền tệ
+            document.getElementById('io-discount').value = (found.ioDiscount || 0).toLocaleString('vi-VN');
+            document.getElementById('io-extra-fee').value = (found.ioExtraFee || 0).toLocaleString('vi-VN');
+            document.getElementById('io-paid').value = (found.paid || 0).toLocaleString('vi-VN');
+            
+            // Nạp danh sách hàng hóa (Clone sâu để tránh lỗi tham chiếu)
+            currentIOItems = JSON.parse(JSON.stringify(found.items));
         }
     } else {
-        // Trường hợp Tạo mới
-        titleEl.innerText = 'Tạo phiếu nhập hàng';
-        editingIOId = null;
-        document.getElementById('io-code').value = 'PN' + Date.now();
+        // TRƯỜNG HỢP TẠO MỚI
+        document.getElementById('io-code').value = 'PN' + Date.now().toString().slice(-6);
         document.getElementById('io-supplier').value = '';
         document.getElementById('io-note').value = '';
-        currentIOItems = [];
+        document.getElementById('io-status-badge').innerText = 'Phiếu tạm';
+        document.getElementById('io-discount').value = '0';
+        document.getElementById('io-extra-fee').value = '0';
+        document.getElementById('io-paid').value = '0';
     }
 
-    // 2. Tự động bôi đen ô tìm kiếm nhập hàng
-    if (inputSearch) {
-        inputSearch.addEventListener('focus', function() {
-            setTimeout(() => { this.select(); }, 50);
-        });
-        inputSearch.addEventListener('mouseup', function(e) {
-            if (this.value !== "") {
-                e.preventDefault();
-                this.select();
-            }
-        });
-    }
-
-    renderIOItemList();
-    if(inputSearch) inputSearch.focus();
+    // Vẽ lại bảng hàng hóa và tính toán tiền
+    renderIOItemsTable();
 };
 
 function closeCreateImportView() {
@@ -2179,36 +2146,30 @@ function closeCreateImportView() {
     document.getElementById('import-order-view').style.display = 'none';
 }
 
-window.searchIOProduct = function(keyword) {
+function searchIOProduct(keyword) {
     const dropdown = document.getElementById('io-search-dropdown');
     if (!keyword.trim()) { dropdown.style.display = 'none'; return; }
-    
     const kw = keyword.toLowerCase().trim();
-    const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
-    // NÂNG CẤP: Sử dụng fuzzyMatch
-    const matches = latestProducts.filter(p => {
-        const fullText = `${p.name} ${p.code} ${p.barcode}`.toLowerCase();
-        return window.fuzzyMatch(fullText, kw);
-    });
+    // Khớp 100% để thêm luôn
+    const exactMatch = products.find(p => 
+        (p.barcode && p.barcode.toLowerCase() === kw) || (p.code && p.code.toLowerCase() === kw)
+    );
 
-    if (matches.length > 0) {
-        dropdown.innerHTML = matches.map(p => `
-            <div class="ic-dropdown-item" onclick="addIOToList('${p.id}')">
-                <div style="display: flex; flex-direction: column;">
-                    <strong style="color: var(--kv-blue);">${p.code}</strong>
-                    <span style="font-size: 13px;">${p.name}</span>
-                </div>
-                <div style="text-align: right;">
-                    <span style="font-weight: bold; color: var(--kv-pink);">${(p.price || 0).toLocaleString()}</span>
-                </div>
-            </div>`).join('');
-        dropdown.style.display = 'block';
-    } else {
-        dropdown.innerHTML = '<div style="padding: 10px; color: #888; text-align: center;">Không tìm thấy</div>';
-        dropdown.style.display = 'block';
+    if (exactMatch) {
+        addIOToList(exactMatch.id);
+        document.getElementById('io-search-input').value = '';
+        dropdown.style.display = 'none';
+        return;
     }
-};
+
+    const matches = products.filter(p => p.name.toLowerCase().includes(kw) || p.code.toLowerCase().includes(kw));
+    dropdown.innerHTML = matches.map(p => `
+        <div class="ic-dropdown-item" onclick="addIOToList('${p.id}')">
+            <strong>${p.code}</strong> - ${p.name}
+        </div>`).join('');
+    dropdown.style.display = 'block';
+}
 
 // Bắt sự kiện Enter cho Nhập hàng
 document.getElementById('io-search-input').addEventListener('keydown', function(e) {
@@ -2383,7 +2344,6 @@ function calculateIOTotals() {
     document.getElementById('io-debt').innerText = debt.toLocaleString('vi-VN');
 }
 window.saveImportOrder = function(action) {
-    // 1. Kiểm tra nếu chưa có hàng hóa trong danh sách
     if (currentIOItems.length === 0) { 
         alert("Vui lòng chọn ít nhất 1 mặt hàng!"); 
         return; 
@@ -2393,7 +2353,6 @@ window.saveImportOrder = function(action) {
     const totalAmount = parseFloat(document.getElementById('io-total-amount').dataset.val) || 0;
     const ioId = document.getElementById('io-code').value;
 
-    // 2. Thu thập dữ liệu phiếu nhập
     const ioData = {
         id: ioId,
         timestamp: editingIOId ? (allImportOrders.find(x => x.id === editingIOId)?.timestamp || Date.now()) : Date.now(),
@@ -2410,7 +2369,6 @@ window.saveImportOrder = function(action) {
         mustPay: totalAmount - (window.parseCurrency(document.getElementById('io-discount').value) || 0) + (window.parseCurrency(document.getElementById('io-extra-fee').value) || 0)
     };
 
-    // 3. Xử lý lưu đè nếu đang sửa hoặc thêm mới
     if (editingIOId) {
         const idx = allImportOrders.findIndex(x => x.id === editingIOId);
         if (idx !== -1) allImportOrders[idx] = ioData;
@@ -2418,7 +2376,6 @@ window.saveImportOrder = function(action) {
         allImportOrders.unshift(ioData);
     }
 
-    // 4. LOGIC QUAN TRỌNG: Cập nhật Kho và Giá vốn khi Hoàn thành
     if (action === 'done') {
         let latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
         currentIOItems.forEach(item => {
@@ -2426,31 +2383,19 @@ window.saveImportOrder = function(action) {
             if (prod) {
                 const rate = item.units[item.selectedUnitIdx]?.rate || 1;
                 const qtyInBaseUnit = item.qty * rate;
-                
-                // Cộng dồn tồn kho
                 prod.stock = (prod.stock || 0) + qtyInBaseUnit;
-                
-                // Cập nhật giá vốn mới (quy đổi về đơn vị cơ bản)
-                // Giúp hiển thị đúng ở ô "Giá nhập cuối" trong thiết lập giá
-                prod.cost = item.cost / rate; 
             }
         });
-        
-        // Lưu và đẩy sản phẩm lên Cloud
         localStorage.setItem('kv_products', JSON.stringify(latestProducts));
         if (window.uploadToCloud) window.uploadToCloud('products', latestProducts);
     }
 
-    // 5. Lưu phiếu nhập và đẩy lên Cloud
     localStorage.setItem('kv_import_orders', JSON.stringify(allImportOrders));
     if (window.uploadToCloud) window.uploadToCloud('import_orders', allImportOrders);
 
-    // 6. Reset trạng thái và quay về danh sách
-    editingIOId = null; 
+    editingIOId = null; // Reset ID đang sửa
     closeCreateImportView();
     renderImportOrders();
-    
-    // Thông báo cho người dùng
     alert(action === 'done' ? "Nhập hàng thành công!" : "Đã lưu phiếu tạm.");
 };
 window.toggleICDateFilter = function() {
@@ -2469,108 +2414,97 @@ let activeTabIndex = 0;
 let tabCounter = 0;
 let clockInterval;
 
-window.initPOSData = function() {
-    // 1. Khởi tạo Tab nếu chưa có
-    if (posTabs.length === 0) {
-        posTabs.push({
-            id: 'tab-' + Date.now(),
-            name: 'Hóa đơn 1',
-            cart: [],
-            priceBook: 'default',
-            customer: null
-        });
-        activeTabIndex = 0;
-    }
-
-    renderPOSTabs(); 
-    renderPOSCart(); 
-
-    const searchInput = document.getElementById('pos-search-input');
-    const searchDropdown = document.getElementById('pos-search-dropdown');
-
-    if (searchInput) {
-        // Tự động bôi đen khi click vào ô tìm kiếm
-        searchInput.onfocus = function() {
-            setTimeout(() => { this.select(); }, 50);
-        };
-
-        // XỬ LÝ QUÉT MÃ VẠCH (ENTER)
-        searchInput.onkeydown = function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault(); // Chặn hành động nạp lại trang của trình duyệt
-                const keyword = this.value.trim();
-                if (!keyword) return;
-
-                // Thực hiện tìm kiếm
-                const results = window.searchPOSProduct(keyword);
-
-                if (results && results.length > 0) {
-                    // Lấy ngay món đầu tiên khớp nhất thêm vào giỏ
-                    addPOSItem(results[0].id);
-                    
-                    // Xóa trắng ô nhập để chờ lần quét sau
-                    this.value = '';
-                    if (searchDropdown) searchDropdown.style.display = 'none';
-                    this.focus();
-                }
-            }
-        };
-
-        searchInput.focus();
-    }
-
-    // "Nam châm" con trỏ chuột: Click vùng trống tự quay về ô tìm kiếm
-    const posView = document.getElementById('pos-view');
-    if (posView) {
-        posView.onclick = function(e) {
-            const ignoreTags = ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A', 'I', 'OPTION'];
-            if (!ignoreTags.includes(e.target.tagName)) {
-                if (searchInput) searchInput.focus();
-            }
-        };
-    }
+// HÀM MỚI: LƯU TOÀN BỘ TRẠNG THÁI POS VÀO BỘ NHỚ TRÌNH DUYỆT
+window.savePOSState = function() {
+    localStorage.setItem('kv_pos_state', JSON.stringify({
+        tabs: posTabs,
+        activeIndex: activeTabIndex,
+        counter: tabCounter
+    }));
 };
+
+function initPOSData() {
+    // 1. Hiển thị thông tin người bán và đồng hồ
+    if(currentUser) {
+        const sellerNameEl = document.getElementById('pos-seller-name');
+        if(sellerNameEl) {
+            sellerNameEl.innerHTML = `<i class="fa-solid fa-user-tie" style="color: #888; margin-right:5px;"></i> ${currentUser.fullname} <i class="fa-solid fa-caret-down" style="font-size: 11px; margin-left: 5px; color:#888;"></i>`;
+        }
+        const userNameEl = document.getElementById('pos-user-name');
+        if(userNameEl) userNameEl.innerText = currentUser.username;
+    }
+    
+    if(clockInterval) clearInterval(clockInterval);
+    clockInterval = setInterval(() => {
+        const timeEl = document.getElementById('pos-current-time');
+        if(timeEl) timeEl.innerText = new Date().toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+    }, 1000);
+
+    // 2. Nạp danh sách Bảng giá vào dropdown TRƯỚC khi khôi phục dữ liệu
+    priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    const pbSelect = document.getElementById('pos-pricebook-select');
+    if(pbSelect) {
+        let pbHtml = `<option value="default">Bảng giá chung</option>`;
+        priceBooks.forEach(pb => { 
+            pbHtml += `<option value="${pb.id}">${pb.name}</option>`; 
+        });
+        pbSelect.innerHTML = pbHtml;
+    }
+
+    // 3. KHÔI PHỤC DỮ LIỆU TỪ BỘ NHỚ (F5 chống mất đơn)
+    const savedState = JSON.parse(localStorage.getItem('kv_pos_state'));
+    if (savedState && savedState.tabs && savedState.tabs.length > 0) {
+        posTabs = savedState.tabs;
+        activeTabIndex = savedState.activeIndex || 0;
+        tabCounter = savedState.counter || posTabs.length;
+        
+        // SỬA LỖI: Gọi switchPOSTab để đồng bộ toàn bộ giao diện (Bảng giá, Giảm giá, Phí thu thêm)
+        switchPOSTab(activeTabIndex);
+    } else {
+        // Nếu không có dữ liệu cũ, tạo mới Tab đầu tiên
+        if(posTabs.length === 0) {
+            addPOSTab(); 
+        } else {
+            switchPOSTab(0);
+        }
+    }
+}
+
 window.searchPOSProduct = function(keyword) {
     const dropdown = document.getElementById('pos-search-dropdown');
-    if (!keyword || !keyword.trim()) { 
-        if (dropdown) dropdown.style.display = 'none'; 
-        return []; 
-    }
+    if (!keyword || !keyword.trim()) { dropdown.style.display = 'none'; return; }
     
     const kw = keyword.toLowerCase().trim();
-    const latestProducts = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
+    const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
     const matches = latestProducts.filter(p => {
-        const fullText = `${p.name} ${p.code} ${p.barcode}`.toLowerCase();
-        return window.fuzzyMatch(fullText, kw);
+        return (p.name || "").toLowerCase().includes(kw) || 
+               (p.code || "").toLowerCase().includes(kw) || 
+               (p.barcode || "").toLowerCase().includes(kw);
     });
 
-    // Ưu tiên mã khớp 100% lên đầu để máy quét lấy đúng món
-    matches.sort((a, b) => {
-        const aExact = (a.code.toLowerCase() === kw || a.barcode === kw);
-        const bExact = (b.code.toLowerCase() === kw || b.barcode === kw);
-        if (aExact && !bExact) return -1;
-        if (!aExact && bExact) return 1;
-        return 0;
-    });
-
-    if (dropdown) {
-        if (matches.length === 0) {
-            dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy</div>';
-        } else {
-            dropdown.innerHTML = matches.map(p => {
-                const currentTab = posTabs[activeTabIndex];
-                const price = getProductPrice(p, currentTab.priceBook);
-                return `<div class="pos-dropdown-item" onclick="addPOSItem('${p.id}')">
-                    <div><strong>${p.code}</strong> - ${p.name}</div>
-                    <div style="font-weight:bold; color:var(--kv-pink);">${price.toLocaleString()}</div>
-                </div>`;
-            }).join('');
-        }
-        dropdown.style.display = 'block';
+    if (matches.length === 0) {
+        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy</div>';
+    } else {
+        dropdown.innerHTML = matches.map(p => {
+            const currentTab = posTabs[activeTabIndex];
+            const price = getProductPrice(p, currentTab.priceBook);
+            
+            // Xác định màu sắc cảnh báo tồn kho
+            const stockColor = (p.stock <= 0) ? '#d9534f' : (p.stock <= 5 ? '#f0ad4e' : '#888');
+            
+            return `<div class="pos-dropdown-item" onclick="addPOSItem('${p.id}')" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="flex:1;">
+                    <strong style="color: var(--kv-blue);">${p.code}</strong> - <strong>${p.name}</strong>
+                    <div style="font-size: 12px; color: ${stockColor}; font-weight: 500;">
+                        <i class="fa-solid fa-box-open"></i> Tồn kho: ${p.stock || 0}
+                    </div>
+                </div>
+                <div style="font-weight:bold; color:var(--kv-pink); font-size: 14px;">${price.toLocaleString()}</div>
+            </div>`;
+        }).join('');
     }
-    
-    return matches; // Rất quan trọng để trả về kết quả cho máy quét
+    dropdown.style.display = 'block';
 };
 
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
@@ -2617,31 +2551,18 @@ function getProductPrice(productObj, priceBookId) {
 }
 
 let isTabCreating = false; // Thêm biến này ở đầu file hoặc ngay trên hàm
-window.addPOSTab = function() {
-    // 1. Tạo tab mới
-    const newTab = {
-        id: 'tab-' + Date.now(),
-        name: 'Hóa đơn ' + (posTabs.length + 1),
-        cart: [],
-        priceBook: 'default',
-        customer: null
-    };
-    posTabs.push(newTab);
-    activeTabIndex = posTabs.length - 1;
+function addPOSTab() {
+    if (isTabCreating) return; // Nếu đang tạo thì thoát luôn
+    isTabCreating = true;
+    
+    tabCounter++;
+    posTabs.push({ id: Date.now(), name: `Hóa đơn ${tabCounter}`, items: [], priceBook: 'default', discount: 0, extraFee: 0 });
+    switchPOSTab(posTabs.length - 1);
+    savePOSState();
 
-    // 2. Vẽ lại giao diện
-    renderPOSTabs();
-    renderPOSCart();
-
-    // 3. QUAN TRỌNG: Trả lại focus và bôi đen ô tìm kiếm
-    const searchInput = document.getElementById('pos-search-input');
-    if (searchInput) {
-        searchInput.focus();
-        setTimeout(() => {
-            searchInput.select();
-        }, 50);
-    }
-};
+    // Mở khóa sau 200ms
+    setTimeout(() => { isTabCreating = false; }, 200);
+}
 
 function renderPOSTabs() {
     const container = document.getElementById('pos-tabs-container');
@@ -2690,116 +2611,116 @@ function closePOSTab(index, event) {
     savePOSState(); // Lưu trạng thái
 }
 
-window.addPOSItem = function(productId) {
+window.addPOSItem = function(productId, keepInput = false) {
+    document.getElementById('pos-search-dropdown').style.display = 'none';
+    if (!keepInput) document.getElementById('pos-search-input').value = '';
+    
     const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
     const p = allProds.find(x => x.id === productId);
-    if (!p) return;
+    if(!p) return;
 
     const tab = posTabs[activeTabIndex];
-    // Đảm bảo dùng 'cart' để khớp với hàm renderPOSCart bạn đang có
-    const existing = tab.cart.find(x => x.productId === productId);
+    const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1 }];
+    const activePrice = getProductPrice(p, tab.priceBook);
     
-    if (existing) {
-        existing.qty += 1;
-    } else {
-        const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1 }];
-        const price = getProductPrice(p, tab.priceBook);
-        
-        tab.cart.unshift({ 
-            productId: p.id, 
-            code: p.code, 
-            name: p.name, 
-            qty: 1, 
-            price: price,
-            units: productUnits, 
-            selectedUnitIdx: 0,
-            unit: productUnits[0].name
-        });
-    }
+    const existing = tab.items.find(x => x.productId === productId && x.selectedUnitIdx === 0);
+    
+    if (existing) existing.qty += 1;
+    else tab.items.unshift({ 
+        productId: p.id, code: p.code, name: p.name, qty: 1, 
+        basePrice: activePrice, price: activePrice * productUnits[0].rate, 
+        units: productUnits, selectedUnitIdx: 0 
+    });
     
     renderPOSCart();
-    savePOSState();
+    savePOSState(); // Lưu trạng thái
 };
 
-window.renderPOSCart = function() {
-    const cartContainer = document.getElementById('pos-cart-items');
-    if (!cartContainer) return;
-
-    const currentTab = posTabs[activeTabIndex];
-    const cart = currentTab.cart;
+function renderPOSCart() {
+    const listDiv = document.getElementById('pos-cart-list');
+    const tab = posTabs[activeTabIndex];
     
-    if (cart.length === 0) {
-        cartContainer.innerHTML = `
-            <div style="text-align: center; padding: 50px 20px; color: #ccc;">
-                <i class="fa-solid fa-cart-shopping" style="font-size: 48px; margin-bottom: 15px; opacity: 0.2;"></i>
-                <p>Chưa có hàng hóa nào trong giỏ</p>
+    // Kiểm tra nếu không tìm thấy phần tử hiển thị hoặc tab hiện tại
+    if (!listDiv || !tab) return;
+    
+    // Trường hợp giỏ hàng trống: Hiển thị hình ảnh minh họa và thông báo
+    if (tab.items.length === 0) {
+        listDiv.innerHTML = `
+            <div style="position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); color: #bbb; text-align: center;">
+                <i class="fa-solid fa-cart-arrow-down" style="font-size: 65px; margin-bottom: 20px; color: #e5e5e5;"></i>
+                <h2 style="font-weight: 500;">Hóa đơn trống</h2>
+                <p style="font-size: 13px; color: #ccc;">Vui lòng chọn hàng hóa để bán</p>
             </div>`;
-        updatePOSTotal();
+        calcPOSTotals();
         return;
     }
 
-    let html = '';
-    cart.forEach((item, index) => {
-        // 1. Xác định giá dựa trên Bảng giá của Tab hiện tại
-        const priceInfo = getProductPrice(item, currentTab.priceBook);
-        const price = priceInfo.price;
+    // Lấy danh sách sản phẩm gốc để đối chiếu tồn kho thực tế
+    const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
 
-        // 2. Lấy thông tin tồn kho thực tế từ danh sách gốc (window.products)
-        const originalProd = (window.products || []).find(p => p.id === item.productId) || item;
-        const currentStock = originalProd.stock || 0;
-        const stockStyle = currentStock <= 0 ? 'color: var(--kv-pink); font-weight: bold;' : 'color: #28a745;';
+    // Vẽ danh sách hàng hóa trong giỏ hàng
+    listDiv.innerHTML = tab.items.map((item, index) => {
+        const rowTotal = item.qty * item.price;
+        
+        // Tìm thông tin gốc để lấy số tồn kho hiện tại
+        const pOriginal = allProds.find(x => x.id === item.productId);
+        const currentStock = pOriginal ? (parseFloat(pOriginal.stock) || 0) : 0;
+        
+        // Màu sắc cảnh báo cho số lượng tồn
+        const stockStyle = currentStock <= 0 ? 'color: #d9534f; font-weight: bold;' : 'color: #888;';
 
-        // 3. Xử lý hiển thị Đơn vị tính (Dropdown nếu có nhiều đơn vị)
-        let unitDisplay = `<span style="color: #666;">${item.unit || 'Đv'}</span>`;
-        if (item.units && item.units.length > 1) {
-            unitDisplay = `
-                <select onchange="changeCartItemUnit(${index}, this.value)" style="border: 1px solid #ddd; border-radius: 4px; padding: 2px 4px; font-size: 12px; cursor: pointer;">
-                    ${item.units.map((u, uIdx) => `<option value="${uIdx}" ${item.selectedUnitIdx == uIdx ? 'selected' : ''}>${u.name}</option>`).join('')}
-                </select>`;
-        }
-
-        html += `
-        <div class="cart-item-row" style="display: flex; align-items: center; padding: 12px 15px; border-bottom: 1px solid #f0f0f0; background: #fff;">
-            <div style="width: 30px; color: #bbb; font-size: 11px;">${index + 1}</div>
+        // Tạo danh sách dropdown cho đơn vị tính (nếu có)
+        let unitOptions = item.units.map((u, idx) => 
+            `<option value="${idx}" ${item.selectedUnitIdx === idx ? 'selected' : ''}>${u.name}</option>`
+        ).join('');
+        
+        return `
+        <div class="cart-item-row" style="display: flex; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f4f4f4; font-size: 14px; transition: 0.2s;">
+            <div style="width: 40px; text-align:center; color: #aaa; font-size: 12px;">${index + 1}</div>
             
-            <div style="width: 30px; cursor: pointer; color: #ffbcbc;" onclick="removeCartItem(${index})">
-                <i class="fa-solid fa-trash-can"></i>
-            </div>
-
-            <div style="flex: 1; min-width: 0; padding: 0 10px;">
-                <div style="color: var(--kv-blue); font-weight: 600; font-size: 12px;">${item.code}</div>
-                
-                <div class="cart-item-name" data-full-name="${item.name}">
-                    ${item.name}
-                </div>
-                
-                <div style="font-size: 11px; margin-top: 3px; color: #888;">
+            <div style="flex: 1; min-width: 0; padding-right: 10px;">
+                <div style="color: var(--kv-blue); font-weight: 600; font-size: 13px;">${item.code}</div>
+                <div style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.name}">${item.name}</div>
+                <div style="font-size: 11px; margin-top: 2px;">
+                    <i class="fa-solid fa-box-open" style="font-size: 10px; color: #ccc;"></i> 
                     Tồn: <span style="${stockStyle}">${currentStock}</span>
                 </div>
             </div>
 
-            <div style="width: 80px; text-align: center;">
-                ${unitDisplay}
+            <div style="width: 100px; text-align: center;">
+                <select onchange="updatePOSUnit(${index}, this.value)" 
+                    style="width: 85px; border: 1px solid #eee; padding: 6px; border-radius: 6px; outline: none; font-size: 13px; cursor: pointer; background: #fafafa;">
+                    ${unitOptions}
+                </select>
             </div>
 
-            <div style="width: 110px; display: flex; justify-content: center; align-items: center;">
-                <button onclick="updateCartQty(${index}, -1)" style="width: 28px; height: 28px; border: 1px solid #ddd; background: #fff; border-radius: 4px 0 0 4px; cursor: pointer;">-</button>
-                <input type="text" value="${item.qty}" 
-                    onchange="updateCartQtyDirect(${index}, this.value)"
-                    style="width: 40px; height: 28px; border-top: 1px solid #ddd; border-bottom: 1px solid #ddd; border-left: none; border-right: none; text-align: center; font-weight: bold;">
-                <button onclick="updateCartQty(${index}, 1)" style="width: 28px; height: 28px; border: 1px solid #ddd; background: #fff; border-radius: 0 4px 4px 0; cursor: pointer;">+</button>
+            <div style="width: 100px; text-align: center;">
+                <input type="number" value="${item.qty}" min="1" 
+                    onchange="updatePOSQty(${index}, this.value)" 
+                    style="width: 65px; font-weight: bold; border: 1px solid #ddd; padding: 6px; border-radius: 6px; text-align: center; outline: none; color: var(--kv-blue);">
             </div>
 
-            <div style="width: 120px; text-align: right;">
-                <div style="font-weight: bold; color: #333;">${(price * item.qty).toLocaleString()}</div>
-                <div style="font-size: 11px; color: #999;">${price.toLocaleString()}</div>
+            <div style="width: 120px; text-align: right; color: #555;">
+                ${item.price.toLocaleString('vi-VN')}
+            </div>
+
+            <div style="width: 120px; text-align: right; font-weight: bold; color: var(--kv-blue);">
+                ${rowTotal.toLocaleString('vi-VN')}
+            </div>
+
+            <div style="width: 40px; text-align: right;">
+                <i class="fa-solid fa-trash-can" 
+                    style="color: #ccc; cursor: pointer; transition: 0.2s;" 
+                    onmouseover="this.style.color='#d9534f'" 
+                    onmouseout="this.style.color='#ccc'" 
+                    onclick="removePOSItem(${index})"></i>
             </div>
         </div>`;
-    });
+    }).join('');
 
-    cartContainer.innerHTML = html;
-    updatePOSTotal(); // Cập nhật tổng tiền ở phía dưới
-};
+    // Sau khi vẽ xong, tính toán lại tổng tiền hóa đơn
+    calcPOSTotals();
+}
 
 function removePOSItem(index) { posTabs[activeTabIndex].items.splice(index, 1); renderPOSCart(); savePOSState(); }
 function updatePOSQty(index, val) { 
@@ -3959,26 +3880,34 @@ window.deleteInvoice = function(invoiceId) {
         const invIdx = allInvoices.findIndex(inv => inv.id === invoiceId);
         if (invIdx === -1) return;
 
-        allInvoices[invIdx].status = 'cancel';
+        const inv = allInvoices[invIdx];
+        if (inv.status === 'cancel') { 
+            showToast("Hóa đơn này đã hủy rồi!", "warning"); 
+            return; 
+        }
 
-        // Cập nhật tồn kho cho từng món
-        allInvoices[invIdx].items.forEach(item => {
+        // Logic Hoàn Kho: Duyệt từng món trong hóa đơn để cộng lại vào kho
+        inv.items.forEach(item => {
             const pIdx = allProducts.findIndex(p => p.id === item.productId);
             if (pIdx !== -1) {
+                // Tính toán tỷ lệ đơn vị tính (nếu có)
                 const rate = item.units && item.units[item.selectedUnitIdx] ? item.units[item.selectedUnitIdx].rate : 1;
                 allProducts[pIdx].stock += (item.qty * rate);
             }
         });
 
+        allInvoices[invIdx].status = 'cancel';
+
+        // Lưu dữ liệu mới
         localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
         localStorage.setItem('kv_products', JSON.stringify(allProducts));
         
-        // ĐẨY LÊN FIREBASE (QUAN TRỌNG)
         if (window.uploadToCloud) {
             window.uploadToCloud('invoices', allInvoices);
             window.uploadToCloud('products', allProducts);
         }
 
+        showToast("Đã hủy hóa đơn và hoàn kho!", "success");
         renderInvoices();
     });
 };
@@ -4254,9 +4183,10 @@ window.renderICCreatorFilter = function() {
 };
 
 window.initApp = function() {
-    console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ dữ liệu từ Cloud...");
+    console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ dữ liệu...");
 
     // 1. THIẾT LẬP LẮNG NGHE DỮ LIỆU REALTIME TỪ FIREBASE
+    // Việc này đảm bảo khi máy khác thay đổi dữ liệu, máy của bạn sẽ cập nhật ngay lập tức
     if (window.fbDb && window.fbOnValue) {
         const syncPaths = [
             { 
@@ -4264,6 +4194,7 @@ window.initApp = function() {
                 storageKey: 'kv_products', 
                 renderFunc: () => { 
                     window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
+                    // Chỉ vẽ lại nếu người dùng đang ở tab/màn hình tương ứng
                     if (localStorage.getItem('kv_current_tab') === 'tab-danh-sach-hang') renderProductList(); 
                     if (localStorage.getItem('kv_current_tab') === 'tab-thiet-lap-gia') renderPriceSetupTable();
                     if (localStorage.getItem('kv_current_view') === 'pos-view') renderPOSCart();
@@ -4280,22 +4211,9 @@ window.initApp = function() {
                 path: 'groups', 
                 storageKey: 'kv_groups', 
                 renderFunc: () => { 
-                    // Cập nhật biến toàn cục để các máy khác nhận được nhóm mới
+                    // Cập nhật biến toàn cục và vẽ lại toàn bộ giao diện nhóm hàng (Sidebar + Modal)
                     window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
                     if (typeof window.renderGroupData === 'function') window.renderGroupData(); 
-                } 
-            },
-            { 
-                path: 'pricebooks', 
-                storageKey: 'kv_pricebooks', 
-                renderFunc: () => { 
-                    // Cập nhật biến toàn cục để đồng bộ bảng giá giữa các máy
-                    window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
-                    if (localStorage.getItem('kv_current_tab') === 'tab-thiet-lap-gia') renderPriceSetupTable();
-                    if (localStorage.getItem('kv_current_view') === 'pos-view') {
-                        const pbSelect = document.getElementById('pos-pricebook-select');
-                        if (pbSelect) changePOSPriceBook(pbSelect.value);
-                    }
                 } 
             },
             { 
@@ -4311,24 +4229,17 @@ window.initApp = function() {
                 renderFunc: () => { 
                     if (localStorage.getItem('kv_current_tab') === 'tab-nhap-hang') renderImportOrders(); 
                 } 
-            },
-            { 
-                path: 'accounts', 
-                storageKey: 'kv_accounts', 
-                renderFunc: () => { 
-                    window.accounts = JSON.parse(localStorage.getItem('kv_accounts')) || [];
-                } 
             }
         ];
 
         syncPaths.forEach(item => {
             window.fbOnValue(window.fbRef(window.fbDb, item.path), (snapshot) => {
                 const data = snapshot.val();
-                // Chuyển đổi dữ liệu từ Firebase về dạng Array chuẩn
+                // Lọc bỏ giá trị null và chuyển đổi object thành array nếu cần
                 const dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data)) : [];
                 localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                 
-                // Thực thi hàm vẽ lại giao diện tương ứng với dữ liệu vừa nhận
+                // Thực thi hàm vẽ lại giao diện tương ứng
                 item.renderFunc();
             });
         });
@@ -4340,31 +4251,33 @@ window.initApp = function() {
     
     if (savedUser) {
         currentUser = JSON.parse(savedUser);
-        hideAll(); 
+        hideAll(); // Ẩn màn hình đăng nhập mặc định
         
         if (savedView === 'pos-view') {
+            // Nếu trước khi F5 đang ở màn hình bán hàng
             document.getElementById('pos-view').style.display = 'flex';
             initPOSData(); 
         } else {
+            // Nếu trước khi F5 đang ở màn hình quản lý (Dashboard)
             document.getElementById('dashboard-view').style.display = 'flex';
             
-            // Đảm bảo nạp lại biến toàn cục từ LocalStorage trước khi render
+            // Nạp lại dữ liệu nhóm hàng trước để các bộ lọc có dữ liệu
             window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
-            window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
-            
             if (typeof window.renderGroupData === 'function') window.renderGroupData();
 
+            // Mở lại tab cuối cùng đang xem (Tổng quan, Hàng hóa, Hóa đơn...)
             const lastTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
             openDashTab(lastTab);
         }
     } else {
+        // Nếu chưa đăng nhập, luôn hiển thị màn hình Login
         hideAll();
         document.getElementById('login-view').style.display = 'flex';
     }
 
     // 3. KHỞI TẠO CÁC TIỆN ÍCH HỆ THỐNG
     if (typeof window.initPrintStatusUI === 'function') {
-        window.initPrintStatusUI(); 
+        window.initPrintStatusUI(); // Hiển thị nút trạng thái in F2 ở góc màn hình
     }
 };
 // ==========================================
@@ -4960,16 +4873,3 @@ window.bulkDeleteProducts = function() {
         updateSelectedCount(); // Ẩn nút xóa hàng loạt
     });
 };
-// Tính năng: Click vào ô là bôi đen toàn bộ nội dung (Dành cho Search và Input số)
-document.addEventListener('focusin', function(e) {
-    if (e.target.tagName === 'INPUT' && (
-        e.target.id.includes('search') || 
-        e.target.id.includes('qty') || 
-        e.target.id.includes('price') ||
-        e.target.classList.contains('variant-input')
-    )) {
-        setTimeout(() => {
-            e.target.select();
-        }, 50); // Delay nhẹ để đảm bảo trình duyệt đã focus xong
-    }
-});
