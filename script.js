@@ -1440,10 +1440,12 @@ document.getElementById('ic-search-input').addEventListener('keydown', function(
 });
 
 function addICToList(productId) {
+    const sInput = document.getElementById('ic-search-input');
     document.getElementById('ic-search-dropdown').style.display = 'none';
-    document.getElementById('ic-search-input').value = '';
     
     const p = products.find(x => x.id === productId);
+    if (!p) return;
+
     const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1, price: p.price, isBase: true }];
 
     const existing = currentICItems.find(x => x.productId === productId);
@@ -1458,12 +1460,18 @@ function addICToList(productId) {
             selectedUnitIdx: 0,
             baseCost: p.cost || 0,
             cost: p.cost || 0,
-            baseSysStock: p.stock || 0,  // Tồn kho hệ thống gốc (số lượng cây)
-            sysStock: p.stock || 0,      // Tồn kho hiển thị trên giao diện
-            realQty: (p.stock || 0) + 1  // Thực tế đang đếm
+            baseSysStock: p.stock || 0,
+            sysStock: p.stock || 0,
+            realQty: (p.stock || 0) + 1
         });
     }
+    
     renderICItemsTable();
+
+    // Reset thanh tìm kiếm và bôi đen
+    sInput.value = '';
+    sInput.focus();
+    sInput.select();
 }
 // Hàm mới: Đổi đơn vị tính khi kiểm kho
 function changeICUnit(productId, newUnitIdx) {
@@ -2174,8 +2182,8 @@ document.getElementById('io-search-input').addEventListener('keydown', function(
 
 // Thêm hàng hóa vào danh sách (Không thay đổi nhiều, chỉ chuẩn hóa ID)
 function addIOToList(productId) {
+    const sInput = document.getElementById('io-search-input');
     document.getElementById('io-search-dropdown').style.display = 'none';
-    document.getElementById('io-search-input').value = '';
     
     const p = products.find(x => String(x.id) === String(productId));
     if(!p) return;
@@ -2199,7 +2207,13 @@ function addIOToList(productId) {
             qty: 1
         });
     }
+    
     renderIOItemsTable();
+
+    // Reset thanh tìm kiếm và bôi đen
+    sInput.value = '';
+    sInput.focus();
+    sInput.select();
 }
 
 window.removeIOItem = function(index) {
@@ -2621,8 +2635,16 @@ function closePOSTab(index, event) {
 }
 
 window.addPOSItem = function(productId, keepInput = false) {
+    const sInput = document.getElementById('pos-search-input');
     document.getElementById('pos-search-dropdown').style.display = 'none';
-    if (!keepInput) document.getElementById('pos-search-input').value = '';
+    
+    // Xử lý nội dung thanh tìm kiếm sau khi chọn
+    if (!keepInput) {
+        sInput.value = ''; 
+    } else {
+        sInput.focus();
+        sInput.select(); // Bôi đen để gõ đè mã mới
+    }
     
     const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
     const p = allProds.find(x => x.id === productId);
@@ -2634,15 +2656,27 @@ window.addPOSItem = function(productId, keepInput = false) {
     
     const existing = tab.items.find(x => x.productId === productId && x.selectedUnitIdx === 0);
     
-    if (existing) existing.qty += 1;
-    else tab.items.unshift({ 
-        productId: p.id, code: p.code, name: p.name, qty: 1, 
-        basePrice: activePrice, price: activePrice * productUnits[0].rate, 
-        units: productUnits, selectedUnitIdx: 0 
-    });
+    if (existing) {
+        existing.qty += 1;
+    } else {
+        tab.items.unshift({ 
+            productId: p.id, 
+            code: p.code, 
+            name: p.name, 
+            qty: 1, 
+            basePrice: activePrice, 
+            price: activePrice * productUnits[0].rate, 
+            units: productUnits, 
+            selectedUnitIdx: 0 
+        });
+    }
     
     renderPOSCart();
-    savePOSState(); // Lưu trạng thái
+    savePOSState();
+    
+    // Luôn trả lại tiêu điểm và bôi đen cho người dùng
+    sInput.focus();
+    sInput.select();
 };
 
 function renderPOSCart() {
@@ -3838,14 +3872,15 @@ document.addEventListener('keydown', function(e) {
                 }
                 break;
 
-            case 'F3':
-                e.preventDefault();
-                const searchInput = document.getElementById('pos-search-input');
-                if (searchInput) {
-                    searchInput.focus();
-                    searchInput.select(); // Bôi đen để gõ đè nhanh
-                }
-                break;
+            // Tìm đoạn case 'F3' trong document.addEventListener('keydown'...)
+case 'F3':
+    e.preventDefault();
+    const searchInput = document.getElementById('pos-search-input');
+    if (searchInput) {
+        searchInput.focus();
+        searchInput.select(); // Thêm dòng này để bôi đen khi bấm F3
+    }
+    break;
 
             case 'F9':
                 e.preventDefault();
@@ -4210,7 +4245,6 @@ window.initApp = function() {
                 path: 'groups', 
                 storageKey: 'kv_groups', 
                 renderFunc: () => { 
-                    // Cập nhật biến toàn cục để các máy khác nhận được nhóm mới
                     window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
                     if (typeof window.renderGroupData === 'function') window.renderGroupData(); 
                 } 
@@ -4219,7 +4253,6 @@ window.initApp = function() {
                 path: 'pricebooks', 
                 storageKey: 'kv_pricebooks', 
                 renderFunc: () => { 
-                    // Cập nhật biến toàn cục để đồng bộ bảng giá giữa các máy
                     window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
                     if (localStorage.getItem('kv_current_tab') === 'tab-thiet-lap-gia') renderPriceSetupTable();
                     if (localStorage.getItem('kv_current_view') === 'pos-view') {
@@ -4254,11 +4287,8 @@ window.initApp = function() {
         syncPaths.forEach(item => {
             window.fbOnValue(window.fbRef(window.fbDb, item.path), (snapshot) => {
                 const data = snapshot.val();
-                // Chuyển đổi dữ liệu từ Firebase về dạng Array chuẩn
                 const dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data)) : [];
                 localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
-                
-                // Thực thi hàm vẽ lại giao diện tương ứng với dữ liệu vừa nhận
                 item.renderFunc();
             });
         });
@@ -4277,11 +4307,8 @@ window.initApp = function() {
             initPOSData(); 
         } else {
             document.getElementById('dashboard-view').style.display = 'flex';
-            
-            // Đảm bảo nạp lại biến toàn cục từ LocalStorage trước khi render
             window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
             window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
-            
             if (typeof window.renderGroupData === 'function') window.renderGroupData();
 
             const lastTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
@@ -4292,10 +4319,30 @@ window.initApp = function() {
         document.getElementById('login-view').style.display = 'flex';
     }
 
-    // 3. KHỞI TẠO CÁC TIỆN ÍCH HỆ THỐNG
+    // 3. KHỞI TẠO CÁC TIỆN ÍCH HỆ THỐNG & SỰ KIỆN TỰ ĐỘNG BÔI ĐEN (SELECT)
     if (typeof window.initPrintStatusUI === 'function') {
         window.initPrintStatusUI(); 
     }
+
+    // --- ĐOẠN MÃ CẬP NHẬT TỰ ĐỘNG BÔI ĐEN CỦA BẠN ---
+    const searchInputs = [
+        '#pos-search-input', 
+        '#ic-search-input', 
+        '#io-search-input', 
+        '#search-product-manage', 
+        '#search-price-setup',
+        '#search-batch-update'
+    ];
+
+    searchInputs.forEach(selector => {
+        const el = document.querySelector(selector);
+        if (el) {
+            el.addEventListener('focus', function() {
+                this.select(); // Bôi đen toàn bộ văn bản khi trỏ chuột vào
+            });
+        }
+    });
+    // -----------------------------------------------
 };
 // ==========================================
 // TÍNH NĂNG XUẤT FILE EXCEL HÀNG HÓA
@@ -4890,3 +4937,20 @@ window.bulkDeleteProducts = function() {
         updateSelectedCount(); // Ẩn nút xóa hàng loạt
     });
 };
+// Tự động bôi đen khi click chuột vào thanh tìm kiếm tại các màn hình
+const searchInputs = [
+    'pos-search-input', // Thanh tìm kiếm Bán hàng
+    'ic-search-input',  // Thanh tìm kiếm Kiểm kho
+    'io-search-input',  // Thanh tìm kiếm Nhập hàng
+    'search-product-manage', // Tìm kiếm danh sách hàng hóa
+    'search-price-setup'     // Tìm kiếm thiết lập giá
+];
+
+searchInputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+        el.addEventListener('focus', function() {
+            this.select(); // Bôi đen toàn bộ nội dung trong ô
+        });
+    }
+});
