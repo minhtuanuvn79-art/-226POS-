@@ -261,49 +261,28 @@ function saveEditAccount() {
  * @param {HTMLElement} navElement - Phần tử menu được click (không bắt buộc)
  */
 function openDashTab(tabId, navElement = null) {
-    // 1. Lưu trạng thái vào bộ nhớ
     localStorage.setItem('kv_current_tab', tabId);
 
-    // 2. Cập nhật giao diện Menu (Active màu hồng)
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     if (navElement) {
         navElement.classList.add('active');
-    } else {
-        const activeNav = document.querySelector(`.nav-item[onclick*="${tabId}"]`) || 
-                          document.querySelector(`.dropdown-menu li[onclick*="${tabId}"]`)?.closest('.nav-item');
-        if (activeNav) activeNav.classList.add('active');
     }
 
-    // 3. Hiển thị đúng vùng nội dung của Tab
     document.querySelectorAll('.tab-section').forEach(el => el.classList.remove('active'));
     const targetTab = document.getElementById(tabId);
     if (targetTab) targetTab.classList.add('active');
 
-    // 4. Kích hoạt render dữ liệu tươi cho từng tab
+    // Nạp lại biến local từ localStorage trước khi vẽ bảng để đồng bộ dữ liệu máy khác
+    window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
+    window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+
     switch (tabId) {
-        case 'tab-danh-sach-hang':
-            renderProductList();
-            break;
-        case 'tab-thiet-lap-gia':
-            renderPriceBookSidebar();
-            renderPriceSetupTable();
-            break;
-        case 'tab-hoa-don':
-            renderInvoices(); 
-            window.renderInvCreatorFilter();
-            break;
-        case 'tab-nhap-hang':
-            window.renderImpCreatorFilter(); // Nạp tên Admin vào dropdown người tạo phiếu nhập
-            renderImportOrders();
-            break;
-        case 'tab-kiem-kho':
-            // QUAN TRỌNG: Gọi nạp tên nhân viên Admin TRƯỚC KHI vẽ bảng
-            if (typeof window.renderICCreatorFilter === 'function') window.renderICCreatorFilter(); 
-            renderInventoryChecks();
-            break;
-        case 'tab-tong-quan':
-            if (typeof window.renderDashboard === 'function') window.renderDashboard();
-            break;
+        case 'tab-danh-sach-hang': renderProductList(); break;
+        case 'tab-thiet-lap-gia': renderPriceSetupTable(); break;
+        case 'tab-hoa-don': renderInvoices(); break;
+        case 'tab-nhap-hang': renderImportOrders(); break;
+        case 'tab-kiem-kho': renderInventoryChecks(); break;
+        case 'tab-tong-quan': if (typeof renderDashboard === 'function') renderDashboard(); break;
     }
 }
 
@@ -4224,77 +4203,45 @@ window.initApp = function() {
     // 1. THIẾT LẬP LẮNG NGHE DỮ LIỆU REALTIME TỪ FIREBASE
     if (window.fbDb && window.fbOnValue) {
         const syncPaths = [
-            { 
-                path: 'products', 
-                storageKey: 'kv_products', 
-                renderFunc: () => { 
-                    window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
-                    if (localStorage.getItem('kv_current_tab') === 'tab-danh-sach-hang') renderProductList(); 
-                    if (localStorage.getItem('kv_current_tab') === 'tab-thiet-lap-gia') renderPriceSetupTable();
-                    if (localStorage.getItem('kv_current_view') === 'pos-view') renderPOSCart();
-                } 
-            },
-            { 
-                path: 'invoices', 
-                storageKey: 'kv_invoices', 
-                renderFunc: () => { 
-                    if (localStorage.getItem('kv_current_tab') === 'tab-hoa-don') renderInvoices(); 
-                } 
-            },
-            { 
-                path: 'groups', 
-                storageKey: 'kv_groups', 
-                renderFunc: () => { 
-                    window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
-                    if (typeof window.renderGroupData === 'function') window.renderGroupData(); 
-                } 
-            },
-            { 
-                path: 'pricebooks', 
-                storageKey: 'kv_pricebooks', 
-                renderFunc: () => { 
-                    window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
-                    if (localStorage.getItem('kv_current_tab') === 'tab-thiet-lap-gia') renderPriceSetupTable();
-                    if (localStorage.getItem('kv_current_view') === 'pos-view') {
-                        const pbSelect = document.getElementById('pos-pricebook-select');
-                        if (pbSelect) changePOSPriceBook(pbSelect.value);
-                    }
-                } 
-            },
-            { 
-                path: 'inventory_checks', 
-                storageKey: 'kv_inventory_checks', 
-                renderFunc: () => { 
-                    if (localStorage.getItem('kv_current_tab') === 'tab-kiem-kho') renderInventoryChecks(); 
-                } 
-            },
-            { 
-                path: 'import_orders', 
-                storageKey: 'kv_import_orders', 
-                renderFunc: () => { 
-                    if (localStorage.getItem('kv_current_tab') === 'tab-nhap-hang') renderImportOrders(); 
-                } 
-            },
-            { 
-                path: 'accounts', 
-                storageKey: 'kv_accounts', 
-                renderFunc: () => { 
-                    window.accounts = JSON.parse(localStorage.getItem('kv_accounts')) || [];
-                } 
-            }
+            { path: 'products', storageKey: 'kv_products' },
+            { path: 'invoices', storageKey: 'kv_invoices' },
+            { path: 'groups', storageKey: 'kv_groups' },
+            { path: 'pricebooks', storageKey: 'kv_pricebooks' },
+            { path: 'inventory_checks', storageKey: 'kv_inventory_checks' },
+            { path: 'import_orders', storageKey: 'kv_import_orders' },
+            { path: 'accounts', storageKey: 'kv_accounts' }
         ];
 
         syncPaths.forEach(item => {
-            window.fbOnValue(window.fbRef(window.fbDb, item.path), (snapshot) => {
+            const dbRef = window.fbRef(window.fbDb, item.path);
+            window.fbOnValue(dbRef, (snapshot) => {
                 const data = snapshot.val();
+                // Khắc phục lỗi: Nếu Cloud hoặc máy mới chưa có dữ liệu, gán mảng rỗng [] thay vì null/undefined
                 const dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data)) : [];
                 localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
-                item.renderFunc();
+                
+                // Cập nhật biến toàn cục ngay lập tức để tránh lỗi undefined khi render
+                if (item.path === 'products') window.products = dataArray;
+                if (item.path === 'groups') window.productGroups = dataArray;
+                if (item.path === 'pricebooks') window.priceBooks = dataArray;
+                if (item.path === 'accounts') window.accounts = dataArray;
+
+                // Tự động vẽ lại màn hình hiện tại khi có dữ liệu mới từ máy khác đẩy lên
+                const currentTab = localStorage.getItem('kv_current_tab');
+                const currentView = localStorage.getItem('kv_current_view');
+
+                if (currentView === 'pos-view') {
+                    if (typeof renderPOSCart === 'function') renderPOSCart();
+                } else if (currentTab) {
+                    openDashTab(currentTab);
+                }
+            }, (error) => {
+                console.error(`❌ Lỗi đồng bộ đường dẫn ${item.path}:`, error);
             });
         });
     }
 
-    // 2. KHÔI PHỤC TRẠNG THÁI ĐĂNG NHẬP VÀ ĐIỀU HƯỚNG MÀN HÌNH
+    // 2. KHÔI PHỤC TRẠNG THÁI ĐĂNG NHẬP (Chống lỗi trắng trang khi F5)
     const savedUser = localStorage.getItem('kv_current_user');
     const savedView = localStorage.getItem('kv_current_view');
     
@@ -4307,10 +4254,7 @@ window.initApp = function() {
             initPOSData(); 
         } else {
             document.getElementById('dashboard-view').style.display = 'flex';
-            window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
-            window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
-            if (typeof window.renderGroupData === 'function') window.renderGroupData();
-
+            document.getElementById('dash-user-name').innerText = currentUser.fullname || "Nhân viên";
             const lastTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
             openDashTab(lastTab);
         }
@@ -4319,30 +4263,17 @@ window.initApp = function() {
         document.getElementById('login-view').style.display = 'flex';
     }
 
-    // 3. KHỞI TẠO CÁC TIỆN ÍCH HỆ THỐNG & SỰ KIỆN TỰ ĐỘNG BÔI ĐEN (SELECT)
-    if (typeof window.initPrintStatusUI === 'function') {
-        window.initPrintStatusUI(); 
-    }
-
-    // --- ĐOẠN MÃ CẬP NHẬT TỰ ĐỘNG BÔI ĐEN CỦA BẠN ---
-    const searchInputs = [
-        '#pos-search-input', 
-        '#ic-search-input', 
-        '#io-search-input', 
-        '#search-product-manage', 
-        '#search-price-setup',
-        '#search-batch-update'
+    // 3. TÍNH NĂNG TỰ ĐỘNG BÔI ĐEN KHI FOCUS (Yêu cầu trước của bạn)
+    const searchSelectors = [
+        '#pos-search-input', '#ic-search-input', '#io-search-input',
+        '#search-product-manage', '#search-price-setup', '#search-batch-update', '#search-invoice'
     ];
-
-    searchInputs.forEach(selector => {
+    searchSelectors.forEach(selector => {
         const el = document.querySelector(selector);
         if (el) {
-            el.addEventListener('focus', function() {
-                this.select(); // Bôi đen toàn bộ văn bản khi trỏ chuột vào
-            });
+            el.addEventListener('focus', function() { this.select(); });
         }
     });
-    // -----------------------------------------------
 };
 // ==========================================
 // TÍNH NĂNG XUẤT FILE EXCEL HÀNG HÓA
