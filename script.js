@@ -2479,137 +2479,85 @@ window.savePOSState = function() {
 };
 
 window.initPOSData = function() {
-    // 1. KHỞI TẠO DANH SÁCH TAB (HÓA ĐƠN)
-    // Nếu chưa có tab nào (lần đầu vào POS), tạo Tab 1 mặc định
+    // 1. Khởi tạo danh sách Tab nếu chưa có
     if (posTabs.length === 0) {
         posTabs.push({
             id: 'tab-' + Date.now(),
             name: 'Hóa đơn 1',
             cart: [],
-            priceBook: 'default',
+            priceBook: 'default', // Bảng giá mặc định
             customer: null
         });
         activeTabIndex = 0;
     }
 
-    // 2. VẼ GIAO DIỆN
-    renderPOSTabs(); // Vẽ thanh tab phía trên
-    renderPOSCart(); // Vẽ giỏ hàng và danh sách hàng hóa trong giỏ
-
-    // 3. THIẾT LẬP Ô TÌM KIẾM (Xử lý quét mã và bôi đen)
-    const searchInput = document.getElementById('pos-search-input');
-    const searchDropdown = document.getElementById('pos-search-dropdown');
-
-    if (searchInput) {
-        // A. Tự động bôi đen khi focus (nhấn Tab hoặc click vào)
-        searchInput.addEventListener('focus', function() {
-            setTimeout(() => {
-                this.select();
-            }, 50);
+    // 2. Vẽ giao diện POS
+    renderPOSTabs();
+    renderPOSCart();
+    
+    // 3. Tự động bôi đen ô tìm kiếm khi click hoặc focus
+    const posSearchInput = document.getElementById('pos-search-input');
+    if (posSearchInput) {
+        // Sự kiện khi focus vào (nhấn Tab hoặc click)
+        posSearchInput.addEventListener('focus', function() {
+            setTimeout(() => { this.select(); }, 50);
         });
 
-        // B. Ngăn trình duyệt hủy bôi đen khi thả chuột (MouseUp)
-        searchInput.addEventListener('mouseup', function(e) {
+        // Xử lý riêng cho Click chuột để không bị mất bôi đen
+        posSearchInput.addEventListener('mouseup', function(e) {
             if (this.value !== "") {
                 e.preventDefault();
                 this.select();
             }
         });
-
-        // C. Xử lý sự kiện ENTER (Dành cho Máy quét mã vạch)
-        searchInput.onkeydown = function(e) {
-            if (e.key === 'Enter') {
-                const keyword = this.value.trim();
-                if (!keyword) return;
-
-                // Tìm kiếm hàng hóa dựa trên từ khóa (gồm cả mã vạch và tên viết tắt)
-                const results = window.searchPOSProduct(keyword);
-
-                if (results && results.length > 0) {
-                    // Nếu tìm thấy, lấy sản phẩm đầu tiên (khớp nhất) thêm vào giỏ
-                    addPOSItem(results[0].id);
-                    
-                    // Xóa trắng ô tìm kiếm để sẵn sàng quét mã tiếp theo
-                    this.value = '';
-                    if (searchDropdown) searchDropdown.style.display = 'none';
-                    
-                    // Giữ focus và bôi đen (để gõ đè nếu cần)
-                    this.focus();
-                } else {
-                    console.warn("Không tìm thấy sản phẩm với mã này.");
-                }
-            }
-        };
-
-        // D. Luôn đưa con trỏ vào ô tìm kiếm ngay khi nạp trang POS
-        searchInput.focus();
     }
 
-    // 4. CÀI ĐẶT "NAM CHÂM" FOCUS (CHỐNG MẤT TIÊU ĐIỂM)
-    // Nếu người dùng click vào vùng trống, tự động trả con trỏ về ô tìm kiếm
-    const posView = document.getElementById('pos-view');
-    if (posView) {
-        posView.onclick = function(e) {
-            // Danh sách các thẻ KHÔNG được cướp focus (để người dùng còn nhập số, chọn đơn vị...)
-            const ignoreTags = ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A', 'I', 'OPTION'];
-            
-            // Kiểm tra xem vị trí click có phải là ô nhập liệu không
-            if (!ignoreTags.includes(e.target.tagName)) {
-                if (searchInput) {
-                    searchInput.focus();
-                    // Không dùng select() ở đây để tránh phiền toái khi đang xem dở kết quả
-                }
-            }
-        };
-    }
-
-    // 5. KHỞI TẠO PHÍM TẮT (SHORTCUTS)
+    // 4. Khởi tạo phím tắt (F3 tìm kiếm, F10 thanh toán...)
     if (typeof window.initPOSShortcuts === 'function') {
         window.initPOSShortcuts();
     }
-
-    console.log("🚀 POS System: Đã sẵn sàng bán hàng tốc độ cao.");
 };
 
 window.searchPOSProduct = function(keyword) {
     const dropdown = document.getElementById('pos-search-dropdown');
-    if (!keyword || !keyword.trim()) { 
-        dropdown.style.display = 'none'; 
-        return []; // Trả về mảng rỗng
-    }
+    if (!keyword || !keyword.trim()) { dropdown.style.display = 'none'; return; }
     
     const kw = keyword.toLowerCase().trim();
-    const latestProducts = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
+    const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
-    // Tìm kiếm mờ
+    // NÂNG CẤP: Tìm kiếm mờ dựa trên mảng từ khóa
     const matches = latestProducts.filter(p => {
         const fullText = `${p.name} ${p.code} ${p.barcode}`.toLowerCase();
         return window.fuzzyMatch(fullText, kw);
     });
 
-    // Ưu tiên khớp mã hàng hoặc mã vạch chính xác (dành cho quét mã)
+    // Sắp xếp: Ưu tiên kết quả mà từ khóa xuất hiện ở đầu chuỗi (xác suất cao nhất)
     matches.sort((a, b) => {
-        if (a.code.toLowerCase() === kw || a.barcode === kw) return -1;
-        if (b.code.toLowerCase() === kw || b.barcode === kw) return 1;
-        return 0;
+        const aIndex = a.name.toLowerCase().indexOf(kw.split(' ')[0]);
+        const bIndex = b.name.toLowerCase().indexOf(kw.split(' ')[0]);
+        return aIndex - bIndex;
     });
 
     if (matches.length === 0) {
         dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy</div>';
-        dropdown.style.display = 'block';
     } else {
         dropdown.innerHTML = matches.map(p => {
             const currentTab = posTabs[activeTabIndex];
-            const price = getProductPrice(p, currentTab.priceBook).price;
-            return `<div class="pos-dropdown-item" onclick="addPOSItem('${p.id}')">
-                <div><strong>${p.code}</strong> - ${p.name}</div>
-                <div style="font-weight:bold; color:var(--kv-pink);">${price.toLocaleString()}</div>
+            const price = getProductPrice(p, currentTab.priceBook);
+            const stockColor = (p.stock <= 0) ? '#d9534f' : (p.stock <= 5 ? '#f0ad4e' : '#888');
+            
+            return `<div class="pos-dropdown-item" onclick="addPOSItem('${p.id}')" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="flex:1;">
+                    <strong style="color: var(--kv-blue);">${p.code}</strong> - <strong>${p.name}</strong>
+                    <div style="font-size: 12px; color: ${stockColor}; font-weight: 500;">
+                        <i class="fa-solid fa-box-open"></i> Tồn: ${p.stock || 0}
+                    </div>
+                </div>
+                <div style="font-weight:bold; color:var(--kv-pink); font-size: 14px;">${price.toLocaleString()}</div>
             </div>`;
         }).join('');
-        dropdown.style.display = 'block';
     }
-    
-    return matches; // Trả về danh sách để xử lý Enter
+    dropdown.style.display = 'block';
 };
 
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
@@ -2656,31 +2604,18 @@ function getProductPrice(productObj, priceBookId) {
 }
 
 let isTabCreating = false; // Thêm biến này ở đầu file hoặc ngay trên hàm
-window.addPOSTab = function() {
-    // 1. Tạo tab mới
-    const newTab = {
-        id: 'tab-' + Date.now(),
-        name: 'Hóa đơn ' + (posTabs.length + 1),
-        cart: [],
-        priceBook: 'default',
-        customer: null
-    };
-    posTabs.push(newTab);
-    activeTabIndex = posTabs.length - 1;
+function addPOSTab() {
+    if (isTabCreating) return; // Nếu đang tạo thì thoát luôn
+    isTabCreating = true;
+    
+    tabCounter++;
+    posTabs.push({ id: Date.now(), name: `Hóa đơn ${tabCounter}`, items: [], priceBook: 'default', discount: 0, extraFee: 0 });
+    switchPOSTab(posTabs.length - 1);
+    savePOSState();
 
-    // 2. Vẽ lại giao diện
-    renderPOSTabs();
-    renderPOSCart();
-
-    // 3. QUAN TRỌNG: Trả lại focus và bôi đen ô tìm kiếm
-    const searchInput = document.getElementById('pos-search-input');
-    if (searchInput) {
-        searchInput.focus();
-        setTimeout(() => {
-            searchInput.select();
-        }, 50);
-    }
-};
+    // Mở khóa sau 200ms
+    setTimeout(() => { isTabCreating = false; }, 200);
+}
 
 function renderPOSTabs() {
     const container = document.getElementById('pos-tabs-container');
