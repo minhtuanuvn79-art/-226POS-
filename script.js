@@ -461,13 +461,8 @@ function saveGroup() {
     const name = document.getElementById('group-name').value.trim();
     const parentId = document.getElementById('group-parent').value;
     
-    // 1. Kiểm tra dữ liệu đầu vào
-    if(!name) { 
-        alert("Vui lòng nhập tên nhóm!"); 
-        return; 
-    }
+    if(!name) { alert("Vui lòng nhập tên nhóm!"); return; }
 
-    // 2. Cập nhật hoặc Thêm mới vào mảng productGroups
     if(editingGroupId) {
         const g = productGroups.find(x => x.id === editingGroupId);
         if (g) {
@@ -475,6 +470,7 @@ function saveGroup() {
             g.parentId = parentId || null;
         }
     } else {
+        // Thêm vào biến toàn cục đang sử dụng
         productGroups.push({
             id: 'g_' + Date.now(),
             name: name,
@@ -482,24 +478,17 @@ function saveGroup() {
         });
     }
 
-    // 3. Lưu dữ liệu vào LocalStorage của trình duyệt
+    // Cập nhật lại localStorage để đồng bộ nội bộ
     localStorage.setItem('kv_groups', JSON.stringify(productGroups));
-    if (typeof window.uploadToCloud === 'function') window.uploadToCloud('groups', productGroups);
 
-    // 4. ĐỒNG BỘ LÊN FIREBASE CLOUD (Điểm quan trọng nhất)
+    // Đẩy lên Firebase
     if (typeof window.uploadToCloud === 'function') {
-        // Đẩy toàn bộ mảng nhóm hàng lên đường dẫn 'groups' trên database
         window.uploadToCloud('groups', productGroups);
-    } else {
-        console.warn("Hàm uploadToCloud chưa sẵn sàng, dữ liệu chỉ lưu tại máy này.");
     }
 
-    // 5. Cập nhật giao diện và đóng Modal
     closeGroupModal();
     renderGroupData(); 
-    renderProductList(); // Cập nhật lại bộ lọc ở sidebar hàng hóa
-    
-    // Reset trạng thái sửa
+    renderProductList(); 
     editingGroupId = null;
 }
 
@@ -1102,17 +1091,21 @@ function updateMainProductPrice(productId, newPrice) {
 }
 
 function updatePriceBookValue(pbId, productId, newPrice) {
+    // 1. Tìm bảng giá trong biến toàn cục
     const pb = priceBooks.find(x => x.id === pbId);
     if (pb) {
-        if (newPrice === '') {
+        if (!pb.prices) pb.prices = {}; // Đảm bảo object prices tồn tại
+        
+        if (newPrice === '' || newPrice === null) {
             delete pb.prices[productId]; 
         } else {
             pb.prices[productId] = parseFloat(newPrice);
         }
-        localStorage.setItem('kv_pricebooks', JSON.stringify(priceBooks));
-        if (typeof window.uploadToCloud === 'function') window.uploadToCloud('pricebooks', priceBooks);
         
-        // THÊM DÒNG NÀY:
+        // 2. Lưu vào bộ nhớ máy
+        localStorage.setItem('kv_pricebooks', JSON.stringify(priceBooks));
+        
+        // 3. Đẩy lên Cloud ngay lập tức
         if (typeof window.uploadToCloud === 'function') {
             window.uploadToCloud('pricebooks', priceBooks);
         }
@@ -2344,6 +2337,7 @@ function calculateIOTotals() {
     document.getElementById('io-debt').innerText = debt.toLocaleString('vi-VN');
 }
 window.saveImportOrder = function(action) {
+    // 1. Kiểm tra nếu chưa có hàng hóa trong danh sách
     if (currentIOItems.length === 0) { 
         alert("Vui lòng chọn ít nhất 1 mặt hàng!"); 
         return; 
@@ -2353,6 +2347,7 @@ window.saveImportOrder = function(action) {
     const totalAmount = parseFloat(document.getElementById('io-total-amount').dataset.val) || 0;
     const ioId = document.getElementById('io-code').value;
 
+    // 2. Thu thập dữ liệu phiếu nhập
     const ioData = {
         id: ioId,
         timestamp: editingIOId ? (allImportOrders.find(x => x.id === editingIOId)?.timestamp || Date.now()) : Date.now(),
@@ -2369,6 +2364,7 @@ window.saveImportOrder = function(action) {
         mustPay: totalAmount - (window.parseCurrency(document.getElementById('io-discount').value) || 0) + (window.parseCurrency(document.getElementById('io-extra-fee').value) || 0)
     };
 
+    // 3. Xử lý lưu đè nếu đang sửa hoặc thêm mới
     if (editingIOId) {
         const idx = allImportOrders.findIndex(x => x.id === editingIOId);
         if (idx !== -1) allImportOrders[idx] = ioData;
@@ -2376,6 +2372,7 @@ window.saveImportOrder = function(action) {
         allImportOrders.unshift(ioData);
     }
 
+    // 4. LOGIC QUAN TRỌNG: Cập nhật Kho và Giá vốn khi Hoàn thành
     if (action === 'done') {
         let latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
         currentIOItems.forEach(item => {
@@ -2383,19 +2380,31 @@ window.saveImportOrder = function(action) {
             if (prod) {
                 const rate = item.units[item.selectedUnitIdx]?.rate || 1;
                 const qtyInBaseUnit = item.qty * rate;
+                
+                // Cộng dồn tồn kho
                 prod.stock = (prod.stock || 0) + qtyInBaseUnit;
+                
+                // Cập nhật giá vốn mới (quy đổi về đơn vị cơ bản)
+                // Giúp hiển thị đúng ở ô "Giá nhập cuối" trong thiết lập giá
+                prod.cost = item.cost / rate; 
             }
         });
+        
+        // Lưu và đẩy sản phẩm lên Cloud
         localStorage.setItem('kv_products', JSON.stringify(latestProducts));
         if (window.uploadToCloud) window.uploadToCloud('products', latestProducts);
     }
 
+    // 5. Lưu phiếu nhập và đẩy lên Cloud
     localStorage.setItem('kv_import_orders', JSON.stringify(allImportOrders));
     if (window.uploadToCloud) window.uploadToCloud('import_orders', allImportOrders);
 
-    editingIOId = null; // Reset ID đang sửa
+    // 6. Reset trạng thái và quay về danh sách
+    editingIOId = null; 
     closeCreateImportView();
     renderImportOrders();
+    
+    // Thông báo cho người dùng
     alert(action === 'done' ? "Nhập hàng thành công!" : "Đã lưu phiếu tạm.");
 };
 window.toggleICDateFilter = function() {
@@ -3880,34 +3889,26 @@ window.deleteInvoice = function(invoiceId) {
         const invIdx = allInvoices.findIndex(inv => inv.id === invoiceId);
         if (invIdx === -1) return;
 
-        const inv = allInvoices[invIdx];
-        if (inv.status === 'cancel') { 
-            showToast("Hóa đơn này đã hủy rồi!", "warning"); 
-            return; 
-        }
+        allInvoices[invIdx].status = 'cancel';
 
-        // Logic Hoàn Kho: Duyệt từng món trong hóa đơn để cộng lại vào kho
-        inv.items.forEach(item => {
+        // Cập nhật tồn kho cho từng món
+        allInvoices[invIdx].items.forEach(item => {
             const pIdx = allProducts.findIndex(p => p.id === item.productId);
             if (pIdx !== -1) {
-                // Tính toán tỷ lệ đơn vị tính (nếu có)
                 const rate = item.units && item.units[item.selectedUnitIdx] ? item.units[item.selectedUnitIdx].rate : 1;
                 allProducts[pIdx].stock += (item.qty * rate);
             }
         });
 
-        allInvoices[invIdx].status = 'cancel';
-
-        // Lưu dữ liệu mới
         localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
         localStorage.setItem('kv_products', JSON.stringify(allProducts));
         
+        // ĐẨY LÊN FIREBASE (QUAN TRỌNG)
         if (window.uploadToCloud) {
             window.uploadToCloud('invoices', allInvoices);
             window.uploadToCloud('products', allProducts);
         }
 
-        showToast("Đã hủy hóa đơn và hoàn kho!", "success");
         renderInvoices();
     });
 };
@@ -4183,10 +4184,9 @@ window.renderICCreatorFilter = function() {
 };
 
 window.initApp = function() {
-    console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ dữ liệu...");
+    console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ dữ liệu từ Cloud...");
 
     // 1. THIẾT LẬP LẮNG NGHE DỮ LIỆU REALTIME TỪ FIREBASE
-    // Việc này đảm bảo khi máy khác thay đổi dữ liệu, máy của bạn sẽ cập nhật ngay lập tức
     if (window.fbDb && window.fbOnValue) {
         const syncPaths = [
             { 
@@ -4194,7 +4194,6 @@ window.initApp = function() {
                 storageKey: 'kv_products', 
                 renderFunc: () => { 
                     window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
-                    // Chỉ vẽ lại nếu người dùng đang ở tab/màn hình tương ứng
                     if (localStorage.getItem('kv_current_tab') === 'tab-danh-sach-hang') renderProductList(); 
                     if (localStorage.getItem('kv_current_tab') === 'tab-thiet-lap-gia') renderPriceSetupTable();
                     if (localStorage.getItem('kv_current_view') === 'pos-view') renderPOSCart();
@@ -4211,9 +4210,22 @@ window.initApp = function() {
                 path: 'groups', 
                 storageKey: 'kv_groups', 
                 renderFunc: () => { 
-                    // Cập nhật biến toàn cục và vẽ lại toàn bộ giao diện nhóm hàng (Sidebar + Modal)
+                    // Cập nhật biến toàn cục để các máy khác nhận được nhóm mới
                     window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
                     if (typeof window.renderGroupData === 'function') window.renderGroupData(); 
+                } 
+            },
+            { 
+                path: 'pricebooks', 
+                storageKey: 'kv_pricebooks', 
+                renderFunc: () => { 
+                    // Cập nhật biến toàn cục để đồng bộ bảng giá giữa các máy
+                    window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+                    if (localStorage.getItem('kv_current_tab') === 'tab-thiet-lap-gia') renderPriceSetupTable();
+                    if (localStorage.getItem('kv_current_view') === 'pos-view') {
+                        const pbSelect = document.getElementById('pos-pricebook-select');
+                        if (pbSelect) changePOSPriceBook(pbSelect.value);
+                    }
                 } 
             },
             { 
@@ -4229,17 +4241,24 @@ window.initApp = function() {
                 renderFunc: () => { 
                     if (localStorage.getItem('kv_current_tab') === 'tab-nhap-hang') renderImportOrders(); 
                 } 
+            },
+            { 
+                path: 'accounts', 
+                storageKey: 'kv_accounts', 
+                renderFunc: () => { 
+                    window.accounts = JSON.parse(localStorage.getItem('kv_accounts')) || [];
+                } 
             }
         ];
 
         syncPaths.forEach(item => {
             window.fbOnValue(window.fbRef(window.fbDb, item.path), (snapshot) => {
                 const data = snapshot.val();
-                // Lọc bỏ giá trị null và chuyển đổi object thành array nếu cần
+                // Chuyển đổi dữ liệu từ Firebase về dạng Array chuẩn
                 const dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data)) : [];
                 localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                 
-                // Thực thi hàm vẽ lại giao diện tương ứng
+                // Thực thi hàm vẽ lại giao diện tương ứng với dữ liệu vừa nhận
                 item.renderFunc();
             });
         });
@@ -4251,33 +4270,31 @@ window.initApp = function() {
     
     if (savedUser) {
         currentUser = JSON.parse(savedUser);
-        hideAll(); // Ẩn màn hình đăng nhập mặc định
+        hideAll(); 
         
         if (savedView === 'pos-view') {
-            // Nếu trước khi F5 đang ở màn hình bán hàng
             document.getElementById('pos-view').style.display = 'flex';
             initPOSData(); 
         } else {
-            // Nếu trước khi F5 đang ở màn hình quản lý (Dashboard)
             document.getElementById('dashboard-view').style.display = 'flex';
             
-            // Nạp lại dữ liệu nhóm hàng trước để các bộ lọc có dữ liệu
+            // Đảm bảo nạp lại biến toàn cục từ LocalStorage trước khi render
             window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+            window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+            
             if (typeof window.renderGroupData === 'function') window.renderGroupData();
 
-            // Mở lại tab cuối cùng đang xem (Tổng quan, Hàng hóa, Hóa đơn...)
             const lastTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
             openDashTab(lastTab);
         }
     } else {
-        // Nếu chưa đăng nhập, luôn hiển thị màn hình Login
         hideAll();
         document.getElementById('login-view').style.display = 'flex';
     }
 
     // 3. KHỞI TẠO CÁC TIỆN ÍCH HỆ THỐNG
     if (typeof window.initPrintStatusUI === 'function') {
-        window.initPrintStatusUI(); // Hiển thị nút trạng thái in F2 ở góc màn hình
+        window.initPrintStatusUI(); 
     }
 };
 // ==========================================
