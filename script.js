@@ -2426,7 +2426,7 @@ window.savePOSState = function() {
 };
 
 function initPOSData() {
-    // 1. Hiển thị thông tin người bán và đồng hồ
+    // 1. Hiển thị thông tin nhân viên và đồng hồ
     if(currentUser) {
         const sellerNameEl = document.getElementById('pos-seller-name');
         if(sellerNameEl) {
@@ -2442,7 +2442,7 @@ function initPOSData() {
         if(timeEl) timeEl.innerText = new Date().toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
     }, 1000);
 
-    // 2. Nạp danh sách Bảng giá vào dropdown TRƯỚC khi khôi phục dữ liệu
+    // 2. Nạp danh sách Bảng giá
     priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
     const pbSelect = document.getElementById('pos-pricebook-select');
     if(pbSelect) {
@@ -2453,21 +2453,31 @@ function initPOSData() {
         pbSelect.innerHTML = pbHtml;
     }
 
-    // 3. KHÔI PHỤC DỮ LIỆU TỪ BỘ NHỚ (F5 chống mất đơn)
-    const savedState = JSON.parse(localStorage.getItem('kv_pos_state'));
-    if (savedState && savedState.tabs && savedState.tabs.length > 0) {
-        posTabs = savedState.tabs;
-        activeTabIndex = savedState.activeIndex || 0;
-        tabCounter = savedState.counter || posTabs.length;
-        
-        // SỬA LỖI: Gọi switchPOSTab để đồng bộ toàn bộ giao diện (Bảng giá, Giảm giá, Phí thu thêm)
-        switchPOSTab(activeTabIndex);
+    // 3. KHÔI PHỤC DỮ LIỆU (F5 chống mất đơn)
+    const savedStateStr = localStorage.getItem('kv_pos_state');
+    if (savedStateStr) {
+        try {
+            const savedState = JSON.parse(savedStateStr);
+            if (savedState && savedState.tabs && savedState.tabs.length > 0) {
+                posTabs = savedState.tabs;
+                activeTabIndex = savedState.activeIndex || 0;
+                tabCounter = savedState.counter || posTabs.length;
+                
+                // Đồng bộ hóa giao diện với tab hiện tại
+                switchPOSTab(activeTabIndex);
+            } else {
+                window.clearPOS(); // Nếu dữ liệu trống, tạo mới màn hình bán hàng
+            }
+        } catch (e) {
+            console.error("Lỗi khôi phục POS:", e);
+            window.clearPOS();
+        }
     } else {
-        // Nếu không có dữ liệu cũ, tạo mới Tab đầu tiên
-        if(posTabs.length === 0) {
-            addPOSTab(); 
+        // Nếu vào lần đầu hoặc sau khi Clear sạch, khởi tạo Hóa đơn 1
+        if (typeof window.clearPOS === 'function') {
+            window.clearPOS();
         } else {
-            switchPOSTab(0);
+            addPOSTab();
         }
     }
 }
@@ -2814,7 +2824,7 @@ window.processCheckout = function() {
         status: 'done'
     };
 
-    // Trừ tồn kho
+    // 1. Trừ tồn kho
     tab.items.forEach(cartItem => {
         const prod = latestProds.find(p => p.id === cartItem.productId);
         if (prod) {
@@ -2826,7 +2836,7 @@ window.processCheckout = function() {
     let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
     allInvoices.unshift(newInvoice);
 
-    // Lưu dữ liệu
+    // 2. Lưu dữ liệu cục bộ và đồng bộ Cloud
     localStorage.setItem('kv_products', JSON.stringify(latestProds));
     localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
 
@@ -2835,47 +2845,70 @@ window.processCheckout = function() {
         window.uploadToCloud('products', latestProds);
     }
     
-    // --- LOGIC IN HÓA ĐƠN ĐÃ CẢI TIẾN ---
+    // 3. Xử lý in hóa đơn
     if (window.autoPrintMode) {
-        // Nếu ĐANG BẬT (F2): In ngay lập tức không hỏi
         window.printReceipt(newInvoice);
-    } 
-    // Nếu ĐANG TẮT: Không làm gì cả, bỏ qua bước in và thông báo thành công luôn
-    else {
-        console.log("Chế độ in đang tắt, bỏ qua bước in.");
+    } else {
         showToast("Thanh toán thành công!", "success");
     }
     
-    // ==========================================
-    // ĐÓNG TAB ĐÃ THANH TOÁN & QUẢN LÝ TAB TRỐNG
-    // ==========================================
-    posTabs.splice(activeTabIndex, 1); // Xóa tab hiện tại
+    // 4. QUAN TRỌNG: Đóng Tab đã thanh toán & cập nhật lại bộ nhớ
+    posTabs.splice(activeTabIndex, 1); 
 
     if (posTabs.length === 0) {
-        tabCounter = 0; // Reset đếm để tạo Hóa đơn 1
-        addPOSTab();    // Tạo tab mới tinh
+        // Nếu không còn tab nào, gọi hàm clear để reset về trạng thái trắng
+        if (typeof window.clearPOS === 'function') {
+            window.clearPOS();
+        } else {
+            // Nếu chưa có hàm clearPOS, khởi tạo tab mặc định
+            tabCounter = 1;
+            posTabs = [{ id: Date.now(), name: 'Hóa đơn 1', items: [], priceBook: 'default', discount: 0, extraFee: 0 }];
+            activeTabIndex = 0;
+            window.savePOSState();
+        }
     } else {
-        // Nhảy sang tab cuối cùng nếu còn khách đang chờ
-        activeTabIndex = posTabs.length - 1;
+        // Chuyển sang tab khách hàng tiếp theo (nếu có)
+        activeTabIndex = Math.max(0, posTabs.length - 1);
         switchPOSTab(activeTabIndex);
+        window.savePOSState(); // Cập nhật localStorage ngay lập tức
     }
 
-    // ==========================================
-    // LƯU LẠI TRẠNG THÁI (Xóa rác tab vừa thanh toán chống F5)
-    // ==========================================
-    if (typeof window.savePOSState === 'function') {
-        window.savePOSState();
-    }
-
-    // ==========================================
-    // TỰ ĐỘNG FOCUS VỀ Ô TÌM KIẾM SAU KHI THANH TOÁN
-    // ==========================================
+    // Tự động focus về ô tìm kiếm
     setTimeout(() => {
         const searchInput = document.getElementById('pos-search-input');
         if (searchInput) {
             searchInput.focus();
+            searchInput.select();
         }
-    }, 100); // Đợi 0.1s để giao diện render xong rồi mới focus
+    }, 150);
+};
+window.clearPOS = function() {
+    // 1. Reset mảng các tab về trạng thái mặc định (chỉ 1 hóa đơn trống)
+    tabCounter = 1;
+    posTabs = [{ 
+        id: Date.now(), 
+        name: 'Hóa đơn 1', 
+        items: [], 
+        priceBook: 'default', 
+        discount: 0, 
+        extraFee: 0 
+    }];
+    activeTabIndex = 0;
+
+    // 2. Xóa sạch dấu vết trong localStorage (Xóa key kv_pos_state)
+    localStorage.removeItem('kv_pos_state');
+
+    // 3. Vẽ lại giao diện trắng
+    if (typeof renderPOSTabs === 'function') renderPOSTabs();
+    if (typeof renderPOSCart === 'function') renderPOSCart();
+    
+    // Đưa các ô input về 0
+    const discEl = document.getElementById('pos-discount');
+    const feeEl = document.getElementById('pos-extra-fee');
+    if (discEl) discEl.value = '0';
+    if (feeEl) feeEl.value = '0';
+
+    console.log("🧹 Đã dọn sạch dữ liệu bán hàng tạm thời.");
 };
 
 
