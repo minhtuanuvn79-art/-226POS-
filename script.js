@@ -2479,85 +2479,125 @@ window.savePOSState = function() {
 };
 
 window.initPOSData = function() {
-    // 1. Khởi tạo danh sách Tab nếu chưa có
+    // 1. KHỞI TẠO DANH SÁCH TAB (HÓA ĐƠN)
     if (posTabs.length === 0) {
         posTabs.push({
             id: 'tab-' + Date.now(),
             name: 'Hóa đơn 1',
             cart: [],
-            priceBook: 'default', // Bảng giá mặc định
+            priceBook: 'default',
             customer: null
         });
         activeTabIndex = 0;
     }
 
-    // 2. Vẽ giao diện POS
-    renderPOSTabs();
-    renderPOSCart();
-    
-    // 3. Tự động bôi đen ô tìm kiếm khi click hoặc focus
-    const posSearchInput = document.getElementById('pos-search-input');
-    if (posSearchInput) {
-        // Sự kiện khi focus vào (nhấn Tab hoặc click)
-        posSearchInput.addEventListener('focus', function() {
+    // 2. VẼ GIAO DIỆN
+    renderPOSTabs(); 
+    renderPOSCart(); 
+
+    // 3. THIẾT LẬP Ô TÌM KIẾM (Xử lý quét mã và bôi đen)
+    const searchInput = document.getElementById('pos-search-input');
+    const searchDropdown = document.getElementById('pos-search-dropdown');
+
+    if (searchInput) {
+        // Tự động bôi đen khi focus
+        searchInput.addEventListener('focus', function() {
             setTimeout(() => { this.select(); }, 50);
         });
 
-        // Xử lý riêng cho Click chuột để không bị mất bôi đen
-        posSearchInput.addEventListener('mouseup', function(e) {
+        // Giữ bôi đen khi thả chuột
+        searchInput.addEventListener('mouseup', function(e) {
             if (this.value !== "") {
                 e.preventDefault();
                 this.select();
             }
         });
+
+        // XỬ LÝ QUÉT MÃ VẠCH / NHẤN ENTER
+        searchInput.onkeydown = function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // Chặn xuống dòng hoặc submit form
+                const keyword = this.value.trim();
+                if (!keyword) return;
+
+                // Gọi hàm tìm kiếm và lấy danh sách kết quả
+                const results = window.searchPOSProduct(keyword);
+
+                if (results && results.length > 0) {
+                    // LẤY SẢN PHẨM ĐẦU TIÊN THÊM VÀO GIỎ
+                    addPOSItem(results[0].id);
+                    
+                    // Xóa trắng ô nhập để chờ lần quét tiếp theo
+                    this.value = '';
+                    if (searchDropdown) searchDropdown.style.display = 'none';
+                    
+                    // Giữ con trỏ chuột ở lại ô nhập
+                    this.focus();
+                } else {
+                    showToast("Không tìm thấy hàng hóa với mã này!", "error");
+                }
+            }
+        };
+
+        searchInput.focus();
     }
 
-    // 4. Khởi tạo phím tắt (F3 tìm kiếm, F10 thanh toán...)
-    if (typeof window.initPOSShortcuts === 'function') {
-        window.initPOSShortcuts();
+    // 4. "NAM CHÂM" FOCUS (Click ra ngoài tự quay lại ô tìm kiếm)
+    const posView = document.getElementById('pos-view');
+    if (posView) {
+        posView.onclick = function(e) {
+            const ignoreTags = ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A', 'I', 'OPTION'];
+            if (!ignoreTags.includes(e.target.tagName)) {
+                if (searchInput) searchInput.focus();
+            }
+        };
     }
+
+    if (typeof window.initPOSShortcuts === 'function') window.initPOSShortcuts();
+    console.log("🚀 POS System: Đã sẵn sàng quét mã vạch.");
 };
 
 window.searchPOSProduct = function(keyword) {
     const dropdown = document.getElementById('pos-search-dropdown');
-    if (!keyword || !keyword.trim()) { dropdown.style.display = 'none'; return; }
+    if (!keyword || !keyword.trim()) { 
+        dropdown.style.display = 'none'; 
+        return []; // TRẢ VỀ MẢNG RỖNG KHI TRỐNG
+    }
     
     const kw = keyword.toLowerCase().trim();
-    const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    const latestProducts = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
 
-    // NÂNG CẤP: Tìm kiếm mờ dựa trên mảng từ khóa
+    // Tìm kiếm mờ
     const matches = latestProducts.filter(p => {
         const fullText = `${p.name} ${p.code} ${p.barcode}`.toLowerCase();
         return window.fuzzyMatch(fullText, kw);
     });
 
-    // Sắp xếp: Ưu tiên kết quả mà từ khóa xuất hiện ở đầu chuỗi (xác suất cao nhất)
+    // ƯU TIÊN: Đưa mã khớp 100% (mã vạch hoặc mã hàng) lên đầu danh sách để máy quét nhận diện đúng
     matches.sort((a, b) => {
-        const aIndex = a.name.toLowerCase().indexOf(kw.split(' ')[0]);
-        const bIndex = b.name.toLowerCase().indexOf(kw.split(' ')[0]);
-        return aIndex - bIndex;
+        const aExact = (a.code.toLowerCase() === kw || a.barcode === kw);
+        const bExact = (b.code.toLowerCase() === kw || b.barcode === kw);
+        if (aExact && !bExact) return -1;
+        if (!aExact && bExact) return 1;
+        return 0;
     });
 
     if (matches.length === 0) {
         dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy</div>';
+        dropdown.style.display = 'block';
     } else {
         dropdown.innerHTML = matches.map(p => {
             const currentTab = posTabs[activeTabIndex];
-            const price = getProductPrice(p, currentTab.priceBook);
-            const stockColor = (p.stock <= 0) ? '#d9534f' : (p.stock <= 5 ? '#f0ad4e' : '#888');
-            
-            return `<div class="pos-dropdown-item" onclick="addPOSItem('${p.id}')" style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="flex:1;">
-                    <strong style="color: var(--kv-blue);">${p.code}</strong> - <strong>${p.name}</strong>
-                    <div style="font-size: 12px; color: ${stockColor}; font-weight: 500;">
-                        <i class="fa-solid fa-box-open"></i> Tồn: ${p.stock || 0}
-                    </div>
-                </div>
-                <div style="font-weight:bold; color:var(--kv-pink); font-size: 14px;">${price.toLocaleString()}</div>
+            const price = getProductPrice(p, currentTab.priceBook).price || p.price;
+            return `<div class="pos-dropdown-item" onclick="addPOSItem('${p.id}')">
+                <div><strong>${p.code}</strong> - ${p.name}</div>
+                <div style="font-weight:bold; color:var(--kv-pink);">${price.toLocaleString()}</div>
             </div>`;
         }).join('');
+        dropdown.style.display = 'block';
     }
-    dropdown.style.display = 'block';
+    
+    return matches; // TRẢ VỀ KẾT QUẢ ĐỂ HÀM ENTER SỬ DỤNG
 };
 
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
@@ -2604,18 +2644,31 @@ function getProductPrice(productObj, priceBookId) {
 }
 
 let isTabCreating = false; // Thêm biến này ở đầu file hoặc ngay trên hàm
-function addPOSTab() {
-    if (isTabCreating) return; // Nếu đang tạo thì thoát luôn
-    isTabCreating = true;
-    
-    tabCounter++;
-    posTabs.push({ id: Date.now(), name: `Hóa đơn ${tabCounter}`, items: [], priceBook: 'default', discount: 0, extraFee: 0 });
-    switchPOSTab(posTabs.length - 1);
-    savePOSState();
+window.addPOSTab = function() {
+    // 1. Tạo tab mới
+    const newTab = {
+        id: 'tab-' + Date.now(),
+        name: 'Hóa đơn ' + (posTabs.length + 1),
+        cart: [],
+        priceBook: 'default',
+        customer: null
+    };
+    posTabs.push(newTab);
+    activeTabIndex = posTabs.length - 1;
 
-    // Mở khóa sau 200ms
-    setTimeout(() => { isTabCreating = false; }, 200);
-}
+    // 2. Vẽ lại giao diện
+    renderPOSTabs();
+    renderPOSCart();
+
+    // 3. QUAN TRỌNG: Trả lại focus và bôi đen ô tìm kiếm
+    const searchInput = document.getElementById('pos-search-input');
+    if (searchInput) {
+        searchInput.focus();
+        setTimeout(() => {
+            searchInput.select();
+        }, 50);
+    }
+};
 
 function renderPOSTabs() {
     const container = document.getElementById('pos-tabs-container');
