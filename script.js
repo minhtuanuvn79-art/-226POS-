@@ -2426,26 +2426,29 @@ window.savePOSState = function() {
 };
 
 function initPOSData() {
-    // 1. Hiển thị thông tin nhân viên và đồng hồ
-    if(currentUser) {
+    // 1. Hiển thị thông tin nhân viên đang đăng nhập và khởi động đồng hồ hệ thống
+    if (currentUser) {
         const sellerNameEl = document.getElementById('pos-seller-name');
-        if(sellerNameEl) {
+        if (sellerNameEl) {
             sellerNameEl.innerHTML = `<i class="fa-solid fa-user-tie" style="color: #888; margin-right:5px;"></i> ${currentUser.fullname} <i class="fa-solid fa-caret-down" style="font-size: 11px; margin-left: 5px; color:#888;"></i>`;
         }
         const userNameEl = document.getElementById('pos-user-name');
-        if(userNameEl) userNameEl.innerText = currentUser.username;
+        if (userNameEl) userNameEl.innerText = currentUser.username;
     }
     
-    if(clockInterval) clearInterval(clockInterval);
+    // Cập nhật thời gian thực mỗi giây
+    if (clockInterval) clearInterval(clockInterval);
     clockInterval = setInterval(() => {
         const timeEl = document.getElementById('pos-current-time');
-        if(timeEl) timeEl.innerText = new Date().toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+        if (timeEl) timeEl.innerText = new Date().toLocaleString('vi-VN', { 
+            hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' 
+        });
     }, 1000);
 
-    // 2. Nạp danh sách Bảng giá
+    // 2. Nạp danh sách Bảng giá từ bộ nhớ vào thanh chọn POS
     priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
     const pbSelect = document.getElementById('pos-pricebook-select');
-    if(pbSelect) {
+    if (pbSelect) {
         let pbHtml = `<option value="default">Bảng giá chung</option>`;
         priceBooks.forEach(pb => { 
             pbHtml += `<option value="${pb.id}">${pb.name}</option>`; 
@@ -2453,32 +2456,32 @@ function initPOSData() {
         pbSelect.innerHTML = pbHtml;
     }
 
-    // 3. KHÔI PHỤC DỮ LIỆU (F5 chống mất đơn)
+    // 3. KHÔI PHỤC DỮ LIỆU POS (Xử lý chống lỗi F5 hiện lại đơn đã thanh toán)
     const savedStateStr = localStorage.getItem('kv_pos_state');
+    
     if (savedStateStr) {
         try {
             const savedState = JSON.parse(savedStateStr);
+            
+            // Kiểm tra nếu dữ liệu lưu trữ hợp lệ và có ít nhất một Tab
             if (savedState && savedState.tabs && savedState.tabs.length > 0) {
                 posTabs = savedState.tabs;
                 activeTabIndex = savedState.activeIndex || 0;
                 tabCounter = savedState.counter || posTabs.length;
                 
-                // Đồng bộ hóa giao diện với tab hiện tại
+                // Đồng bộ giao diện với Tab đang mở
                 switchPOSTab(activeTabIndex);
             } else {
-                window.clearPOS(); // Nếu dữ liệu trống, tạo mới màn hình bán hàng
+                // Nếu dữ liệu trong localStorage là mảng rỗng (vừa thanh toán xong), dọn sạch POS
+                window.clearPOS();
             }
         } catch (e) {
-            console.error("Lỗi khôi phục POS:", e);
+            console.error("Lỗi cấu trúc dữ liệu POS, đang khởi tạo lại:", e);
             window.clearPOS();
         }
     } else {
-        // Nếu vào lần đầu hoặc sau khi Clear sạch, khởi tạo Hóa đơn 1
-        if (typeof window.clearPOS === 'function') {
-            window.clearPOS();
-        } else {
-            addPOSTab();
-        }
+        // Nếu không có dữ liệu cũ (máy mới hoặc đã clear), tạo màn hình trắng
+        window.clearPOS();
     }
 }
 
@@ -2852,25 +2855,17 @@ window.processCheckout = function() {
         showToast("Thanh toán thành công!", "success");
     }
     
-    // 4. QUAN TRỌNG: Đóng Tab đã thanh toán & cập nhật lại bộ nhớ
+    // --- ĐOẠN QUAN TRỌNG NHẤT: Xử lý xóa Tab và cập nhật LocalStorage ---
     posTabs.splice(activeTabIndex, 1); 
 
     if (posTabs.length === 0) {
-        // Nếu không còn tab nào, gọi hàm clear để reset về trạng thái trắng
-        if (typeof window.clearPOS === 'function') {
-            window.clearPOS();
-        } else {
-            // Nếu chưa có hàm clearPOS, khởi tạo tab mặc định
-            tabCounter = 1;
-            posTabs = [{ id: Date.now(), name: 'Hóa đơn 1', items: [], priceBook: 'default', discount: 0, extraFee: 0 }];
-            activeTabIndex = 0;
-            window.savePOSState();
-        }
+        // Nếu hết sạch tab, gọi clearPOS để dọn sạch localStorage
+        window.clearPOS();
     } else {
-        // Chuyển sang tab khách hàng tiếp theo (nếu có)
+        // Nếu vẫn còn khách đang chờ ở tab khác, chuyển sang tab đó và LƯU TRẠNG THÁI MỚI
         activeTabIndex = Math.max(0, posTabs.length - 1);
         switchPOSTab(activeTabIndex);
-        window.savePOSState(); // Cập nhật localStorage ngay lập tức
+        window.savePOSState(); // Cập nhật lại bộ nhớ máy: Hóa đơn này đã biến mất
     }
 
     // Tự động focus về ô tìm kiếm
@@ -2883,7 +2878,7 @@ window.processCheckout = function() {
     }, 150);
 };
 window.clearPOS = function() {
-    // 1. Reset mảng các tab về trạng thái mặc định (chỉ 1 hóa đơn trống)
+    // 1. Reset về 1 tab trống duy nhất
     tabCounter = 1;
     posTabs = [{ 
         id: Date.now(), 
@@ -2895,20 +2890,18 @@ window.clearPOS = function() {
     }];
     activeTabIndex = 0;
 
-    // 2. Xóa sạch dấu vết trong localStorage (Xóa key kv_pos_state)
+    // 2. XÓA SẠCH DỮ LIỆU TẠM TRONG MÁY
     localStorage.removeItem('kv_pos_state');
 
     // 3. Vẽ lại giao diện trắng
-    if (typeof renderPOSTabs === 'function') renderPOSTabs();
-    if (typeof renderPOSCart === 'function') renderPOSCart();
+    renderPOSTabs();
+    renderPOSCart();
     
-    // Đưa các ô input về 0
-    const discEl = document.getElementById('pos-discount');
-    const feeEl = document.getElementById('pos-extra-fee');
-    if (discEl) discEl.value = '0';
-    if (feeEl) feeEl.value = '0';
+    // Đưa các ô nhập giảm giá/phí về 0
+    if (document.getElementById('pos-discount')) document.getElementById('pos-discount').value = '0';
+    if (document.getElementById('pos-extra-fee')) document.getElementById('pos-extra-fee').value = '0';
 
-    console.log("🧹 Đã dọn sạch dữ liệu bán hàng tạm thời.");
+    console.log("🧹 Đã dọn sạch bộ nhớ POS.");
 };
 
 
