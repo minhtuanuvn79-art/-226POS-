@@ -2480,7 +2480,7 @@ window.savePOSState = function() {
 
 window.initPOSData = function() {
     // 1. KHỞI TẠO DANH SÁCH TAB (HÓA ĐƠN)
-    // Nếu chưa có tab nào (lần đầu vào POS), tạo Tab 1
+    // Nếu chưa có tab nào (lần đầu vào POS), tạo Tab 1 mặc định
     if (posTabs.length === 0) {
         posTabs.push({
             id: 'tab-' + Date.now(),
@@ -2494,19 +2494,21 @@ window.initPOSData = function() {
 
     // 2. VẼ GIAO DIỆN
     renderPOSTabs(); // Vẽ thanh tab phía trên
-    renderPOSCart(); // Vẽ giỏ hàng bên dưới
+    renderPOSCart(); // Vẽ giỏ hàng và danh sách hàng hóa trong giỏ
 
-    // 3. THIẾT LẬP Ô TÌM KIẾM (TRỌNG TÂM TỐC ĐỘ BÁN HÀNG)
+    // 3. THIẾT LẬP Ô TÌM KIẾM (Xử lý quét mã và bôi đen)
     const searchInput = document.getElementById('pos-search-input');
+    const searchDropdown = document.getElementById('pos-search-dropdown');
+
     if (searchInput) {
-        // Tự động bôi đen khi focus (nhấn Tab hoặc click vào)
+        // A. Tự động bôi đen khi focus (nhấn Tab hoặc click vào)
         searchInput.addEventListener('focus', function() {
             setTimeout(() => {
                 this.select();
             }, 50);
         });
 
-        // Ngăn trình duyệt hủy bôi đen khi thả chuột (MouseUp)
+        // B. Ngăn trình duyệt hủy bôi đen khi thả chuột (MouseUp)
         searchInput.addEventListener('mouseup', function(e) {
             if (this.value !== "") {
                 e.preventDefault();
@@ -2514,75 +2516,100 @@ window.initPOSData = function() {
             }
         });
 
-        // Luôn đưa con trỏ vào ô tìm kiếm ngay khi vào màn hình POS
+        // C. Xử lý sự kiện ENTER (Dành cho Máy quét mã vạch)
+        searchInput.onkeydown = function(e) {
+            if (e.key === 'Enter') {
+                const keyword = this.value.trim();
+                if (!keyword) return;
+
+                // Tìm kiếm hàng hóa dựa trên từ khóa (gồm cả mã vạch và tên viết tắt)
+                const results = window.searchPOSProduct(keyword);
+
+                if (results && results.length > 0) {
+                    // Nếu tìm thấy, lấy sản phẩm đầu tiên (khớp nhất) thêm vào giỏ
+                    addPOSItem(results[0].id);
+                    
+                    // Xóa trắng ô tìm kiếm để sẵn sàng quét mã tiếp theo
+                    this.value = '';
+                    if (searchDropdown) searchDropdown.style.display = 'none';
+                    
+                    // Giữ focus và bôi đen (để gõ đè nếu cần)
+                    this.focus();
+                } else {
+                    console.warn("Không tìm thấy sản phẩm với mã này.");
+                }
+            }
+        };
+
+        // D. Luôn đưa con trỏ vào ô tìm kiếm ngay khi nạp trang POS
         searchInput.focus();
     }
 
-    // 4. CÀI ĐẶT "NAM CHÂM" FOCUS (TRÁNH MẤT CON TRỎ CHUỘT)
+    // 4. CÀI ĐẶT "NAM CHÂM" FOCUS (CHỐNG MẤT TIÊU ĐIỂM)
     // Nếu người dùng click vào vùng trống, tự động trả con trỏ về ô tìm kiếm
     const posView = document.getElementById('pos-view');
     if (posView) {
         posView.onclick = function(e) {
-            // Danh sách các thẻ KHÔNG được cướp focus (để người dùng còn nhập số lượng, chọn bảng giá...)
-            const ignoreTags = ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A', 'I'];
+            // Danh sách các thẻ KHÔNG được cướp focus (để người dùng còn nhập số, chọn đơn vị...)
+            const ignoreTags = ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A', 'I', 'OPTION'];
+            
+            // Kiểm tra xem vị trí click có phải là ô nhập liệu không
             if (!ignoreTags.includes(e.target.tagName)) {
                 if (searchInput) {
                     searchInput.focus();
-                    searchInput.select();
+                    // Không dùng select() ở đây để tránh phiền toái khi đang xem dở kết quả
                 }
             }
         };
     }
 
     // 5. KHỞI TẠO PHÍM TẮT (SHORTCUTS)
-    // Ví dụ: F3 tìm kiếm, F10 thanh toán, F2 thêm tab...
     if (typeof window.initPOSShortcuts === 'function') {
         window.initPOSShortcuts();
     }
 
-    console.log("✅ POS Data Initialized: Ready for high-speed sales.");
+    console.log("🚀 POS System: Đã sẵn sàng bán hàng tốc độ cao.");
 };
 
 window.searchPOSProduct = function(keyword) {
     const dropdown = document.getElementById('pos-search-dropdown');
-    if (!keyword || !keyword.trim()) { dropdown.style.display = 'none'; return; }
+    if (!keyword || !keyword.trim()) { 
+        dropdown.style.display = 'none'; 
+        return []; // Trả về mảng rỗng
+    }
     
     const kw = keyword.toLowerCase().trim();
-    const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    const latestProducts = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
 
-    // NÂNG CẤP: Tìm kiếm mờ dựa trên mảng từ khóa
+    // Tìm kiếm mờ
     const matches = latestProducts.filter(p => {
         const fullText = `${p.name} ${p.code} ${p.barcode}`.toLowerCase();
         return window.fuzzyMatch(fullText, kw);
     });
 
-    // Sắp xếp: Ưu tiên kết quả mà từ khóa xuất hiện ở đầu chuỗi (xác suất cao nhất)
+    // Ưu tiên khớp mã hàng hoặc mã vạch chính xác (dành cho quét mã)
     matches.sort((a, b) => {
-        const aIndex = a.name.toLowerCase().indexOf(kw.split(' ')[0]);
-        const bIndex = b.name.toLowerCase().indexOf(kw.split(' ')[0]);
-        return aIndex - bIndex;
+        if (a.code.toLowerCase() === kw || a.barcode === kw) return -1;
+        if (b.code.toLowerCase() === kw || b.barcode === kw) return 1;
+        return 0;
     });
 
     if (matches.length === 0) {
         dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy</div>';
+        dropdown.style.display = 'block';
     } else {
         dropdown.innerHTML = matches.map(p => {
             const currentTab = posTabs[activeTabIndex];
-            const price = getProductPrice(p, currentTab.priceBook);
-            const stockColor = (p.stock <= 0) ? '#d9534f' : (p.stock <= 5 ? '#f0ad4e' : '#888');
-            
-            return `<div class="pos-dropdown-item" onclick="addPOSItem('${p.id}')" style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="flex:1;">
-                    <strong style="color: var(--kv-blue);">${p.code}</strong> - <strong>${p.name}</strong>
-                    <div style="font-size: 12px; color: ${stockColor}; font-weight: 500;">
-                        <i class="fa-solid fa-box-open"></i> Tồn: ${p.stock || 0}
-                    </div>
-                </div>
-                <div style="font-weight:bold; color:var(--kv-pink); font-size: 14px;">${price.toLocaleString()}</div>
+            const price = getProductPrice(p, currentTab.priceBook).price;
+            return `<div class="pos-dropdown-item" onclick="addPOSItem('${p.id}')">
+                <div><strong>${p.code}</strong> - ${p.name}</div>
+                <div style="font-weight:bold; color:var(--kv-pink);">${price.toLocaleString()}</div>
             </div>`;
         }).join('');
+        dropdown.style.display = 'block';
     }
-    dropdown.style.display = 'block';
+    
+    return matches; // Trả về danh sách để xử lý Enter
 };
 
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
