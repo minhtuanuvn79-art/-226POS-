@@ -107,19 +107,37 @@ button, input, select, textarea { outline: none; font-family: inherit; }
 #pos-view { display: none; height: 100vh; width: 100%; flex-direction: column; background: #eaedf2;}
 
 /* Header POS */
-.pos-header { height: 55px; background: var(--kv-blue); display: flex; justify-content: space-between; align-items: center; color: white; padding: 0 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); z-index: 10;}
+.pos-header {
+    height: 55px;
+    background: var(--kv-pink); /* Đổi từ var(--kv-blue) sang var(--kv-pink) */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: white;
+    padding: 0 20px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    z-index: 10;
+}
 .pos-header-left { display: flex; flex: 1; height: 100%; align-items: center; } /* ĐÃ BỎ OVERFLOW: HIDDEN TẠI ĐÂY */
 
 /* Thanh Tìm Kiếm POS */
 .pos-search-area { position: relative; width: 380px; display: flex; align-items: center; background: white; border-radius: 6px; flex-shrink: 0; } /* ĐÃ THÊM FLEX-SHRINK VÀ Z-INDEX */
 .pos-search-area i.fa-magnifying-glass { padding: 0 15px; color: #888; }
 .pos-search-area input { flex: 1; padding: 10px 0; border: none; outline: none; font-size: 14px; background: transparent; }
-.barcode-btn { background: #0062cc; color: white; padding: 10px 15px; cursor: pointer; transition: 0.2s; border-radius: 0 6px 6px 0;}
-.barcode-btn:hover { background: #004ba0; }
-
+.barcode-btn {
+    background: var(--kv-pink-hover); /* Đổi từ màu xanh sang hồng đậm */
+    color: white;
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: 0.2s;
+    border-radius: 0 6px 6px 0;
+}
+.barcode-btn:hover {
+    background: #9a1353; /* Màu hồng tối hơn khi hover */
+}
 /* Giao diện Đa Tab (Hóa Đơn 1, 2...) */
 .pos-tabs { display: flex; align-items: flex-end; margin-left: 20px; flex: 1; overflow-x: auto; height: 100%; padding-top: 15px;}
-.pos-tab { background: #0062cc; color: white; padding: 10px 20px; border-radius: 8px 8px 0 0; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 10px; margin-right: 5px; cursor: pointer; transition: 0.2s; height: 40px;}
+.pos-tab { background: #df67cd; color: white; padding: 10px 20px; border-radius: 8px 8px 0 0; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 10px; margin-right: 5px; cursor: pointer; transition: 0.2s; height: 40px;}
 .pos-tab.active { background: #eaedf2; color: #333; height: 45px; font-weight: bold; border: 1px solid #eaedf2; border-bottom: none;}
 .pos-tab:hover:not(.active) { background: #0056b3; }
 .pos-tab i.fa-xmark { font-size: 12px; padding: 3px; border-radius: 50%; transition: 0.2s; }
@@ -221,7 +239,7 @@ button, input, select, textarea { outline: none; font-family: inherit; }
 }
 .pos-line input:focus { 
     background: #fff;
-    border-color: var(--kv-blue);
+    border-color: var(--kv-pink);
     box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
 }
 .total-line { 
@@ -239,7 +257,7 @@ button, input, select, textarea { outline: none; font-family: inherit; }
 }
 .pos-checkout-btn { 
     width: 100%; 
-    background: var(--kv-blue); 
+    background: var(--kv-pink); 
     color: white; 
     border: none; 
     padding: 16px; 
@@ -249,10 +267,10 @@ button, input, select, textarea { outline: none; font-family: inherit; }
     cursor: pointer; 
     transition: 0.2s; 
 }
-.pos-checkout-btn:hover { 
-    background: #0062cc; 
-    transform: translateY(-2px); 
-    box-shadow: 0 6px 15px rgba(0, 123, 255, 0.25);
+.pos-checkout-btn:hover {
+    background: var(--kv-pink-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(212, 26, 115, 0.25); /* Shadow màu hồng */
 }
 .pos-checkout-btn:active { 
     transform: translateY(0); 
@@ -750,3 +768,12 @@ button, input, select, textarea { outline: none; font-family: inherit; }
 .toast-error .toast-progress { background: #dc3545; }
 .toast-warning .toast-progress { background: #f0ad4e; }
 @keyframes toastProgress { to { width: 0%; } }
+#custom-confirm-modal .modal-box {
+    transform: scale(0.8);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+#custom-confirm-modal.show-modal .modal-box {
+    transform: scale(1);
+    opacity: 1;
+}

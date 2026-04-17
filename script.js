@@ -475,7 +475,7 @@ function deleteGroup(id) {
     if(productGroups.some(g => g.parentId === id)) {
         alert("Không thể xóa! Nhóm này đang chứa các nhóm con bên trong."); return;
     }
-    if(confirm("Bạn có chắc chắn muốn xóa nhóm hàng này?")) {
+    if(showConfirm("Bạn có chắc chắn muốn xóa nhóm hàng này?")) {
         productGroups = productGroups.filter(g => g.id !== id);
         products.forEach(p => { if(p.group === id) p.group = ''; });
         
@@ -830,33 +830,56 @@ function saveQuickPriceSetup() {
 // ==========================================
 // 8. QUẢN LÝ THIẾT LẬP GIÁ ĐA CỘT
 // ==========================================
-function renderPriceBookSidebar() {
+/**
+ * Hàm vẽ danh sách các bảng giá đang được chọn xem (Sidebar bên trái)
+ * Hỗ trợ các tính năng: Ẩn cột, Đổi tên và Xóa bảng giá
+ */
+window.renderPriceBookSidebar = function() {
     const tagContainer = document.getElementById('active-pricebook-tags');
     const select = document.getElementById('add-pricebook-select');
     
     if(!tagContainer || !select) return;
 
+    // 1. Luôn lấy dữ liệu mới nhất từ bộ nhớ để tránh lỗi đồng bộ
+    window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    
     tagContainer.innerHTML = '';
+
+    // 2. Vẽ các thẻ (tags) cho những bảng giá đang được chọn xem
     activePriceBookIds.forEach(id => {
-        const name = id === 'default' ? 'Bảng giá chung' : (priceBooks.find(pb => pb.id === id)?.name || 'Không rõ');
-        tagContainer.innerHTML += `
-            <div class="pb-tag">
-                ${name.toUpperCase()} 
-                ${id !== 'default' ? `<i class="fa-solid fa-xmark" onclick="removePriceBookFromView('${id}')" title="Đóng cột này"></i>` : ''}
-            </div>
-        `;
+        if (id === 'default') {
+            // Thẻ mặc định cho Bảng giá chung (Không cho xóa/sửa tên)
+            tagContainer.innerHTML += `<div class="pb-tag">BẢNG GIÁ CHUNG</div>`;
+        } else {
+            // Tìm thông tin chi tiết của bảng giá từ mảng dữ liệu
+            const pb = window.priceBooks.find(pb => pb && pb.id === id);
+            
+            // Chỉ hiển thị nếu bảng giá tồn tại và có tên (Tránh lỗi undefined)
+            if (pb && pb.name) {
+                tagContainer.innerHTML += `
+                    <div class="pb-tag" style="display: inline-flex; align-items: center; gap: 8px;">
+                        <span onclick="editPriceBookName('${id}')" title="Bấm để Đổi tên hoặc Xóa" style="cursor:pointer; display: flex; align-items: center;">
+                            <i class="fa-solid fa-pen-to-square" style="font-size: 10px; margin-right: 6px; opacity: 0.8;"></i>
+                            ${pb.name.toUpperCase()}
+                        </span>
+                        <i class="fa-solid fa-xmark" onclick="removePriceBookFromView('${id}')" title="Ẩn cột này khỏi bảng" style="cursor: pointer; padding-left: 5px; border-left: 1px solid rgba(255,255,255,0.3);"></i>
+                    </div>`;
+            }
+        }
     });
 
+    // 3. Cập nhật danh sách thả xuống (Dropdown) để thêm bảng giá vào góc nhìn
     let optionsHtml = '<option value="">Thêm bảng giá vào góc nhìn...</option>';
-    priceBooks.forEach(pb => {
-        if (!activePriceBookIds.includes(pb.id)) {
+    window.priceBooks.forEach(pb => {
+        // Chỉ hiện những bảng giá hợp lệ và chưa có trong danh sách đang xem
+        if (pb && pb.id && pb.name && !activePriceBookIds.includes(pb.id)) {
             optionsHtml += `<option value="${pb.id}">${pb.name}</option>`;
         }
     });
+    
     select.innerHTML = optionsHtml;
-    select.value = '';
-}
-
+    select.value = ''; // Reset trạng thái chọn về mặc định
+};
 function addPriceBookToView(id) {
     if (!id) return;
     if (!activePriceBookIds.includes(id)) {
@@ -880,34 +903,54 @@ function closePriceBookModal() {
     document.getElementById('pricebook-modal').style.display = 'none';
 }
 
-function savePriceBook() {
-    const name = document.getElementById('pricebook-name').value.trim();
-    if (!name) { alert("Vui lòng nhập tên bảng giá!"); return; }
+window.savePriceBook = function() {
+    const nameInput = document.getElementById('pricebook-name');
+    const name = nameInput ? nameInput.value.trim() : "";
+
+    if (!name) { 
+        alert("Vui lòng nhập tên bảng giá!"); 
+        return; 
+    }
+
+    // Kiểm tra trùng tên
+    const isExist = window.priceBooks.some(pb => pb.name.toLowerCase() === name.toLowerCase());
+    if (isExist) {
+        alert("Tên bảng giá này đã tồn tại!");
+        return;
+    }
 
     const newPb = {
         id: 'pb_' + Date.now(),
         name: name,
-        prices: {} 
+        prices: {}
     };
 
-    priceBooks.push(newPb);
-    localStorage.setItem('kv_pricebooks', JSON.stringify(priceBooks));
-    if (typeof window.uploadToCloud === 'function') window.uploadToCloud('pricebooks', priceBooks);
-    closePriceBookModal();
+    window.priceBooks.push(newPb);
+    activePriceBookIds.push(newPb.id); // Tự động hiển thị cột mới tạo
     
-    activePriceBookIds.push(newPb.id);
-    renderPriceBookSidebar();
-    renderPriceSetupTable();
-}
+    saveAndSyncPriceBooks();
+    
+    closePriceBookModal();
+    if (nameInput) nameInput.value = '';
+    alert(`Đã tạo bảng giá "${name}" thành công!`);
+};
 
 window.currentPricePage = 1;
 
-function renderPriceSetupTable() {
+/**
+ * Hàm vẽ bảng Thiết lập giá đa cột
+ * Hỗ trợ lọc theo từ khóa, nhóm hàng, tồn kho và phân trang
+ */
+window.renderPriceSetupTable = function() {
     const thead = document.querySelector('#price-setup-table thead');
     const tbody = document.querySelector('#price-setup-table tbody');
     if (!thead || !tbody) return;
 
-    // 1. TẠO CỘT HEADER ĐỘNG
+    // 1. CẬP NHẬT DỮ LIỆU MỚI NHẤT TỪ BỘ NHỚ
+    window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
+
+    // 2. TẠO CỘT HEADER ĐỘNG (BẢO VỆ CHỐNG UNDEFINED)
     let thHtml = `
         <tr>
             <th style="text-align: center; width: 60px;">STT</th>
@@ -917,14 +960,22 @@ function renderPriceSetupTable() {
             <th style="text-align: right;">Giá vốn</th>
             <th style="text-align: right;">Giá nhập cuối</th>
     `;
+    
+    // Chỉ vẽ các cột bảng giá có ID tồn tại trong hệ thống
     activePriceBookIds.forEach(id => {
-        const name = id === 'default' ? 'Bảng giá chung' : priceBooks.find(pb => pb.id === id)?.name;
-        thHtml += `<th style="text-align: right; color: var(--kv-pink);">${name}</th>`;
+        if (id === 'default') {
+            thHtml += `<th style="text-align: right; color: var(--kv-pink);">Giá chung</th>`;
+        } else {
+            const pb = window.priceBooks.find(x => x && x.id === id);
+            if (pb && pb.name) {
+                thHtml += `<th style="text-align: right; color: var(--kv-pink);">${pb.name}</th>`;
+            }
+        }
     });
     thHtml += `</tr>`;
     thead.innerHTML = thHtml;
 
-    // 2. LỌC VÀ TÌM KIẾM DỮ LIỆU
+    // 3. LỌC VÀ TÌM KIẾM DỮ LIỆU
     const searchInput = document.getElementById('search-price-setup');
     const keyword = searchInput ? searchInput.value.toLowerCase().trim() : '';
     const checkedGroupCbs = document.querySelectorAll('.price-group-filter-cb:checked');
@@ -932,13 +983,17 @@ function renderPriceSetupTable() {
     const stockFilter = document.getElementById('price-stock-filter');
     const stockVal = stockFilter ? stockFilter.value : 'all';
 
-    let filtered = products.filter(p => {
+    let filtered = window.products.filter(p => {
+        // Lọc theo từ khóa
         const matchKw = (p.name || '').toLowerCase().includes(keyword) || 
                         (p.code || '').toLowerCase().includes(keyword) ||
                         (p.barcode || '').toLowerCase().includes(keyword);
+        
+        // Lọc theo Nhóm hàng
         let matchGroup = true;
         if (selectedGroupIds.length > 0) matchGroup = selectedGroupIds.includes(p.group);
 
+        // Lọc theo Tồn kho
         let matchStock = true;
         const stockLevel = parseFloat(p.stock) || 0;
         if (stockVal === 'below_min') matchStock = (stockLevel <= 5); 
@@ -955,17 +1010,16 @@ function renderPriceSetupTable() {
         return matchKw && matchGroup && matchStock;
     });
 
-    // 3. LOGIC PHÂN TRANG
-    const productsPerPage = 100;
-    const totalPages = Math.ceil(filtered.length / productsPerPage);
-    if (currentPricePage > totalPages) currentPricePage = totalPages;
-    if (currentPricePage < 1) currentPricePage = 1;
+    // 4. LOGIC PHÂN TRANG
+    const itemsPerPage = 100;
+    const totalPages = Math.ceil(filtered.length / itemsPerPage);
+    if (window.currentPricePage > totalPages) window.currentPricePage = totalPages || 1;
+    if (window.currentPricePage < 1) window.currentPricePage = 1;
 
-    const startIndex = (currentPricePage - 1) * productsPerPage;
-    const endIndex = startIndex + productsPerPage;
-    const paginatedProducts = filtered.slice(startIndex, endIndex);
+    const startIndex = (window.currentPricePage - 1) * itemsPerPage;
+    const paginatedProducts = filtered.slice(startIndex, startIndex + itemsPerPage);
 
-    // 4. VẼ DỮ LIỆU RA BẢNG (KÈM MENU THIẾT LẬP NHANH)
+    // 5. VẼ DỮ LIỆU RA BẢNG
     let tbHtml = '';
     paginatedProducts.forEach((p, index) => {
         const stt = startIndex + index + 1;
@@ -977,7 +1031,7 @@ function renderPriceSetupTable() {
                 <td style="text-align: left; color:#555;">${p.barcode || '---'}</td>
                 <td style="text-align: left; font-weight: bold; color: var(--kv-blue);">${p.name || ''}</td>
                 <td style="text-align: right;">${(p.cost || 0).toLocaleString('vi-VN')}</td>
-                <td style="text-align: right;">0</td>
+                <td style="text-align: right;">${(p.cost || 0).toLocaleString('vi-VN')}</td>
         `;
 
         activePriceBookIds.forEach(id => {
@@ -989,14 +1043,14 @@ function renderPriceSetupTable() {
                             onchange="updateMainProductPrice('${p.id}', window.parseCurrency(this.value))"
                             onkeydown="moveNextOnEnter(event, this, 'price-col-default')"
                             class="price-col-default"
-                            style="width: 100px; text-align: right; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; transition: 0.2s;">
+                            style="width: 100px; text-align: right; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none;">
                     </td>`;
             } else {
-                const pb = priceBooks.find(x => x.id === id);
-                const pbPrice = pb && pb.prices[p.id] !== undefined ? pb.prices[p.id] : '';
+                const pb = window.priceBooks.find(x => x && x.id === id);
+                if (!pb) return; // Bảo vệ cột bảng giá nếu máy chưa đồng bộ xong
+
+                const pbPrice = pb.prices && pb.prices[p.id] !== undefined ? pb.prices[p.id] : '';
                 const displayPbPrice = pbPrice !== '' ? pbPrice.toLocaleString('vi-VN') : '';
-                
-                // Các biến cấu hình cho tính năng cộng giá
                 const basePrice = p.price || 0;
                 const inputId = `input-${id}-${p.id}`;
 
@@ -1009,14 +1063,14 @@ function renderPriceSetupTable() {
                             onfocus="showQuickPriceMenu(this)"
                             onblur="hideQuickPriceMenu(this)"
                             class="price-col-${id}"
-                            style="width: 100px; text-align: right; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; color: var(--kv-pink); font-weight: bold; transition: 0.2s;">
+                            style="width: 100px; text-align: right; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; color: var(--kv-pink); font-weight: bold;">
                         
                         <div class="quick-price-dropdown" style="display:none; position:absolute; top: 100%; right: 15px; background: white; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); z-index: 100; width: 110px; flex-direction: column; overflow: hidden; margin-top: 2px;">
                             <div style="font-size: 10px; color: #888; text-align: center; padding: 5px; border-bottom: 1px solid #eee; background: #fafafa; font-weight: bold;">Cộng từ giá gốc</div>
                             ${[0, 1, 2, 3, 4, 5, 10].map(k => `
                                 <div onmousedown="event.preventDefault(); applyQuickAdd(${basePrice}, ${k}, '${id}', '${p.id}', '${inputId}')" 
                                      onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='white'"
-                                     style="padding: 6px 10px; font-size: 13px; cursor: pointer; text-align: right; border-bottom: 1px solid #eee; color: var(--kv-blue); font-weight: 500; background: white; transition: 0.1s;">
+                                     style="padding: 6px 10px; font-size: 13px; cursor: pointer; text-align: right; border-bottom: 1px solid #eee; color: var(--kv-blue); font-weight: 500;">
                                     + ${k}k
                                 </div>
                             `).join('')}
@@ -1029,8 +1083,12 @@ function renderPriceSetupTable() {
     }); 
 
     tbody.innerHTML = tbHtml;
-    renderPricePaginationControls(totalPages);
-}
+
+    // 6. VẼ NÚT PHÂN TRANG
+    if (typeof window.renderPaginationControls === 'function') {
+        window.renderPaginationControls('price-pagination', window.currentPricePage, totalPages, 'changePricePage');
+    }
+};
 // Hàm vẽ các nút "Trang trước", "Trang sau" cho bảng giá
 function renderPricePaginationControls(totalPages) {
     const paginationDiv = document.getElementById('price-pagination');
@@ -1257,7 +1315,7 @@ function toggleICDetail(id) {
 }
 
 function cancelIC(id) {
-    if(confirm("Bạn có chắc chắn muốn hủy phiếu kiểm kho này?")) {
+    if(showConfirm("Bạn có chắc chắn muốn hủy phiếu kiểm kho này?")) {
         const ic = inventoryChecks.find(x => x.id === id);
         if(ic) {
             ic.status = 'cancel';
@@ -2485,70 +2543,118 @@ function initPOSData() {
     }
 }
 
+/**
+ * Hàm tìm kiếm sản phẩm tại màn hình POS
+ * Tối ưu hóa tốc độ hiển thị và hỗ trợ quét mã vạch
+ */
+/**
+ * Hàm tìm kiếm sản phẩm thông minh tại POS
+ * Hỗ trợ lọc theo từng cụm từ (ví dụ: "aq 500" tìm được "Aquafina 500ml")
+ */
 window.searchPOSProduct = function(keyword) {
     const dropdown = document.getElementById('pos-search-dropdown');
-    if (!keyword || !keyword.trim()) { dropdown.style.display = 'none'; return; }
     
-    const kw = keyword.toLowerCase().trim();
+    // 1. Kiểm tra đầu vào: Nếu trống hoặc quá ngắn thì ẩn gợi ý
+    if (!keyword || !keyword.trim()) { 
+        dropdown.style.display = 'none'; 
+        return; 
+    }
+    
+    const inputVal = keyword.toLowerCase().trim();
+
+    // 2. Tối ưu cho máy quét Barcode: Nếu là chuỗi số dài thì ưu tiên sự kiện Enter
+    if (inputVal.length > 8 && !isNaN(inputVal)) {
+        return; 
+    }
+
+    // 3. Tách chuỗi nhập vào thành các từ riêng biệt (Ví dụ: "aq 500" -> ["aq", "500"])
+    const searchTerms = inputVal.split(/\s+/);
+
+    // 4. Lấy danh sách sản phẩm mới nhất từ bộ nhớ
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
+    // 5. Logic lọc thông minh theo xác suất khớp từ
     const matches = latestProducts.filter(p => {
-        return (p.name || "").toLowerCase().includes(kw) || 
-               (p.code || "").toLowerCase().includes(kw) || 
-               (p.barcode || "").toLowerCase().includes(kw);
+        const prodName = (p.name || "").toLowerCase();
+        const prodCode = (p.code || "").toLowerCase();
+        const prodBarcode = (p.barcode || "").toLowerCase();
+        
+        // Kết hợp các thông tin sản phẩm thành một chuỗi tổng hợp để tìm kiếm
+        const combinedInfo = `${prodName} ${prodCode} ${prodBarcode}`;
+
+        // Kiểm tra xem TẤT CẢ các từ khóa người dùng gõ có xuất hiện trong thông tin sản phẩm hay không
+        // Ví dụ: Trong chuỗi "aquafina 500ml" có cả "aq" và "500" -> Khớp
+        return searchTerms.every(term => combinedInfo.includes(term));
     });
 
+    // 6. Xử lý hiển thị kết quả
     if (matches.length === 0) {
-        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy</div>';
+        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa phù hợp</div>';
     } else {
-        dropdown.innerHTML = matches.map(p => {
+        // Chỉ lấy tối đa 20 kết quả để đảm bảo tốc độ
+        const limitedMatches = matches.slice(0, 20);
+        
+        dropdown.innerHTML = limitedMatches.map(p => {
             const currentTab = posTabs[activeTabIndex];
             const price = getProductPrice(p, currentTab.priceBook);
             
-            // Xác định màu sắc cảnh báo tồn kho
-            const stockColor = (p.stock <= 0) ? '#d9534f' : (p.stock <= 5 ? '#f0ad4e' : '#888');
+            // Cảnh báo tồn kho bằng màu sắc
+            const stockLevel = parseFloat(p.stock) || 0;
+            const stockColor = (stockLevel <= 0) ? '#d9534f' : (stockLevel <= 5 ? '#f0ad4e' : '#888');
             
-            return `<div class="pos-dropdown-item" onclick="addPOSItem('${p.id}')" style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="flex:1;">
-                    <strong style="color: var(--kv-blue);">${p.code}</strong> - <strong>${p.name}</strong>
-                    <div style="font-size: 12px; color: ${stockColor}; font-weight: 500;">
-                        <i class="fa-solid fa-box-open"></i> Tồn kho: ${p.stock || 0}
+            return `
+            <div class="pos-dropdown-item" onclick="addPOSItem('${p.id}', false)" 
+                 style="display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px solid #f5f5f5; cursor: pointer;">
+                <div style="flex:1; min-width: 0; padding-right: 10px;">
+                    <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        <strong style="color: var(--kv-blue);">${p.code}</strong> - <strong style="color: #333;">${p.name}</strong>
+                    </div>
+                    <div style="font-size: 12px; color: ${stockColor}; font-weight: 500; margin-top: 3px;">
+                        <i class="fa-solid fa-box-open"></i> Tồn kho: ${stockLevel}
                     </div>
                 </div>
-                <div style="font-weight:bold; color:var(--kv-pink); font-size: 14px;">${price.toLocaleString()}</div>
+                <div style="text-align: right; flex-shrink: 0;">
+                    <div style="font-weight: bold; color: var(--kv-pink); font-size: 15px;">${price.toLocaleString('vi-VN')}</div>
+                    <div style="font-size: 11px; color: #aaa;">${p.barcode || ''}</div>
+                </div>
             </div>`;
         }).join('');
     }
+    
     dropdown.style.display = 'block';
 };
 
+// TỐI ƯU HÓA QUÉT MÃ VẠCH SIÊU TỐC
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
+    // Máy quét mã vạch thường gửi phím 'Enter' sau khi quét xong
     if (e.key === 'Enter') {
         e.preventDefault(); 
         
         const kw = this.value.trim().toLowerCase();
-        if (kw) {
-            const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-            const exactMatch = latestProducts.find(p => 
-                (p.barcode && p.barcode.toLowerCase() === kw) || 
-                (p.code && p.code.toLowerCase() === kw)
-            );
+        if (!kw) return;
 
-            if (exactMatch) {
-                addPOSItem(exactMatch.id, true); 
-            } else {
-                const firstItem = document.querySelector('.pos-dropdown-item');
-                if (firstItem) {
-                    const onclickStr = firstItem.getAttribute('onclick');
-                    const idMatch = onclickStr.match(/'([^']+)'/);
-                    if (idMatch && idMatch[1]) {
-                        addPOSItem(idMatch[1], true); 
-                    }
-                }
+        // Ưu tiên tìm khớp 100% mã vạch hoặc mã hàng trước (Tốc độ cao nhất)
+        const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+        const exactMatch = latestProducts.find(p => 
+            (p.barcode && p.barcode.toLowerCase() === kw) || 
+            (p.code && p.code.toLowerCase() === kw)
+        );
+
+        if (exactMatch) {
+            // Nếu khớp mã, thêm ngay vào giỏ và xóa trắng ô nhập để quét mã tiếp theo
+            addPOSItem(exactMatch.id, false);
+            this.value = ''; 
+            document.getElementById('pos-search-dropdown').style.display = 'none';
+        } else {
+            // Nếu không khớp tuyệt đối, mới thực hiện tìm kiếm gợi ý (chậm hơn)
+            const firstItem = document.querySelector('.pos-dropdown-item');
+            if (firstItem) {
+                firstItem.click();
             }
-            this.focus();
-            this.select(); 
         }
+        
+        // Luôn giữ tiêu điểm ở ô nhập để quét liên tục không cần chạm chuột
+        this.focus();
     }
 });
 
@@ -2714,7 +2820,7 @@ function renderPOSCart() {
             <div style="width: 40px; text-align:center; color: #aaa; font-size: 12px;">${index + 1}</div>
             
             <div style="flex: 1; min-width: 0; padding-right: 10px;">
-                <div style="color: var(--kv-blue); font-weight: 600; font-size: 13px;">${item.code}</div>
+                <div style="color: var(--kv-pink); font-weight: 600; font-size: 13px;">${item.code}</div>
                 <div style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.name}">${item.name}</div>
                 <div style="font-size: 11px; margin-top: 2px;">
                     <i class="fa-solid fa-box-open" style="font-size: 10px; color: #ccc;"></i> 
@@ -3798,24 +3904,24 @@ window.initPrintStatusUI = function() {
     window.updatePrintStatusUI();
 };
 
-// 2. Hàm thay đổi giao diện Nút trạng thái
+// Tìm hàm này trong script.js và sửa lại màu nền
 window.updatePrintStatusUI = function() {
     const statusDiv = document.getElementById('print-status-indicator');
     if (!statusDiv) return;
 
-    // Lấy view POS hiện tại
     const posView = document.getElementById('pos-view');
     if (posView && posView.style.display !== 'none') {
-        statusDiv.style.display = 'block'; // Chỉ hiện ở màn POS
+        statusDiv.style.display = 'block';
         
         if (window.autoPrintMode) {
             statusDiv.innerHTML = '<i class="fa-solid fa-print"></i> Chế độ In (F2): ĐANG BẬT';
-            statusDiv.style.backgroundColor = '#28a745'; // Màu xanh lá cực nổi
+            statusDiv.style.backgroundColor = '#d41a73'; // Đổi thành màu Hồng thương hiệu (var(--kv-pink))
             statusDiv.style.color = 'white';
             statusDiv.style.border = 'none';
         } else {
+            // Giữ nguyên trạng thái tắt màu trắng
             statusDiv.innerHTML = '<i class="fa-solid fa-print" style="opacity: 0.6;"></i> Chế độ In (F2): ĐANG TẮT';
-            statusDiv.style.backgroundColor = 'white'; // Nền trắng
+            statusDiv.style.backgroundColor = 'white';
             statusDiv.style.color = '#555';
             statusDiv.style.border = '1px solid #ccc';
         }
@@ -4242,23 +4348,35 @@ window.initApp = function() {
             const dbRef = window.fbRef(window.fbDb, item.path);
             window.fbOnValue(dbRef, (snapshot) => {
                 const data = snapshot.val();
-                // Khắc phục lỗi: Nếu Cloud hoặc máy mới chưa có dữ liệu, gán mảng rỗng [] thay vì null/undefined
-                const dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data)) : [];
+                
+                // XỬ LÝ DỮ LIỆU: Chuyển đổi object/null thành mảng và loại bỏ phần tử rác (undefined/null)
+                let dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data).filter(Boolean)) : [];
+                
+                // RIÊNG VỚI BẢNG GIÁ: Loại bỏ các bảng giá không có tên để tránh lỗi hiển thị "undefined"
+                if (item.path === 'pricebooks') {
+                    dataArray = dataArray.filter(pb => pb && pb.name && pb.name !== 'undefined');
+                }
+
+                // Lưu vào bộ nhớ máy (LocalStorage)
                 localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                 
-                // Cập nhật biến toàn cục ngay lập tức để tránh lỗi undefined khi render
+                // Cập nhật biến toàn cục ngay lập tức để đồng bộ dữ liệu
                 if (item.path === 'products') window.products = dataArray;
                 if (item.path === 'groups') window.productGroups = dataArray;
                 if (item.path === 'pricebooks') window.priceBooks = dataArray;
                 if (item.path === 'accounts') window.accounts = dataArray;
 
-                // Tự động vẽ lại màn hình hiện tại khi có dữ liệu mới từ máy khác đẩy lên
+                // Tự động vẽ lại màn hình hiện tại khi máy khác cập nhật dữ liệu
                 const currentTab = localStorage.getItem('kv_current_tab');
                 const currentView = localStorage.getItem('kv_current_view');
 
                 if (currentView === 'pos-view') {
                     if (typeof renderPOSCart === 'function') renderPOSCart();
                 } else if (currentTab) {
+                    // Cập nhật lại Sidebar bảng giá nếu đang ở tab thiết lập giá
+                    if (currentTab === 'tab-thiet-lap-gia' && typeof renderPriceBookSidebar === 'function') {
+                        renderPriceBookSidebar();
+                    }
                     openDashTab(currentTab);
                 }
             }, (error) => {
@@ -4267,7 +4385,7 @@ window.initApp = function() {
         });
     }
 
-    // 2. KHÔI PHỤC TRẠNG THÁI ĐĂNG NHẬP (Chống lỗi trắng trang khi F5)
+    // 2. KHÔI PHỤC TRẠNG THÁI ĐĂNG NHẬP VÀ MÀN HÌNH ĐANG XEM (CHỐNG LỖI KHI F5)
     const savedUser = localStorage.getItem('kv_current_user');
     const savedView = localStorage.getItem('kv_current_view');
     
@@ -4277,19 +4395,21 @@ window.initApp = function() {
         
         if (savedView === 'pos-view') {
             document.getElementById('pos-view').style.display = 'flex';
-            initPOSData(); 
+            initPOSData(); // Khởi tạo dữ liệu bán hàng
         } else {
             document.getElementById('dashboard-view').style.display = 'flex';
-            document.getElementById('dash-user-name').innerText = currentUser.fullname || "Nhân viên";
+            const userNameEl = document.getElementById('dash-user-name');
+            if (userNameEl) userNameEl.innerText = currentUser.fullname || "Nhân viên";
+            
             const lastTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
-            openDashTab(lastTab);
+            openDashTab(lastTab); // Mở lại tab đang xem dở
         }
     } else {
         hideAll();
         document.getElementById('login-view').style.display = 'flex';
     }
 
-    // 3. TÍNH NĂNG TỰ ĐỘNG BÔI ĐEN KHI FOCUS (Yêu cầu trước của bạn)
+    // 3. TỰ ĐỘNG BÔI ĐEN KHI FOCUS VÀO Ô TÌM KIẾM (UX TỐI ƯU)
     const searchSelectors = [
         '#pos-search-input', '#ic-search-input', '#io-search-input',
         '#search-product-manage', '#search-price-setup', '#search-batch-update', '#search-invoice'
@@ -4804,41 +4924,63 @@ window.showToast = function(message, type = 'info') {
 
 // 3. GHI ĐÈ HÀM ALERT MẶC ĐỊNH (Phép thuật ở đây!)
 window.alert = function(msg) {
-    let type = 'warning'; // Mặc định là cảnh báo vàng
+    let type = 'info';
     let lowerMsg = msg.toLowerCase();
     
-    // AI tự nhận diện nội dung để gán màu sắc phù hợp
-    if (lowerMsg.includes('thành công') || lowerMsg.includes('tuyệt vời') || lowerMsg.includes('đã lưu')) {
-        type = 'success';
-    } else if (lowerMsg.includes('lỗi') || lowerMsg.includes('không') || lowerMsg.includes('sai') || lowerMsg.includes('chưa')) {
-        type = 'error';
-    }
+    // Tự động chọn icon/màu dựa trên nội dung tin nhắn
+    if (lowerMsg.includes('thành công') || lowerMsg.includes('đã lưu')) type = 'success';
+    else if (lowerMsg.includes('lỗi') || lowerMsg.includes('không')) type = 'error';
     
-    showToast(msg, type);
+    // Sử dụng Toast (đã có trong file của bạn) để hiện thông báo nhanh không chặn màn hình
+    if (typeof showToast === 'function') {
+        showToast(msg, type);
+    } else {
+        // Nếu chưa có toast, dùng modal confirm dạng thông báo đơn giản
+        window.showConfirm(msg, null, 'info');
+        document.getElementById('btn-confirm-cancel').style.display = 'none'; // Ẩn nút hủy
+        document.getElementById('btn-confirm-ok').innerText = "Đã hiểu";
+    }
 };
 
 // 4. Hàm hiển thị Hộp thoại Xác nhận (Confirm)
-window.showConfirm = function(message, onConfirmCallback) {
+// 1. Hàm hiển thị Hộp thoại Xác nhận (Confirm) hiện đại
+window.showConfirm = function(message, onConfirmCallback, type = 'confirm') {
     const modal = document.getElementById('custom-confirm-modal');
-    document.getElementById('confirm-message').innerHTML = message.replace(/\n/g, '<br>');
-    modal.style.display = 'flex';
-
+    const iconEl = document.getElementById('confirm-icon');
+    const titleEl = document.getElementById('confirm-title');
     const btnOk = document.getElementById('btn-confirm-ok');
     const btnCancel = document.getElementById('btn-confirm-cancel');
 
-    // Mẹo: Gỡ bỏ sự kiện click cũ để tránh bị chạy lặp lệnh
+    // Thiết lập giao diện theo loại thông báo
+    if (type === 'delete' || type === 'warning') {
+        iconEl.innerHTML = '<i class="fa-solid fa-circle-exclamation" style="color: #d9534f;"></i>';
+        titleEl.innerText = "Cảnh báo!";
+        btnOk.style.background = "#d9534f";
+    } else {
+        iconEl.innerHTML = '<i class="fa-solid fa-circle-question" style="color: var(--kv-blue);"></i>';
+        titleEl.innerText = "Xác nhận";
+        btnOk.style.background = "var(--kv-blue)";
+    }
+
+    document.getElementById('confirm-message').innerHTML = message;
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('show-modal'), 10);
+
+    // Gỡ bỏ và gắn lại sự kiện click
     const newBtnOk = btnOk.cloneNode(true);
     const newBtnCancel = btnCancel.cloneNode(true);
     btnOk.parentNode.replaceChild(newBtnOk, btnOk);
     btnCancel.parentNode.replaceChild(newBtnCancel, btnCancel);
 
-    newBtnCancel.onclick = function() {
-        modal.style.display = 'none';
+    newBtnCancel.onclick = () => {
+        modal.classList.remove('show-modal');
+        setTimeout(() => modal.style.display = 'none', 300);
     };
 
-    newBtnOk.onclick = function() {
-        modal.style.display = 'none';
-        if (typeof onConfirmCallback === 'function') onConfirmCallback();
+    newBtnOk.onclick = () => {
+        modal.classList.remove('show-modal');
+        setTimeout(() => modal.style.display = 'none', 300);
+        if (onConfirmCallback) onConfirmCallback();
     };
 };
 // ==========================================
@@ -4911,3 +5053,137 @@ searchInputs.forEach(id => {
         });
     }
 });
+window.editPriceBookName = function(id) {
+    const pbIndex = window.priceBooks.findIndex(x => x.id === id);
+    if (pbIndex === -1) return;
+
+    const currentName = window.priceBooks[pbIndex].name;
+    const modal = document.getElementById('custom-prompt-modal');
+    const input = document.getElementById('prompt-input');
+    const btnOk = document.getElementById('btn-prompt-ok');
+    const btnCancel = document.getElementById('btn-prompt-cancel');
+
+    // Thiết lập nội dung hiện đại
+    document.getElementById('prompt-title').innerText = "Chỉnh sửa bảng giá";
+    document.getElementById('prompt-message').innerHTML = `Đang sửa: <b>${currentName}</b><br><small style="color:red">Xóa hết tên và nhấn Xác nhận để XÓA vĩnh viễn bảng này.</small>`;
+    input.value = currentName;
+    
+    modal.style.display = 'flex';
+    input.focus();
+    input.select();
+
+    // Xử lý khi nhấn Xác nhận
+    btnOk.onclick = function() {
+        const newName = input.value.trim();
+        
+        if (newName === "") {
+            // Nếu xóa trắng tên -> Chuyển sang Modal xác nhận xóa (Confirm hiện đại đã làm ở bước trước)
+            modal.style.display = 'none';
+            showConfirm(`Bạn có chắc muốn XÓA vĩnh viễn bảng giá <b>${currentName}</b>?`, function() {
+                activePriceBookIds = activePriceBookIds.filter(item => item !== id);
+                window.priceBooks.splice(pbIndex, 1);
+                saveAndSyncPriceBooks();
+                showToast("Đã xóa bảng giá", "success");
+            }, 'delete');
+        } else {
+            // Đổi tên
+            window.priceBooks[pbIndex].name = newName;
+            saveAndSyncPriceBooks();
+            modal.style.display = 'none';
+            showToast("Đã đổi tên thành công", "success");
+        }
+    };
+
+    // Xử lý khi nhấn Hủy
+    btnCancel.onclick = function() {
+        modal.style.display = 'none';
+    };
+};
+
+// Hàm phụ để lưu và đẩy lên Cloud nhanh
+function saveAndSyncPriceBooks() {
+    localStorage.setItem('kv_pricebooks', JSON.stringify(window.priceBooks));
+    if (typeof window.uploadToCloud === 'function') {
+        window.uploadToCloud('pricebooks', window.priceBooks);
+    }
+    renderPriceBookSidebar();
+    renderPriceSetupTable();
+}
+// ==========================================
+// ĐỒNG BỘ HÓA THÔNG BÁO HIỆN ĐẠI (OVERRIDE)
+// ==========================================
+
+// 1. Ghi đè hàm ALERT (Dùng cho thông báo 1 nút)
+window.alert = function(msg) {
+    let type = 'info';
+    let lowerMsg = msg.toLowerCase();
+    
+    // Tự động nhận diện màu sắc dựa trên nội dung
+    if (lowerMsg.includes('thành công') || lowerMsg.includes('đã lưu')) type = 'success';
+    else if (lowerMsg.includes('lỗi') || lowerMsg.includes('không')) type = 'warning';
+    
+    // Nếu có hàm Toast thì dùng Toast cho nhẹ nhàng, không thì dùng Modal
+    if (typeof showToast === 'function') {
+        showToast(msg, type);
+    } else {
+        window.showConfirm(msg, null, 'info');
+        const btnCancel = document.getElementById('btn-confirm-cancel');
+        if (btnCancel) btnCancel.style.display = 'none'; // Ẩn nút Bỏ qua
+        document.getElementById('btn-confirm-ok').innerText = "Đã hiểu";
+    }
+};
+
+// 2. Hàm hiển thị Xác nhận (Confirm) hiện đại
+window.showConfirm = function(message, onConfirmCallback, type = 'confirm') {
+    const modal = document.getElementById('custom-confirm-modal');
+    const iconEl = document.getElementById('confirm-icon');
+    const titleEl = document.getElementById('confirm-title');
+    const btnOk = document.getElementById('btn-confirm-ok');
+    const btnCancel = document.getElementById('btn-confirm-cancel');
+
+    if (!modal || !iconEl || !btnOk) return;
+
+    // Reset giao diện nút
+    btnCancel.style.display = 'block';
+    btnOk.innerText = "Đồng ý";
+
+    // Thiết lập Icon và Màu sắc
+    if (type === 'delete' || type === 'warning' || message.toLowerCase().includes('xóa')) {
+        iconEl.innerHTML = '<i class="fa-solid fa-circle-exclamation" style="color: #d9534f;"></i>';
+        titleEl.innerText = "Cảnh báo!";
+        btnOk.style.background = "#d9534f";
+    } else {
+        iconEl.innerHTML = '<i class="fa-solid fa-circle-question" style="color: var(--kv-blue);"></i>';
+        titleEl.innerText = "Xác nhận";
+        btnOk.style.background = "var(--kv-blue)";
+    }
+
+    document.getElementById('confirm-message').innerHTML = message;
+    modal.style.display = 'flex';
+    
+    // Hiệu ứng bung Modal
+    setTimeout(() => modal.classList.add('show-modal'), 10);
+
+    // Gắn sự kiện (Dùng onclick trực tiếp để ghi đè các sự kiện cũ)
+    btnCancel.onclick = () => {
+        modal.classList.remove('show-modal');
+        setTimeout(() => modal.style.display = 'none', 300);
+    };
+
+    btnOk.onclick = () => {
+        modal.classList.remove('show-modal');
+        setTimeout(() => modal.style.display = 'none', 300);
+        if (onConfirmCallback) onConfirmCallback();
+    };
+};
+
+// 3. Ghi đè hàm CONFIRM mặc định của hệ thống
+window.confirm = function(msg) {
+    // Vì confirm mặc định là đồng bộ (dừng code), 
+    // còn Modal là bất đồng bộ nên bạn nên chuyển sang dùng showConfirm() trong code.
+    // Tuy nhiên, để chữa cháy các chỗ dùng confirm cũ:
+    window.showConfirm(msg, () => {
+        console.log("User clicked OK on modern confirm");
+    });
+    return false; // Trả về false để chặn cái confirm cũ của trình duyệt hiện lên
+};

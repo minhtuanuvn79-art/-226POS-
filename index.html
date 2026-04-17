@@ -1298,15 +1298,25 @@
     </div>
 </div>
 <div id="custom-confirm-modal" class="modal-overlay" style="z-index: 10000; display: none;">
-    <div class="modal-box" style="width: 380px; text-align: center; padding: 30px;">
-        <div id="confirm-icon" style="font-size: 60px; color: #f0ad4e; margin-bottom: 15px;">
-            <i class="fa-regular fa-circle-question"></i>
+    <div class="modal-box" style="width: 420px; text-align: center; padding: 35px; border-radius: 12px; border: none; box-shadow: 0 15px 40px rgba(0,0,0,0.2);">
+        <div id="confirm-icon" style="font-size: 55px; margin-bottom: 20px;">
+            </div>
+        <h3 id="confirm-title" style="margin-bottom: 12px; font-size: 20px; color: #333; font-weight: 700;">Xác nhận</h3>
+        <p id="confirm-message" style="font-size: 15px; color: #666; margin-bottom: 30px; line-height: 1.6;"></p>
+        <div style="display: flex; gap: 12px; justify-content: center;">
+            <button id="btn-confirm-cancel" style="flex: 1; padding: 12px 0; border: 1px solid #ddd; background: #f9f9f9; border-radius: 8px; cursor: pointer; font-weight: 600; color: #666; transition: 0.2s;">Bỏ qua</button>
+            <button id="btn-confirm-ok" style="flex: 1; padding: 12px 0; border: none; background: var(--kv-pink); color: white; border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.2s; box-shadow: 0 4px 12px rgba(212, 26, 115, 0.2);">Đồng ý</button>
         </div>
-        <h3 style="margin-bottom: 10px; font-size: 20px; color: #333;">Xác nhận hành động</h3>
-        <p id="confirm-message" style="font-size: 14px; color: #666; margin-bottom: 25px; line-height: 1.5;"></p>
-        <div style="display: flex; gap: 10px; justify-content: center;">
-            <button id="btn-confirm-cancel" style="flex: 1; padding: 10px 0; border: 1px solid #ccc; background: white; border-radius: 6px; cursor: pointer; font-weight: bold; color: #555; transition: 0.2s;">Hủy bỏ</button>
-            <button id="btn-confirm-ok" style="flex: 1; padding: 10px 0; border: none; background: #d9534f; color: white; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s;">Đồng ý</button>
+    </div>
+</div>
+<div id="custom-prompt-modal" class="modal-overlay" style="z-index: 10001; display: none;">
+    <div class="modal-box" style="width: 400px; padding: 25px; border-radius: 12px;">
+        <h3 id="prompt-title" style="margin-bottom: 15px; color: #333;">Nhập thông tin</h3>
+        <p id="prompt-message" style="font-size: 14px; color: #666; margin-bottom: 15px; line-height: 1.5;"></p>
+        <input type="text" id="prompt-input" style="width: 100%; padding: 12px; border: 2px solid #eee; border-radius: 8px; margin-bottom: 20px; outline: none; transition: 0.2s;">
+        <div style="display: flex; gap: 10px;">
+            <button id="btn-prompt-cancel" style="flex: 1; padding: 10px; border: 1px solid #ddd; background: #f9f9f9; border-radius: 8px; cursor: pointer;">Hủy</button>
+            <button id="btn-prompt-ok" style="flex: 1; padding: 10px; border: none; background: var(--kv-pink); color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">Xác nhận</button>
         </div>
     </div>
 </div>
