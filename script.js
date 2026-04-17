@@ -1836,57 +1836,74 @@ function generateVariants() {
 
     vSection.style.display = 'block';
     vBody.innerHTML = '';
-    const mainCode = document.getElementById('pm-code').value || 'SP';
+    
+    // Lấy mã gốc từ ô nhập mã hàng ở màn hình chính
+    const mainCode = document.getElementById('pm-code').value.trim() || 'SP';
     
     currentProductUnits.forEach((unit, uIdx) => {
-        // Nếu unit chưa có mã riêng thì mới dùng mã tự động
+        // Logic: Nếu chưa có mã thì tự sinh (Mã gốc-STT), nếu có rồi thì giữ nguyên
         const displayCode = unit.code || `${mainCode}-${uIdx + 1}`;
         const displayBarcode = unit.barcode || '';
         const displayPrice = (unit.price || 0).toLocaleString('vi-VN');
         
+        // Lưu luôn mã tự sinh vào biến để nếu user không sửa thì vẫn có mã đúng
+        if (!unit.code) unit.code = displayCode;
+
         vBody.innerHTML += `
             <tr style="border-bottom: 1px solid #eee;">
                 <td style="font-weight: 500; color: var(--kv-blue);">${unit.name}</td>
                 <td><input type="text" class="variant-input" value="${unit.rate}" style="width: 60px; text-align:center; background: #f9f9f9;" disabled></td>
                 <td>
                     <input type="text" class="variant-input" value="${displayCode}" 
-                        oninput="currentProductUnits[${uIdx}].code = this.value" placeholder="Mã hàng">
+                        placeholder="Mã hàng" oninput="currentProductUnits[${uIdx}].code = this.value">
                 </td>
                 <td>
                     <input type="text" class="variant-input" value="${displayBarcode}" 
-                        oninput="currentProductUnits[${uIdx}].barcode = this.value" placeholder="Mã vạch">
+                        placeholder="Mã vạch" oninput="currentProductUnits[${uIdx}].barcode = this.value">
                 </td>
-                <td style="text-align:right;">---</td>
+                <td style="text-align:right; color: #888;">---</td>
                 <td>
                     <input type="text" class="variant-input" value="${displayPrice}" 
+                        placeholder="Giá bán"
                         oninput="formatCurrency(this); currentProductUnits[${uIdx}].price = window.parseCurrency(this.value)" 
                         style="text-align:right; font-weight:bold; color:var(--kv-pink);">
                 </td>
                 <td style="text-align:center;">
-                    <i class="fa-solid fa-trash-can" style="color:#888; cursor:pointer;" onclick="currentProductUnits.splice(${uIdx}, 1); renderUnitAttrUI();"></i>
+                    <i class="fa-solid fa-trash-can" style="color:#888; cursor:pointer;" 
+                        onclick="currentProductUnits.splice(${uIdx}, 1); renderUnitAttrUI();"></i>
                 </td>
             </tr>
         `;
     });
 }
-function saveUnitAttr() {
+window.saveUnitAttr = function() {
     // 1. Lấy tất cả các dòng trong bảng biến thể
     const rows = document.querySelectorAll('#variant-tbody tr');
     
     rows.forEach((row, index) => {
-        const inputs = row.querySelectorAll('input');
-        // inputs[1] là ô Mã hàng, inputs[2] là ô Mã vạch, inputs[4] là ô Giá bán
+        // Tìm các ô input dựa trên class hoặc thuộc tính để tránh lỗi đếm sai index
+        const inputCode = row.querySelector('input[placeholder="Mã hàng"]');
+        const inputBarcode = row.querySelector('input[placeholder="Mã vạch"]');
+        const inputPrice = row.querySelector('input[oninput*="parseCurrency"]');
+
         if (currentProductUnits[index]) {
-            currentProductUnits[index].code = inputs[1].value;
-            currentProductUnits[index].barcode = inputs[2].value;
-            currentProductUnits[index].price = window.parseCurrency(inputs[4].value);
+            // Chỉ cập nhật nếu ô input tồn tại (Check null để tránh lỗi 'value' of undefined)
+            if (inputCode) currentProductUnits[index].code = inputCode.value;
+            if (inputBarcode) currentProductUnits[index].barcode = inputBarcode.value;
+            if (inputPrice) {
+                currentProductUnits[index].price = window.parseCurrency(inputPrice.value);
+            }
         }
     });
 
     // 2. Đóng modal và thông báo
     closeUnitAttrModal();
-    showToast("Đã ghi nhận thiết lập đơn vị tính", "success");
-}
+    if (typeof showToast === 'function') {
+        showToast("Đã ghi nhận thiết lập đơn vị tính", "success");
+    } else {
+        alert("Đã ghi nhận thiết lập đơn vị tính");
+    }
+};
 // ==========================================
 // 12. QUẢN LÝ TAB HÓA ĐƠN
 // ==========================================
