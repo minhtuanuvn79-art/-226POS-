@@ -1837,18 +1837,15 @@ function generateVariants() {
     vSection.style.display = 'block';
     vBody.innerHTML = '';
     
-    // Lấy mã gốc từ ô nhập mã hàng ở màn hình chính
+    // Lấy mã gốc từ form chính để gợi ý mã phụ
     const mainCode = document.getElementById('pm-code').value.trim() || 'SP';
     
     currentProductUnits.forEach((unit, uIdx) => {
-        // Logic: Nếu chưa có mã thì tự sinh (Mã gốc-STT), nếu có rồi thì giữ nguyên
+        // Nếu chưa có mã riêng, gợi ý theo định dạng: MãGốc-SốThứTự
         const displayCode = unit.code || `${mainCode}-${uIdx + 1}`;
         const displayBarcode = unit.barcode || '';
         const displayPrice = (unit.price || 0).toLocaleString('vi-VN');
         
-        // Lưu luôn mã tự sinh vào biến để nếu user không sửa thì vẫn có mã đúng
-        if (!unit.code) unit.code = displayCode;
-
         vBody.innerHTML += `
             <tr style="border-bottom: 1px solid #eee;">
                 <td style="font-weight: 500; color: var(--kv-blue);">${unit.name}</td>
@@ -1881,28 +1878,32 @@ window.saveUnitAttr = function() {
     const rows = document.querySelectorAll('#variant-tbody tr');
     
     rows.forEach((row, index) => {
-        // Tìm các ô input dựa trên class hoặc thuộc tính để tránh lỗi đếm sai index
+        // Tìm các ô input dựa trên placeholder để đảm bảo lấy đúng dữ liệu
         const inputCode = row.querySelector('input[placeholder="Mã hàng"]');
         const inputBarcode = row.querySelector('input[placeholder="Mã vạch"]');
-        const inputPrice = row.querySelector('input[oninput*="parseCurrency"]');
+        const inputPrice = row.querySelector('input[placeholder="Giá bán"]');
 
         if (currentProductUnits[index]) {
-            // Chỉ cập nhật nếu ô input tồn tại (Check null để tránh lỗi 'value' of undefined)
-            if (inputCode) currentProductUnits[index].code = inputCode.value;
-            if (inputBarcode) currentProductUnits[index].barcode = inputBarcode.value;
+            // Cập nhật mã hàng: ưu tiên giá trị nhập vào, nếu trống thì giữ mã cũ
+            if (inputCode) {
+                currentProductUnits[index].code = inputCode.value.trim();
+            }
+            
+            // Cập nhật mã vạch
+            if (inputBarcode) {
+                currentProductUnits[index].barcode = inputBarcode.value.trim();
+            }
+            
+            // Cập nhật giá bán: sử dụng hàm parseCurrency để chuyển từ "1.000" về 1000
             if (inputPrice) {
                 currentProductUnits[index].price = window.parseCurrency(inputPrice.value);
             }
         }
     });
 
-    // 2. Đóng modal và thông báo
+    // 2. Đóng modal và thông báo thành công
     closeUnitAttrModal();
-    if (typeof showToast === 'function') {
-        showToast("Đã ghi nhận thiết lập đơn vị tính", "success");
-    } else {
-        alert("Đã ghi nhận thiết lập đơn vị tính");
-    }
+    showToast("Đã ghi nhận thiết lập đơn vị tính", "success");
 };
 // ==========================================
 // 12. QUẢN LÝ TAB HÓA ĐƠN
