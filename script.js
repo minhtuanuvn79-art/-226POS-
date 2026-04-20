@@ -21,7 +21,14 @@ let activePriceBookIds = ['default'];
 let currentProductUnits = [];
 let currentVariants = []; 
 let editingUnitIndex = null;
-
+// Đặt ở đầu file script.js
+window.focusPOSSearch = function() {
+    const searchInput = document.getElementById('pos-search-input');
+    if (searchInput) {
+        searchInput.focus();
+        searchInput.select(); // Luôn bôi đen để quét đè mã mới
+    }
+};
 // BIẾN CHO TÍNH NĂNG THIẾT LẬP GIÁ NHANH TRONG MODAL HÀNG HÓA
 let tempPriceBookValues = {};
 // Hàm tự động thêm dấu chấm khi gõ
@@ -1874,36 +1881,29 @@ function generateVariants() {
     });
 }
 window.saveUnitAttr = function() {
-    // 1. Lấy tất cả các dòng trong bảng biến thể
     const rows = document.querySelectorAll('#variant-tbody tr');
     
     rows.forEach((row, index) => {
-        // Tìm các ô input dựa trên placeholder để đảm bảo lấy đúng dữ liệu
         const inputCode = row.querySelector('input[placeholder="Mã hàng"]');
         const inputBarcode = row.querySelector('input[placeholder="Mã vạch"]');
         const inputPrice = row.querySelector('input[placeholder="Giá bán"]');
 
         if (currentProductUnits[index]) {
-            // Cập nhật mã hàng: ưu tiên giá trị nhập vào, nếu trống thì giữ mã cũ
-            if (inputCode) {
-                currentProductUnits[index].code = inputCode.value.trim();
-            }
-            
-            // Cập nhật mã vạch
-            if (inputBarcode) {
-                currentProductUnits[index].barcode = inputBarcode.value.trim();
-            }
-            
-            // Cập nhật giá bán: sử dụng hàm parseCurrency để chuyển từ "1.000" về 1000
-            if (inputPrice) {
-                currentProductUnits[index].price = window.parseCurrency(inputPrice.value);
+            currentProductUnits[index].code = inputCode ? inputCode.value.trim() : currentProductUnits[index].code;
+            currentProductUnits[index].barcode = inputBarcode ? inputBarcode.value.trim() : currentProductUnits[index].barcode;
+            currentProductUnits[index].price = inputPrice ? window.parseCurrency(inputPrice.value) : currentProductUnits[index].price;
+
+            // NẾU LÀ ĐƠN VỊ CƠ BẢN (Dòng đầu tiên): Cập nhật thẳng ra ngoài sản phẩm chính
+            if (index === 0) {
+                document.getElementById('pm-code').value = currentProductUnits[index].code;
+                document.getElementById('pm-barcode').value = currentProductUnits[index].barcode;
+                document.getElementById('pm-price').value = currentProductUnits[index].price.toLocaleString('vi-VN');
             }
         }
     });
 
-    // 2. Đóng modal và thông báo thành công
     closeUnitAttrModal();
-    showToast("Đã ghi nhận thiết lập đơn vị tính", "success");
+    showToast("Đã đồng bộ mã hàng và mã vạch mới", "success");
 };
 // ==========================================
 // 12. QUẢN LÝ TAB HÓA ĐƠN
@@ -2678,111 +2678,83 @@ function initPOSData() {
  */
 window.searchPOSProduct = function(keyword) {
     const dropdown = document.getElementById('pos-search-dropdown');
-    
-    // 1. Kiểm tra đầu vào: Nếu trống hoặc quá ngắn thì ẩn gợi ý
-    if (!keyword || !keyword.trim()) { 
-        dropdown.style.display = 'none'; 
-        return; 
-    }
+    if (!keyword || !keyword.trim()) { dropdown.style.display = 'none'; return; }
     
     const inputVal = keyword.toLowerCase().trim();
-
-    // 2. Tối ưu cho máy quét Barcode: Nếu là chuỗi số dài thì ưu tiên sự kiện Enter
-    if (inputVal.length > 8 && !isNaN(inputVal)) {
-        return; 
-    }
-
-    // 3. Tách chuỗi nhập vào thành các từ riêng biệt (Ví dụ: "aq 500" -> ["aq", "500"])
-    const searchTerms = inputVal.split(/\s+/);
-
-    // 4. Lấy danh sách sản phẩm mới nhất từ bộ nhớ
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
-    // 5. Logic lọc thông minh theo xác suất khớp từ
-    const matches = latestProducts.filter(p => {
-        const prodName = (p.name || "").toLowerCase();
-        const prodCode = (p.code || "").toLowerCase();
-        const prodBarcode = (p.barcode || "").toLowerCase();
-        
-        // Kết hợp các thông tin sản phẩm thành một chuỗi tổng hợp để tìm kiếm
-        const combinedInfo = `${prodName} ${prodCode} ${prodBarcode}`;
+    let results = [];
+    latestProducts.forEach(p => {
+        // Duyệt qua từng đơn vị tính của sản phẩm
+        (p.units || []).forEach((unit, uIdx) => {
+            const uCode = (unit.code || "").toLowerCase();
+            const uBarcode = (unit.barcode || "").toLowerCase();
+            const pName = (p.name || "").toLowerCase();
 
-        // Kiểm tra xem TẤT CẢ các từ khóa người dùng gõ có xuất hiện trong thông tin sản phẩm hay không
-        // Ví dụ: Trong chuỗi "aquafina 500ml" có cả "aq" và "500" -> Khớp
-        return searchTerms.every(term => combinedInfo.includes(term));
+            // Nếu khớp mã hàng/mã vạch của đơn vị này HOẶC khớp tên sản phẩm
+            if (uCode === inputVal || uBarcode === inputVal || pName.includes(inputVal)) {
+                results.push({
+                    ...p,
+                    matchedUnitIdx: uIdx, // Ghi nhớ đơn vị nào đã khớp
+                    displayUnitName: unit.name,
+                    displayPrice: unit.price || p.price
+                });
+            }
+        });
     });
 
-    // 6. Xử lý hiển thị kết quả
-    if (matches.length === 0) {
-        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa phù hợp</div>';
+    if (results.length === 0) {
+        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa</div>';
     } else {
-        // Chỉ lấy tối đa 20 kết quả để đảm bảo tốc độ
-        const limitedMatches = matches.slice(0, 20);
-        
-        dropdown.innerHTML = limitedMatches.map(p => {
-            const currentTab = posTabs[activeTabIndex];
-            const price = getProductPrice(p, currentTab.priceBook);
-            
-            // Cảnh báo tồn kho bằng màu sắc
-            const stockLevel = parseFloat(p.stock) || 0;
-            const stockColor = (stockLevel <= 0) ? '#d9534f' : (stockLevel <= 5 ? '#f0ad4e' : '#888');
-            
-            return `
-            <div class="pos-dropdown-item" onclick="addPOSItem('${p.id}', false)" 
+        dropdown.innerHTML = results.slice(0, 20).map(p => `
+            <div class="pos-dropdown-item" onclick="addPOSItem('${p.id}', false, ${p.matchedUnitIdx})" 
                  style="display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px solid #f5f5f5; cursor: pointer;">
-                <div style="flex:1; min-width: 0; padding-right: 10px;">
-                    <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                        <strong style="color: var(--kv-blue);">${p.code}</strong> - <strong style="color: #333;">${p.name}</strong>
-                    </div>
-                    <div style="font-size: 12px; color: ${stockColor}; font-weight: 500; margin-top: 3px;">
-                        <i class="fa-solid fa-box-open"></i> Tồn kho: ${stockLevel}
-                    </div>
+                <div style="flex:1;">
+                    <strong style="color: var(--kv-blue);">${p.units[p.matchedUnitIdx].code || p.code}</strong> - 
+                    <strong>${p.name} (${p.displayUnitName})</strong>
                 </div>
-                <div style="text-align: right; flex-shrink: 0;">
-                    <div style="font-weight: bold; color: var(--kv-pink); font-size: 15px;">${price.toLocaleString('vi-VN')}</div>
-                    <div style="font-size: 11px; color: #aaa;">${p.barcode || ''}</div>
+                <div style="text-align: right;">
+                    <div style="font-weight: bold; color: var(--kv-pink);">${p.displayPrice.toLocaleString('vi-VN')}</div>
                 </div>
-            </div>`;
-        }).join('');
+            </div>`).join('');
     }
-    
     dropdown.style.display = 'block';
 };
 
 // TỐI ƯU HÓA QUÉT MÃ VẠCH SIÊU TỐC
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
-    // Máy quét mã vạch thường gửi phím 'Enter' sau khi quét xong
     if (e.key === 'Enter') {
         e.preventDefault(); 
-        
         const kw = this.value.trim().toLowerCase();
         if (!kw) return;
 
-        // Ưu tiên tìm khớp 100% mã vạch hoặc mã hàng trước (Tốc độ cao nhất)
         const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-        const exactMatch = latestProducts.find(p => 
-            (p.barcode && p.barcode.toLowerCase() === kw) || 
-            (p.code && p.code.toLowerCase() === kw)
-        );
+        let found = null;
 
-        if (exactMatch) {
-            // Nếu khớp mã, thêm ngay vào giỏ và xóa trắng ô nhập để quét mã tiếp theo
-            addPOSItem(exactMatch.id, false);
-            this.value = ''; 
-            document.getElementById('pos-search-dropdown').style.display = 'none';
+        // Tìm kiếm chính xác mã hàng/mã vạch trong tất cả đơn vị tính
+        for (let p of latestProducts) {
+            const uIdx = p.units.findIndex(u => 
+                (u.barcode && u.barcode.toLowerCase() === kw) || 
+                (u.code && u.code.toLowerCase() === kw)
+            );
+            if (uIdx !== -1) {
+                found = { id: p.id, uIdx: uIdx };
+                break;
+            }
+        }
+
+        if (found) {
+            // Thêm vào giỏ và giữ nguyên text (true), bôi đen mã
+            addPOSItem(found.id, true, found.uIdx); 
         } else {
-            // Nếu không khớp tuyệt đối, mới thực hiện tìm kiếm gợi ý (chậm hơn)
+            // Nếu không khớp mã vạch, thử lấy kết quả đầu tiên từ danh sách gợi ý
             const firstItem = document.querySelector('.pos-dropdown-item');
             if (firstItem) {
                 firstItem.click();
             }
         }
-        
-        // Luôn giữ tiêu điểm ở ô nhập để quét liên tục không cần chạm chuột
-        this.focus();
     }
 });
-
 function getProductPrice(productObj, priceBookId) {
     if (!priceBookId || String(priceBookId) === 'default') return productObj.price || 0;
     
@@ -2797,19 +2769,43 @@ function getProductPrice(productObj, priceBookId) {
 }
 
 let isTabCreating = false; // Thêm biến này ở đầu file hoặc ngay trên hàm
-function addPOSTab() {
-    if (isTabCreating) return; // Nếu đang tạo thì thoát luôn
+window.addPOSTab = function() {
+    if (isTabCreating) return;
     isTabCreating = true;
-    
-    tabCounter++;
-    posTabs.push({ id: Date.now(), name: `Hóa đơn ${tabCounter}`, items: [], priceBook: 'default', discount: 0, extraFee: 0 });
+
+    // 1. Tìm tất cả các số thứ tự hiện có (ví dụ từ "Hóa đơn 1" lấy ra số 1)
+    const existingNumbers = posTabs.map(tab => {
+        const match = tab.name.match(/\d+/);
+        return match ? parseInt(match[0]) : 0;
+    }).sort((a, b) => a - b);
+
+    // 2. Tìm số nhỏ nhất còn thiếu (bắt đầu từ 1)
+    let nextNumber = 1;
+    for (let i = 0; i < existingNumbers.length; i++) {
+        if (existingNumbers[i] === nextNumber) {
+            nextNumber++;
+        } else if (existingNumbers[i] > nextNumber) {
+            break; // Đã tìm thấy khoảng trống
+        }
+    }
+
+    // 3. Tạo tab mới với số vừa tìm được
+    posTabs.push({ 
+        id: Date.now(), 
+        name: `Hóa đơn ${nextNumber}`, 
+        items: [], 
+        priceBook: 'default', 
+        discount: 0, 
+        extraFee: 0 
+    });
+
+    // 4. Chuyển sang tab mới và focus vào ô tìm kiếm
     switchPOSTab(posTabs.length - 1);
     savePOSState();
+    if (typeof focusPOSSearch === 'function') focusPOSSearch();
 
-    // Mở khóa sau 200ms
     setTimeout(() => { isTabCreating = false; }, 200);
-}
-
+};
 function renderPOSTabs() {
     const container = document.getElementById('pos-tabs-container');
     if(!container) return;
@@ -2828,24 +2824,23 @@ function renderPOSTabs() {
 
 function switchPOSTab(index) {
     activeTabIndex = index;
-    renderPOSTabs(); // Vẽ lại các thẻ (tab) phía trên
+    renderPOSTabs();
 
     const tab = posTabs[activeTabIndex];
     if (tab) {
-        // 1. ÉP DỮ LIỆU LÊN MÀN HÌNH TRƯỚC (Rất quan trọng để chống trôi khi F5)
-        const pbSelect = document.getElementById('pos-pricebook-select');
-        if (pbSelect) pbSelect.value = String(tab.priceBook);
-
-        const discEl = document.getElementById('pos-discount');
-        if (discEl) discEl.value = (tab.discount || 0).toLocaleString('vi-VN');
-
-        const feeEl = document.getElementById('pos-extra-fee');
-        if (feeEl) feeEl.value = (tab.extraFee || 0).toLocaleString('vi-VN');
+        if (document.getElementById('pos-pricebook-select')) 
+            document.getElementById('pos-pricebook-select').value = String(tab.priceBook);
+        if (document.getElementById('pos-discount')) 
+            document.getElementById('pos-discount').value = (tab.discount || 0).toLocaleString('vi-VN');
+        if (document.getElementById('pos-extra-fee')) 
+            document.getElementById('pos-extra-fee').value = (tab.extraFee || 0).toLocaleString('vi-VN');
     }
 
-    // 2. VẼ LẠI GIỎ HÀNG (Sau khi các ô input đã nhận đúng thông số của Tab)
     renderPOSCart();
-    savePOSState(); // Lưu trạng thái hiện tại
+    savePOSState();
+    
+    // Đảm bảo cứ đổi tab là chuột nhảy về ô tìm kiếm
+    focusPOSSearch();
 }
 
 function closePOSTab(index, event) {
@@ -2854,62 +2849,57 @@ function closePOSTab(index, event) {
     posTabs.splice(index, 1);
     if (activeTabIndex >= posTabs.length) activeTabIndex = posTabs.length - 1;
     switchPOSTab(activeTabIndex);
-    savePOSState(); // Lưu trạng thái
+    savePOSState();
+    
+    // Focus lại sau khi đóng tab
+    focusPOSSearch();
 }
 
-window.addPOSItem = function(productId, keepInput = false) {
+window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) {
     const sInput = document.getElementById('pos-search-input');
     const dropdown = document.getElementById('pos-search-dropdown');
     
     if (dropdown) dropdown.style.display = 'none';
-    
-    // Xử lý nội dung thanh tìm kiếm sau khi chọn
-    if (!keepInput) {
-        sInput.value = ''; 
-    } else {
-        sInput.focus();
-        sInput.select();
-    }
     
     const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
     const p = allProds.find(x => String(x.id) === String(productId));
     if(!p) return;
 
     const tab = posTabs[activeTabIndex];
-    const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1 }];
-    const activePrice = getProductPrice(p, tab.priceBook);
-    
-    // 1. Tìm xem món này đã có trong giỏ hàng (với cùng đơn vị tính cơ bản) chưa
-    const existingIndex = tab.items.findIndex(x => String(x.productId) === String(productId) && x.selectedUnitIdx === 0);
+    // Nếu quét mã vạch của đơn vị cụ thể thì dùng, không thì mặc định đơn vị đầu tiên
+    const unitIdx = forcedUnitIdx !== null ? forcedUnitIdx : 0;
+    const selectedUnit = p.units[unitIdx];
+
+    const existingIndex = tab.items.findIndex(x => String(x.productId) === String(productId) && x.selectedUnitIdx === unitIdx);
     
     if (existingIndex !== -1) {
-        // 2. NẾU ĐÃ CÓ: Lấy món đó ra khỏi vị trí cũ và tăng số lượng
-        const existingItem = tab.items.splice(existingIndex, 1)[0];
-        existingItem.qty += 1;
-        
-        // Đưa món đó lên đầu mảng (STT sẽ tự động nhảy về 1)
-        tab.items.unshift(existingItem);
+        // Nếu đã có, tăng số lượng
+        tab.items[existingIndex].qty += 1;
+        // Đưa món vừa cộng lên đầu danh sách để dễ quan sát
+        const item = tab.items.splice(existingIndex, 1)[0];
+        tab.items.unshift(item);
     } else {
-        // 3. NẾU CHƯA CÓ: Thêm mới hoàn toàn vào đầu danh sách
+        // Nếu chưa có, thêm mới vào đầu
         tab.items.unshift({ 
             productId: p.id, 
-            code: p.code, 
+            code: selectedUnit.code || p.code, 
             name: p.name, 
             qty: 1, 
-            basePrice: activePrice, 
-            price: activePrice * productUnits[0].rate, 
-            units: productUnits, 
-            selectedUnitIdx: 0 
+            basePrice: p.price, 
+            price: selectedUnit.price || p.price, 
+            units: p.units, 
+            selectedUnitIdx: unitIdx 
         });
     }
     
-    // 4. Vẽ lại giỏ hàng và lưu trạng thái
     renderPOSCart();
     savePOSState();
-    
-    // Trả lại tiêu điểm cho ô nhập để quét tiếp ngay lập tức
-    sInput.focus();
-    if (keepInput) sInput.select();
+
+    // Giữ nguyên giá trị và bôi đen để Enter tiếp
+    if (sInput) {
+        sInput.focus();
+        sInput.select(); 
+    }
 };
 
 function renderPOSCart() {
@@ -2971,9 +2961,11 @@ function renderPOSCart() {
             </div>
 
             <div style="width: 100px; text-align: center;">
-                <input type="number" value="${item.qty}" min="1" 
-                    onchange="updatePOSQty(${index}, this.value)" 
-                    style="width: 65px; font-weight: bold; border: 1px solid #ddd; padding: 6px; border-radius: 6px; text-align: center; outline: none; color: var(--kv-blue);">
+<input type="number" value="${item.qty}" min="1" 
+    class="pos-qty-input" 
+    data-index="${index}"
+    onchange="updatePOSQty(${index}, this.value)" 
+    style="width: 65px; font-weight: bold; border: 1px solid #ddd; padding: 6px; border-radius: 6px; text-align: center; outline: none; color: var(--kv-blue);">
             </div>
 
             <div style="width: 120px; text-align: right; color: #555;">
@@ -3108,7 +3100,7 @@ window.processCheckout = function() {
         switchPOSTab(activeTabIndex);
         window.savePOSState(); // Cập nhật lại bộ nhớ máy: Hóa đơn này đã biến mất
     }
-
+focusPOSSearch();
     // Tự động focus về ô tìm kiếm
     setTimeout(() => {
         const searchInput = document.getElementById('pos-search-input');
@@ -4068,81 +4060,85 @@ window.updatePrintStatusUI = function() {
 // ==========================================
 // HỆ THỐNG PHÍM TẮT TOÀN CỤC (GLOBAL SHORTCUTS)
 // ==========================================
+// Hệ thống phím tắt toàn cục (Global Shortcuts)
 document.addEventListener('keydown', function(e) {
-    // 1. Xử lý phím ESC - Dùng được ở mọi màn hình
+    // 1. Chặn phím F11 (Toàn màn hình) và phím F12 (Nếu muốn chặn mở Code)
+    if (e.key === 'F11') {
+        e.preventDefault(); // Ngắn chặn trình duyệt bật Full Screen
+        return false;
+    }
+
+    // 2. Xử lý phím ESC - Đóng các màn hình lớn/Modal
     if (e.key === 'Escape') {
-        // Đóng các màn hình lớn
         if (typeof closeCreateImportView === 'function') closeCreateImportView();
         if (typeof closeCreateCheckView === 'function') closeCreateCheckView();
         
-        // Đóng tất cả các modal overlay
         document.querySelectorAll('.modal-overlay').forEach(modal => {
             modal.style.display = 'none';
         });
 
-        // Đóng các dropdown tìm kiếm và menu
         const dropdowns = ['pos-search-dropdown', 'ic-search-dropdown', 'io-search-dropdown', 'pos-hamburger-menu'];
         dropdowns.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });
-        return; // Thoát hàm sau khi xử lý ESC
+        return;
     }
 
-    // 2. Các phím tắt dành riêng cho màn hình Bán hàng (POS)
+    // 3. Các phím tắt dành riêng cho màn hình Bán hàng (POS)
     const posView = document.getElementById('pos-view');
     if (posView && posView.style.display === 'flex') {
         
         switch (e.key) {
             case 'F1':
-                e.preventDefault();
-                e.stopImmediatePropagation(); // Ngăn chặn sự kiện bị kích hoạt 2 lần
-                
-                addPOSTab(); // Gọi hàm tạo tab mới
-                
-                // Tự động focus vào ô tìm kiếm sau khi tạo tab
-                setTimeout(() => {
-                    const searchInput = document.getElementById('pos-search-input');
-                    if (searchInput) {
-                        searchInput.focus();
-                    }
-                }, 100);
-                break;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    addPOSTab();
+    // Hàm addPOSTab đã có focusPOSSearch bên trong nên không cần gọi lại ở đây
+    break;
 
             case 'F2':
                 e.preventDefault();
-                // Bật/Tắt chế độ tự động in hóa đơn
                 window.autoPrintMode = !window.autoPrintMode;
-                if (typeof window.updatePrintStatusUI === 'function') {
-                    window.updatePrintStatusUI();
-                }
+                if (typeof window.updatePrintStatusUI === 'function') window.updatePrintStatusUI();
                 break;
 
-            // Tìm đoạn case 'F3' trong document.addEventListener('keydown'...)
-case 'F3':
-    e.preventDefault();
-    const searchInput = document.getElementById('pos-search-input');
-    if (searchInput) {
-        searchInput.focus();
-        searchInput.select(); // Thêm dòng này để bôi đen khi bấm F3
-    }
-    break;
+            case 'F3':
+                e.preventDefault();
+                const searchInput = document.getElementById('pos-search-input');
+                if (searchInput) {
+                    searchInput.focus();
+                    searchInput.select();
+                }
+                break;
 
             case 'F9':
                 e.preventDefault();
-                // Thực hiện thanh toán
-                if (typeof processCheckout === 'function') {
-                    processCheckout();
-                }
+                if (typeof processCheckout === 'function') processCheckout();
                 break;
 
-            case 'F11':
-                // Để trình duyệt xử lý mặc định hoặc tùy biến thêm tại đây
+            case 'Home':
+                // Phím tắt nhảy xuống chỉnh số lượng hàng gần nhất (Như đã làm ở bước trước)
+                e.preventDefault();
+                const qtyInputs = document.querySelectorAll('.pos-qty-input');
+                if (qtyInputs.length > 0) {
+                    qtyInputs[0].focus();
+                    qtyInputs[0].select();
+                }
                 break;
         }
     }
-});
 
+    // 4. Khi đang ở ô số lượng, nhấn Enter để quay lại ô tìm kiếm
+    if (e.key === 'Enter' && e.target.classList.contains('pos-qty-input')) {
+        e.preventDefault();
+        const searchInput = document.getElementById('pos-search-input');
+        if (searchInput) {
+            searchInput.focus();
+            searchInput.select();
+        }
+    }
+});
 // Gọi hàm vẽ UI sau khi hệ thống load xong (Khoảng 1 giây)
 setTimeout(window.initPrintStatusUI, 1000);
 
@@ -4975,6 +4971,7 @@ window.moveNextOnEnter = function(event, currentInput, className) {
         }
     }
 };
+
 // ==========================================
 // TÍNH NĂNG MENU THIẾT LẬP GIÁ NHANH (+1k, +2k...)
 // ==========================================

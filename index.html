@@ -1015,19 +1015,18 @@
         </div>
     </div>
          <div id="shortcut-modal" class="modal-overlay" style="z-index: 9999;">
-        <div class="modal-box" style="width: 450px; padding: 0; overflow: hidden;">
-            <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; background: var(--kv-blue); color: white;">
-                <h3 style="font-size: 16px; margin: 0;"><i class="fa-solid fa-keyboard"></i> Phím tắt chức năng</h3>
-                <i class="fa-solid fa-xmark" onclick="document.getElementById('shortcut-modal').style.display='none'" style="cursor: pointer; font-size: 18px;"></i>
-            </div>
-            <div style="padding: 20px; line-height: 2.5; font-size: 14px; color: #333; background: #fafafa;">
-                <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F1:</strong> <span>Thêm hóa đơn (Tab) mới</span></div>
-                <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F3:</strong> <span>Tìm hàng hóa</span></div>
-                <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F9:</strong> <span>Thanh toán hóa đơn</span></div>
-                <div style="display: flex;"><strong style="width: 80px; color: var(--kv-blue);">F11:</strong> <span>Bật / Tắt Toàn màn hình</span></div>
-            </div>
+    <div class="modal-box" style="width: 450px; padding: 0; overflow: hidden;">
+        <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; background: var(--kv-blue); color: white;">
+            <h3 style="font-size: 16px; margin: 0;"><i class="fa-solid fa-keyboard"></i> Phím tắt chức năng</h3>
+            <i class="fa-solid fa-xmark" onclick="document.getElementById('shortcut-modal').style.display='none'" style="cursor: pointer; font-size: 18px;"></i>
         </div>
-        </div>
+        <div style="padding: 20px; line-height: 2.5; font-size: 14px; color: #333; background: #fafafa;">
+            <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F1:</strong> <span>Thêm hóa đơn (Tab) mới</span></div>
+            <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F3:</strong> <span>Tìm hàng hóa</span></div>
+            <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F9:</strong> <span>Thanh toán hóa đơn</span></div>
+            </div>
+    </div>
+</div>
 
         <div id="add-product-modal" class="modal-overlay">
         <div class="product-modal-box">
@@ -1358,19 +1357,21 @@
     // Thay thế đoạn window.onload cũ trong index.html
 // Trong file index.html (đoạn thẻ script module)
 window.onload = function() {
-    console.log("🚀 226 POS sẵn sàng...");
-    // Đảm bảo các biến Global từ script.js đã được nạp
-    if (typeof window.initApp === 'function') {
-        window.initApp(); 
-    }
-    // Khởi tạo trạng thái in F2
-    if (typeof window.initPrintStatusUI === 'function') {
-        window.initPrintStatusUI();
-    }
+    console.log("🚀 226 POS: Đang kiểm tra kết nối...");
+    
+    // Đảm bảo Firebase DB đã sẵn sàng trước khi nạp
+    const checkDb = setInterval(() => {
+        if (window.fbDb) {
+            clearInterval(checkDb);
+            if (typeof window.initApp === 'function') {
+                window.initApp(); 
+                console.log("✅ CSDL đã được kích hoạt tải về.");
+            }
+        }
+    }, 500); // Kiểm tra mỗi 0.5 giây cho đến khi kết nối Cloud sẵn sàng
 };
 </script>
 
-<script src="script.js"></script>
-
+<script src="script.js?v=1.0.1"></script>
 </body>
 </html>
