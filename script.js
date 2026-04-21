@@ -2685,24 +2685,41 @@ window.searchPOSProduct = function(keyword) {
 
     let results = [];
     latestProducts.forEach(p => {
-        // Duyệt qua từng đơn vị tính của sản phẩm
-        (p.units || []).forEach((unit, uIdx) => {
-            const uCode = (unit.code || "").toLowerCase();
-            const uBarcode = (unit.barcode || "").toLowerCase();
-            const pName = (p.name || "").toLowerCase();
+        const pName = (p.name || "").toLowerCase();
+        const pCode = (p.code || "").toLowerCase();
+        const pBarcode = (p.barcode || "").toLowerCase();
 
-            // Nếu khớp mã hàng/mã vạch của đơn vị này HOẶC khớp tên sản phẩm
-            if (uCode === inputVal || uBarcode === inputVal || pName.includes(inputVal)) {
-                results.push({
-                    ...p,
-                    matchedUnitIdx: uIdx, // Ghi nhớ đơn vị nào đã khớp
-                    displayUnitName: unit.name,
-                    displayPrice: unit.price || p.price
-                });
-            }
-        });
+        // 1. KIỂM TRA ĐƠN VỊ GỐC (Trường hợp bạn đang bị lỗi)
+        if (pCode === inputVal || pBarcode === inputVal || pName.includes(inputVal)) {
+            results.push({
+                ...p,
+                matchedUnitIdx: 0, // Mặc định là đơn vị gốc
+                displayUnitName: (p.units && p.units[0]) ? p.units[0].name : "Cái",
+                displayPrice: p.price
+            });
+        }
+
+        // 2. KIỂM TRA CÁC ĐƠN VỊ QUY ĐỔI (Nếu chưa khớp ở trên hoặc muốn hiện tất cả)
+        if (p.units && p.units.length > 1) {
+            p.units.forEach((unit, uIdx) => {
+                if (uIdx === 0) return; // Bỏ qua vì đã check ở bước 1
+                
+                const uCode = (unit.code || "").toLowerCase();
+                const uBarcode = (unit.barcode || "").toLowerCase();
+
+                if (uCode === inputVal || uBarcode === inputVal) {
+                    results.push({
+                        ...p,
+                        matchedUnitIdx: uIdx,
+                        displayUnitName: unit.name,
+                        displayPrice: unit.price || p.price
+                    });
+                }
+            });
+        }
     });
 
+    // Vẽ kết quả (Giữ nguyên phần render của bạn)
     if (results.length === 0) {
         dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa</div>';
     } else {
@@ -2721,7 +2738,6 @@ window.searchPOSProduct = function(keyword) {
     dropdown.style.display = 'block';
 };
 
-// TỐI ƯU HÓA QUÉT MÃ VẠCH SIÊU TỐC
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') {
         e.preventDefault(); 
@@ -2731,27 +2747,30 @@ document.getElementById('pos-search-input').addEventListener('keydown', function
         const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
         let found = null;
 
-        // Tìm kiếm chính xác mã hàng/mã vạch trong tất cả đơn vị tính
         for (let p of latestProducts) {
-            const uIdx = p.units.findIndex(u => 
-                (u.barcode && u.barcode.toLowerCase() === kw) || 
-                (u.code && u.code.toLowerCase() === kw)
-            );
-            if (uIdx !== -1) {
-                found = { id: p.id, uIdx: uIdx };
+            // Kiểm tra mã gốc sản phẩm trước
+            if (p.code?.toLowerCase() === kw || p.barcode?.toLowerCase() === kw) {
+                found = { id: p.id, uIdx: 0 };
                 break;
+            }
+            // Sau đó kiểm tra trong danh sách đơn vị tính
+            if (p.units) {
+                const uIdx = p.units.findIndex(u => 
+                    u.barcode?.toLowerCase() === kw || u.code?.toLowerCase() === kw
+                );
+                if (uIdx !== -1) {
+                    found = { id: p.id, uIdx: uIdx };
+                    break;
+                }
             }
         }
 
         if (found) {
-            // Thêm vào giỏ và giữ nguyên text (true), bôi đen mã
             addPOSItem(found.id, true, found.uIdx); 
+            this.select(); // Bôi đen để quét tiếp mã khác
         } else {
-            // Nếu không khớp mã vạch, thử lấy kết quả đầu tiên từ danh sách gợi ý
             const firstItem = document.querySelector('.pos-dropdown-item');
-            if (firstItem) {
-                firstItem.click();
-            }
+            if (firstItem) firstItem.click();
         }
     }
 });
