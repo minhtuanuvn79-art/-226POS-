@@ -1,0 +1,1377 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>226 POS - Hệ Thống Quản Lý & Bán Hàng</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:,">
+</head>
+<body>
+
+    <div id="login-view">
+        <div class="login-box">
+            <div class="login-content">
+                <div class="login-logo"><i class="fa-solid fa-store"></i> 226 <span>POS</span></div>
+                <div id="login-error" class="error-msg">Tên đăng nhập hoặc mật khẩu không đúng!</div>
+                <div class="input-group">
+                    <input type="text" id="login-user" placeholder="Tên đăng nhập" required>
+                </div>
+                <div class="input-group">
+                    <input type="password" id="login-pass" placeholder="Mật khẩu" required>
+                    <i class="fa-solid fa-eye-slash toggle-pw" onclick="togglePassword()"></i>
+                </div>
+                <div class="login-options">
+                    <label><input type="checkbox" checked> Duy trì đăng nhập</label>
+                    <a href="#">Quên mật khẩu?</a>
+                </div>
+            </div>
+            <div class="login-btns">
+                <button class="btn-manage" onclick="handleLogin('manage')"><i class="fa-solid fa-chart-line"></i> Quản lý</button>
+                <button class="btn-sell" onclick="handleLogin('sell')"><i class="fa-solid fa-cart-shopping"></i> Bán hàng</button>
+            </div>
+        </div>
+        <button class="btn-go-admin" onclick="showAuthModal()"><i class="fa-solid fa-gear"></i> Cài đặt Hệ thống</button>
+    </div>
+
+    <div id="auth-modal" class="modal-overlay">
+        <div class="modal-box">
+            <h3><i class="fa-solid fa-shield-halved" style="color: var(--kv-blue);"></i> Xác thực quyền Admin</h3>
+            <p style="font-size: 13px; color: #555;">Mật khẩu mặc định là: admin123</p>
+            <input type="password" id="admin-pass-input" placeholder="Nhập mật khẩu...">
+            <div class="modal-btns">
+                <button class="btn-cancel" onclick="closeAuthModal()">Hủy</button>
+                <button class="btn-confirm" onclick="verifyAdmin()">Xác nhận</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="admin-settings-view">
+        <div class="admin-sidebar">
+            <div class="admin-logo">Admin Panel</div>
+            <ul class="admin-menu">
+                <li id="menu-tab-list" class="active" onclick="switchAdminTab('list')"><i class="fa-solid fa-users"></i> Danh sách tài khoản</li>
+                <li id="menu-tab-create" onclick="switchAdminTab('create')"><i class="fa-solid fa-user-plus"></i> Tạo tài khoản mới</li>
+                <li onclick="logout()"><i class="fa-solid fa-arrow-left"></i> Quay lại đăng nhập</li>
+            </ul>
+        </div>
+        <div class="admin-content">
+            <div class="admin-card" id="admin-tab-create" style="display: none;">
+                <h3 style="margin-bottom: 20px; text-align: center;">Tạo Tài Khoản Nhân Viên</h3>
+                <label>Họ và tên</label>
+                <input type="text" id="new-fullname" placeholder="Nhập họ tên...">
+                <label>Tên đăng nhập</label>
+                <input type="text" id="new-username" placeholder="Nhập tên đăng nhập...">
+                <label>Mật khẩu</label>
+                <input type="password" id="new-password" placeholder="Nhập mật khẩu...">
+                <label>Quyền hạn</label>
+                <select id="new-role">
+                    <option value="manager">Quản lý cửa hàng</option>
+                    <option value="cashier">Nhân viên Thu ngân</option>
+                </select>
+                <button onclick="createAccount()">Xác nhận tạo</button>
+            </div>
+
+            <div class="admin-card" id="admin-tab-list" style="max-width: 800px; width: 100%;">
+                <h3 style="margin-bottom: 20px;">Danh Sách Nhân Viên</h3>
+                <div class="kv-table-wrapper" style="max-height: 400px; overflow-y: auto;">
+                    <table class="kv-table">
+                        <thead>
+                            <tr>
+                                <th>Họ Tên</th>
+                                <th>Tên Đăng Nhập</th>
+                                <th>Quyền Hạn</th>
+                                <th style="text-align: center;">Thao Tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="account-list-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="edit-account-modal" class="modal-overlay">
+        <div class="modal-box">
+            <h3><i class="fa-solid fa-user-pen" style="color: #f0ad4e;"></i> Chỉnh sửa Tài khoản</h3>
+            <p style="font-size: 13px; color: #555; margin-bottom: 15px;">Tài khoản: <strong id="edit-username-display"></strong></p>
+            <label style="font-size: 13px;">Họ và tên</label>
+            <input type="text" id="edit-fullname" style="margin-top: 5px;">
+            <label style="font-size: 13px;">Mật khẩu mới</label>
+            <input type="text" id="edit-password" style="margin-top: 5px;">
+            <label style="font-size: 13px;">Quyền hạn</label>
+            <select id="edit-role" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin: 5px 0 15px 0;">
+                <option value="manager">Quản lý cửa hàng</option>
+                <option value="cashier">Nhân viên Thu ngân</option>
+            </select>
+            <div class="modal-btns">
+                <button class="btn-cancel" onclick="closeEditModal()">Hủy</button>
+                <button class="btn-confirm" style="background: #f0ad4e;" onclick="saveEditAccount()">Lưu thay đổi</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="dashboard-view">
+        <div class="kv-topbar">
+            <div class="kv-logo-small"><i class="fa-solid fa-store"></i> 226 <span>POS</span></div>
+            <div class="topbar-right">
+                <div class="user-menu" onclick="logout()" title="Đăng xuất">
+                    <i class="fa-solid fa-user-circle" style="font-size: 18px; color: #888;"></i>
+                    <span id="dash-user-name">Tên nhân viên</span>
+                    <i class="fa-solid fa-caret-down"></i>
+                </div>
+            </div>
+        </div>
+        
+        <div class="kv-navbar">
+            <ul class="nav-links">
+                <li class="nav-item active" onclick="openDashTab('tab-tong-quan', this)">Tổng quan</li>
+                <li class="nav-item">
+    Hàng hóa <i class="fa-solid fa-caret-down" style="margin-left: 5px; font-size: 12px;"></i>
+    <ul class="dropdown-menu">
+        <li onclick="openDashTab('tab-danh-sach-hang', this.parentElement.parentElement)">Danh sách hàng hóa</li>
+        <li onclick="openDashTab('tab-thiet-lap-gia', this.parentElement.parentElement)">Thiết lập giá</li>
+        
+        <li onclick="openDashTab('tab-cap-nhat-hang', this.parentElement.parentElement)">Cập nhật hàng loạt</li>
+        
+        <li onclick="openDashTab('tab-kiem-kho', this.parentElement.parentElement)">Kiểm kho</li>
+    </ul>
+</li>
+                <li class="nav-item">
+                    Giao dịch <i class="fa-solid fa-caret-down" style="margin-left: 5px; font-size: 12px;"></i>
+                    <ul class="dropdown-menu">
+                        <li onclick="openDashTab('tab-hoa-don', this.parentElement.parentElement)">Hóa đơn</li>
+                        <li onclick="openDashTab('tab-nhap-hang', this.parentElement.parentElement)">Nhập hàng</li>
+                    </ul>
+                </li>
+            </ul>
+            <button class="btn-nav-sell" onclick="switchToPOS()"><i class="fa-solid fa-cart-shopping"></i> Bán hàng</button>
+        </div>
+
+        <div class="dash-content">
+            <div id="tab-tong-quan" class="tab-section active">
+                <div class="dash-overview-layout">
+                    <div class="dash-overview-main">
+                        <div class="dash-widget">
+                            <div class="widget-header"><h4 class="widget-title">Kết quả bán hàng hôm nay</h4></div>
+                            <div class="summary-grid">
+                                <div class="summary-item">
+                                    <div class="sum-icon" style="color: var(--kv-blue);"><i class="fa-solid fa-money-bill-wave"></i></div>
+                                    <div class="sum-info"><div class="sum-label">Doanh thu</div><div class="sum-value">0</div></div>
+                                </div>
+                                <div class="summary-item">
+                                    <div class="sum-icon" style="color: #f0ad4e;"><i class="fa-solid fa-rotate-left"></i></div>
+                                    <div class="sum-info"><div class="sum-label">Trả hàng</div><div class="sum-value">0</div></div>
+                                </div>
+                                <div class="summary-item">
+                                    <div class="sum-icon" style="color: #d9534f;"><i class="fa-solid fa-arrow-trend-down"></i></div>
+                                    <div class="sum-info"><div class="sum-label">So với hôm qua</div><div class="sum-value">0%</div></div>
+                                </div>
+                                <div class="summary-item">
+                                    <div class="sum-icon" style="color: #5cb85c;"><i class="fa-solid fa-arrow-trend-up"></i></div>
+                                    <div class="sum-info"><div class="sum-label">So với cùng kỳ tháng trước</div><div class="sum-value">0%</div></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="dash-widget">
+                            <div class="widget-header" style="border-bottom: none; padding-bottom: 0;">
+                                <h4 class="widget-title">Doanh thu thuần <span style="color: var(--kv-pink); margin-left: 10px;">0</span></h4>
+                            </div>
+                            <div class="chart-placeholder"><i class="fa-solid fa-chart-column"></i><p>Khu vực hiển thị biểu đồ</p></div>
+                        </div>
+                    </div>
+                    <div class="dash-overview-sidebar">
+                        <div class="dash-widget" style="height: 100%;">
+                            <div class="widget-header"><h4 class="widget-title">Hoạt động gần đây</h4></div>
+                            <div class="activity-feed">
+                                <div class="empty-data" style="height: 300px; color: #ccc;"><i class="fa-solid fa-clock-rotate-left"></i><p>Chưa có hoạt động nào</p></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-danh-sach-hang" class="tab-section">
+    <div class="list-layout">
+        <div class="list-sidebar">
+    <div class="filter-block">
+        <div class="filter-title" style="display: flex; justify-content: space-between; align-items: center;">
+            Nhóm hàng 
+            <span style="color: var(--kv-pink); cursor: pointer; font-size: 12px; font-weight: normal;" onclick="openGroupModal()">
+                <i class="fa-solid fa-plus"></i> Tạo mới
+            </span>
+        </div>
+        
+        <div id="group-dropdown-trigger" onclick="toggleGroupDropdown()" style="display: flex; justify-content: space-between; align-items: center; border: 1px solid #ddd; padding: 8px 10px; border-radius: 4px; cursor: pointer; background: white; font-size: 13px;">
+            <span id="group-filter-display" style="color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">Tất cả nhóm hàng</span>
+            <i class="fa-solid fa-chevron-down" style="color: #888;"></i>
+        </div>
+
+        <div id="group-filter-dropdown" style="display: none; position: absolute; width: 220px; background: white; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); z-index: 100; margin-top: 5px;">
+            <div style="padding: 10px; border-bottom: 1px solid #eee;">
+                <input type="text" id="search-group-filter" placeholder="Tìm nhanh nhóm..." oninput="filterGroupTree()" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
+            </div>
+            <div id="sidebar-group-list" style="max-height: 250px; overflow-y: auto; padding: 5px;"></div>
+            <div style="padding: 10px; border-top: 1px solid #eee; display: flex; justify-content: space-between; background: #fafafa;">
+                <span onclick="selectAllGroups()" style="color: var(--kv-blue); font-size: 12px; cursor: pointer;">Chọn hết</span>
+                <button onclick="applyGroupFilter()" style="background: var(--kv-blue); color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;">Áp dụng</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="filter-block">
+        <div class="filter-title">Tồn kho</div>
+        <select id="stock-filter" class="filter-select" onchange="handleStockFilterChange()">
+            <option value="all">Tất cả</option>
+            <option value="below_min">Dưới định mức tồn (≤ 5)</option>
+            <option value="above_max">Vượt định mức tồn (> 100)</option>
+            <option value="in_stock">Còn hàng trong kho</option>
+            <option value="out_of_stock">Hết hàng</option>
+            <option value="custom">Tùy chỉnh số lượng</option>
+        </select>
+        
+        <div id="custom-stock-range" style="display: none; margin-top: 10px; gap: 5px; align-items: center;">
+            <input type="number" id="stock-min" placeholder="Từ" style="width: 45%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
+            <span>-</span>
+            <input type="number" id="stock-max" placeholder="Đến" style="width: 45%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
+        </div>
+    </div>
+</div>
+
+        <div class="list-main">
+            <div class="list-toolbar">
+                <div class="search-bar"><i class="fa-solid fa-magnifying-glass"></i><input type="text" id="search-product-manage" placeholder="Theo mã, tên hàng..." oninput="currentProductPage = 1; renderProductList()"></div>
+                <div class="action-btn-group">
+                    <button id="btn-bulk-delete" class="primary" style="background: white; border: 1px solid #d9534f; color: #d9534f; display: none;" onclick="bulkDeleteProducts()">
+                        <i class="fa-solid fa-trash-can"></i> Xóa hàng loạt (<span id="selected-count">0</span>)
+                    </button>
+                    
+                    <button class="primary" style="background: white; border: 1px solid #28a745; color: #28a745;" onclick="openBulkImportModal()"><i class="fa-solid fa-paste"></i> Dán từ Excel</button>
+                    <button class="primary" onclick="openAddProductModal()"><i class="fa-solid fa-plus"></i> Thêm mới</button>
+                    <button onclick="exportProductsToExcel()"><i class="fa-solid fa-file-export"></i> Xuất file</button>
+                </div>
+            </div>
+            <div class="kv-table-wrapper">
+                <table class="kv-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align: center; width: 60px;">
+                                <input type="checkbox" id="check-all-products" onclick="toggleAllProductCheckboxes(this)">
+                            </th>
+                            <th style="text-align: left;">Mã hàng</th>
+                            <th style="text-align: left;">Mã vạch</th> 
+                            <th style="text-align: left;">Tên hàng</th>
+                            <th style="text-align: right;">Giá bán</th>
+                            <th style="text-align: right;">Giá vốn</th>
+                            <th style="text-align: center;">Tồn kho</th>
+                            <th style="text-align: center;">Thao tác</th> 
+                        </tr>
+                    </thead>
+                    <tbody id="import-table-body"></tbody>
+                </table>
+            </div>
+            <div id="product-pagination" style="display: flex; justify-content: flex-end; gap: 8px; padding: 15px 0; align-items: center;"></div>
+        </div>
+    </div>
+</div>
+
+            <div id="tab-thiet-lap-gia" class="tab-section">
+                <div class="list-layout">
+                    <div class="list-sidebar">
+                        <div class="filter-block">
+                            <div class="filter-title" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Bảng giá <span style="color:red">*</span></span>
+                                <span style="color: var(--kv-pink); cursor: pointer; font-size: 12px; font-weight: normal;" onclick="openPriceBookModal()">
+                                    Tạo mới
+                                </span>
+                            </div>
+                            
+                            <div id="active-pricebook-tags" style="margin-bottom: 10px; display: flex; flex-wrap: wrap;">
+                                </div>
+                            
+                            <select id="add-pricebook-select" class="filter-select" onchange="addPriceBookToView(this.value)">
+                                <option value="">Thêm bảng giá vào góc nhìn</option>
+                            </select>
+                        </div>
+                        
+                        <div class="filter-block" style="position: relative;">
+    <div class="filter-title" style="display: flex; justify-content: space-between; align-items: center;">
+        Nhóm hàng 
+        <span style="color: var(--kv-pink); cursor: pointer; font-size: 12px; font-weight: normal;" onclick="openGroupModal()">
+            <i class="fa-solid fa-plus"></i> Tạo mới
+        </span>
+    </div>
+    
+    <div id="price-group-dropdown-trigger" onclick="togglePriceGroupDropdown()" style="display: flex; justify-content: space-between; align-items: center; border: 1px solid #ddd; padding: 8px 10px; border-radius: 4px; cursor: pointer; background: white; font-size: 13px;">
+        <span id="price-group-filter-display" style="color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">Chọn nhóm hàng</span>
+        <i class="fa-solid fa-chevron-down" style="color: #888;"></i>
+    </div>
+
+    <div id="price-group-filter-dropdown" style="display: none; position: absolute; top: 100%; left: 0; width: 100%; background: white; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); z-index: 100; margin-top: 5px; overflow: hidden;">
+        <div style="padding: 10px; border-bottom: 1px solid #eee; background: #fafafa;">
+            <div style="position: relative;">
+                <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 9px; color: #888; font-size: 12px;"></i>
+                <input type="text" id="search-price-group-filter" placeholder="Tìm kiếm nhóm..." oninput="filterPriceGroupTree()" style="width: 100%; padding: 7px 10px 7px 28px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; outline: none; background: white;">
+            </div>
+        </div>
+        
+        <div id="sidebar-price-group-list" style="max-height: 220px; overflow-y: auto; padding: 5px;"></div>
+        
+        <div style="padding: 10px 15px; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background: #fff;">
+            <span onclick="selectAllPriceGroups()" style="color: var(--kv-blue); font-size: 13px; cursor: pointer; font-weight: 500;">Chọn tất cả</span>
+            <button onclick="applyPriceGroupFilter()" style="background: var(--kv-blue); color: white; border: none; padding: 6px 15px; border-radius: 4px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s;">Áp dụng</button>
+        </div>
+    </div>
+</div>
+            
+                        <div class="filter-block">
+    <div class="filter-title">Tồn kho</div>
+    <select id="price-stock-filter" class="filter-select" onchange="handlePriceStockFilterChange()">
+        <option value="all">Tất cả</option>
+        <option value="below_min">Dưới định mức tồn</option>
+        <option value="above_max">Vượt định mức tồn</option>
+        <option value="in_stock">Còn hàng trong kho</option>
+        <option value="out_of_stock">Hết hàng trong kho</option>
+        <option value="custom">Tùy chỉnh giá trị tồn</option>
+    </select>
+    
+    <div id="price-custom-stock-range" style="display: none; margin-top: 10px; gap: 5px; align-items: center;">
+        <input type="number" id="price-stock-min" placeholder="Từ" style="width: 45%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; outline: none;" oninput="currentPricePage = 1; renderPriceSetupTable()">
+        <span>-</span>
+        <input type="number" id="price-stock-max" placeholder="Đến" style="width: 45%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; outline: none;" oninput="currentPricePage = 1; renderPriceSetupTable()">
+    </div>
+</div>
+            
+                    </div>
+            
+                    <div class="list-main">
+                        <div class="list-toolbar" style="justify-content: space-between;">
+                            <div class="search-bar">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="search-price-setup" placeholder="Theo mã, mã vạch, tên hàng..." oninput="currentPricePage = 1; renderPriceSetupTable()">
+                            </div>
+                            <div class="action-btn-group">
+    <button class="primary" style="background: white; border: 1px solid var(--kv-pink); color: var(--kv-pink);" onclick="openPriceBookModal()"><i class="fa-solid fa-plus"></i> Bảng giá</button>
+</div>
+                        </div>
+                        
+                        <div class="kv-table-wrapper">
+                            <table class="kv-table" id="price-setup-table">
+                                <thead>
+                                    </thead>
+                                <tbody>
+                                    </tbody>
+                            </table>
+                        </div>
+                        
+                        <div id="price-pagination" style="display: flex; justify-content: flex-end; gap: 8px; padding: 15px 20px; align-items: center;"></div>
+                    </div>
+                    </div>
+                </div>
+                <div id="tab-cap-nhat-hang" class="tab-section">
+    <div class="list-layout">
+        <div class="list-sidebar">
+            <h3 style="font-size: 16px; margin-bottom: 15px;">Cập nhật hàng loạt</h3>
+            
+            <div class="filter-block">
+                <div class="filter-title">Chọn thông tin cần sửa <span style="color:red">*</span></div>
+                <select id="batch-update-attr" class="filter-select" onchange="window.currentUpdatePage = 1; window.pendingBatchUpdates = {}; renderBatchUpdateTable()">
+    <option value="code_and_barcode">Mã hàng & Mã vạch (Sửa song song)</option>
+    
+    <option value="name">Tên hàng hóa</option>
+    <option value="code">Mã hàng hóa (Chỉ mã)</option>
+    <option value="barcode">Mã vạch (Chỉ vạch)</option>
+    <option value="group">Nhóm hàng</option>
+    <option value="cost">Giá vốn</option>
+    <option value="stock">Tồn kho</option>
+</select>
+                <p style="font-size: 12px; color: #888; margin-top: 10px;">Lưu ý: Chỉ cập nhật những dòng bạn có gõ dữ liệu mới.</p>
+            </div>
+        </div>
+
+        <div class="list-main">
+            <div class="list-toolbar" style="justify-content: space-between;">
+                <div class="search-bar">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="search-batch-update" placeholder="Theo mã, mã vạch, tên hàng..." oninput="window.currentUpdatePage = 1; renderBatchUpdateTable()">
+                </div>
+                <div class="action-btn-group">
+                    <button class="primary" onclick="saveBatchUpdates()"><i class="fa-solid fa-floppy-disk"></i> Cập nhật dữ liệu</button>
+                </div>
+            </div>
+            
+            <div class="kv-table-wrapper">
+                <table class="kv-table" id="batch-update-table">
+                    <thead>
+                        </thead>
+                    <tbody>
+                        </tbody>
+                </table>
+            </div>
+            
+            <div id="update-pagination" style="display: flex; justify-content: flex-end; gap: 8px; padding: 15px 20px; align-items: center;"></div>
+        </div>
+    </div>
+</div>
+            </div>
+
+<div id="tab-hoa-don" class="tab-section">
+                <div class="list-layout">
+                    <div class="list-sidebar">
+                        <h3 style="font-size: 16px; margin-bottom: 15px;">Hóa đơn</h3>
+                        
+                        <div class="filter-block">
+                            <div class="filter-title">Ngày tạo</div>
+                            
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;">
+                                <input type="radio" name="inv-date-type" value="predefined" checked onchange="toggleInvDateFilter()" style="accent-color: var(--kv-blue); width: 16px; height: 16px;">
+                                <div id="inv-predefined-box" style="flex: 1; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--kv-blue); border-radius: 4px; padding: 6px 10px; font-size: 13px; background: white;">
+                                    <select id="inv-date-predefined" onchange="window.currentInvoicePage = 1; renderInvoices()" style="border: none; outline: none; background: transparent; width: 100%; cursor: pointer; color: #333;">
+                                        <option value="all">Toàn thời gian</option>
+                                        <option value="today">Hôm nay</option>
+                                        <option value="yesterday">Hôm qua</option>
+                                        <option value="this_week">Tuần này</option>
+                                        <option value="this_month" selected>Tháng này</option>
+                                        <option value="last_month">Tháng trước</option>
+                                    </select>
+                                </div>
+                            </label>
+                            
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px;">
+                                <input type="radio" name="inv-date-type" value="custom" onchange="toggleInvDateFilter()" style="accent-color: var(--kv-blue); width: 16px; height: 16px;">
+                                <div id="inv-custom-box" style="flex: 1; display: flex; justify-content: space-between; align-items: center; border: 1px solid #ddd; border-radius: 4px; padding: 6px 10px; font-size: 13px; background: #fafafa; color: #555;">
+                                    <span>Tùy chỉnh</span>
+                                    <i class="fa-regular fa-calendar" style="color: #888;"></i>
+                                </div>
+                            </label>
+                            
+                            <div id="inv-date-custom-wrapper" style="display: none; flex-direction: column; gap: 8px; margin-left: 24px; margin-top: 5px;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 12px; color: #555; width: 25px;">Từ:</span>
+                                    <input type="date" id="inv-date-from" onchange="window.currentInvoicePage = 1; renderInvoices()" style="flex: 1; padding: 6px; border: 1px solid #ddd; border-radius: 4px; outline: none; font-size: 12px;">
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 12px; color: #555; width: 25px;">Đến:</span>
+                                    <input type="date" id="inv-date-to" onchange="window.currentInvoicePage = 1; renderInvoices()" style="flex: 1; padding: 6px; border: 1px solid #ddd; border-radius: 4px; outline: none; font-size: 12px;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="filter-block">
+                            <div class="filter-title">Trạng thái</div>
+                            <label style="display: block; font-size: 13px; margin-bottom: 8px; cursor: pointer;"><input type="checkbox" id="filter-inv-done" checked onchange="window.currentInvoicePage = 1; renderInvoices()"> Hoàn thành</label>
+                            <label style="display: block; font-size: 13px; cursor: pointer;"><input type="checkbox" id="filter-inv-cancel" onchange="window.currentInvoicePage = 1; renderInvoices()"> Đã hủy</label>
+                        </div>
+
+                        <div class="filter-block">
+                            <div class="filter-title">Người bán</div>
+                            <select id="filter-inv-creator" class="filter-select" onchange="window.currentInvoicePage = 1; renderInvoices()">
+                                <option value="">Tất cả người bán</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="list-main">
+                        <div class="list-toolbar" style="justify-content: space-between;">
+                            <div class="search-bar"><i class="fa-solid fa-magnifying-glass"></i><input type="text" id="search-invoice" placeholder="Theo mã hóa đơn..." oninput="window.currentInvoicePage = 1; renderInvoices()"></div>
+                            <div class="action-btn-group">
+                                <button class="primary" onclick="switchToPOS()"><i class="fa-solid fa-plus"></i> Hóa đơn</button>
+                            </div>
+                        </div>
+                        <div class="kv-table-wrapper">
+                            <table class="kv-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width:40px; text-align:center;"><input type="checkbox"></th>
+                                        <th style="text-align: left;">Mã hóa đơn</th>
+                                        <th style="text-align: left;">Thời gian</th>
+                                        <th>Khách hàng</th>
+                                        <th style="text-align: right;">Tổng tiền hàng</th>
+                                        <th style="text-align: right;">Giảm giá</th>
+                                        <th style="text-align: right;">Khách cần trả</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="invoice-tbody"></tbody>
+                            </table>
+                        </div>
+                        <div id="invoice-pagination" style="display: flex; justify-content: flex-end; gap: 8px; padding: 15px 20px; align-items: center;"></div>
+                    </div>
+                </div>
+            </div>
+<div id="tab-nhap-hang" class="tab-section">
+                <div class="list-layout">
+                    <div class="list-sidebar">
+                        <h3 style="font-size: 16px; margin-bottom: 15px;">Nhập hàng</h3>
+                        
+                        <div class="filter-block">
+                            <div class="filter-title">Ngày nhập</div>
+                            
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;">
+                                <input type="radio" name="imp-date-type" value="predefined" checked onchange="toggleImpDateFilter()" style="accent-color: var(--kv-blue); width: 16px; height: 16px;">
+                                <div id="imp-predefined-box" style="flex: 1; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--kv-blue); border-radius: 4px; padding: 6px 10px; font-size: 13px; background: white;">
+                                    <select id="imp-date-predefined" onchange="window.currentImportPage = 1; renderImportOrders()" style="border: none; outline: none; background: transparent; width: 100%; cursor: pointer; color: #333;">
+                                        <option value="all">Toàn thời gian</option>
+                                        <option value="today">Hôm nay</option>
+                                        <option value="yesterday">Hôm qua</option>
+                                        <option value="this_week">Tuần này</option>
+                                        <option value="this_month" selected>Tháng này</option>
+                                        <option value="last_month">Tháng trước</option>
+                                    </select>
+                                </div>
+                            </label>
+                            
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px;">
+                                <input type="radio" name="imp-date-type" value="custom" onchange="toggleImpDateFilter()" style="accent-color: var(--kv-blue); width: 16px; height: 16px;">
+                                <div id="imp-custom-box" style="flex: 1; display: flex; justify-content: space-between; align-items: center; border: 1px solid #ddd; border-radius: 4px; padding: 6px 10px; font-size: 13px; background: #fafafa; color: #555;">
+                                    <span>Tùy chỉnh</span>
+                                    <i class="fa-regular fa-calendar" style="color: #888;"></i>
+                                </div>
+                            </label>
+                            
+                            <div id="imp-date-custom-wrapper" style="display: none; flex-direction: column; gap: 8px; margin-left: 24px; margin-top: 5px;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 12px; color: #555; width: 25px;">Từ:</span>
+                                    <input type="date" id="imp-date-from" onchange="window.currentImportPage = 1; renderImportOrders()" style="flex: 1; padding: 6px; border: 1px solid #ddd; border-radius: 4px; outline: none; font-size: 12px;">
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 12px; color: #555; width: 25px;">Đến:</span>
+                                    <input type="date" id="imp-date-to" onchange="window.currentImportPage = 1; renderImportOrders()" style="flex: 1; padding: 6px; border: 1px solid #ddd; border-radius: 4px; outline: none; font-size: 12px;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="filter-block">
+                            <div class="filter-title">Trạng thái</div>
+                            <label style="display: block; font-size: 13px; margin-bottom: 8px; cursor: pointer;"><input type="checkbox" id="filter-imp-temp" checked onchange="window.currentImportPage = 1; renderImportOrders()"> Phiếu tạm</label>
+                            <label style="display: block; font-size: 13px; margin-bottom: 8px; cursor: pointer;"><input type="checkbox" id="filter-imp-done" checked onchange="window.currentImportPage = 1; renderImportOrders()"> Đã nhập hàng</label>
+                            <label style="display: block; font-size: 13px; cursor: pointer;"><input type="checkbox" id="filter-imp-cancel" onchange="window.currentImportPage = 1; renderImportOrders()"> Đã hủy</label>
+                        </div>
+
+                        <div class="filter-block">
+                            <div class="filter-title">Người tạo</div>
+                            <select id="filter-imp-creator" class="filter-select" onchange="window.currentImportPage = 1; renderImportOrders()">
+                                <option value="">Tất cả người tạo</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="list-main">
+                        <div class="list-toolbar" style="justify-content: space-between;">
+                            <div class="search-bar"><i class="fa-solid fa-magnifying-glass"></i><input type="text" id="search-import" placeholder="Theo mã phiếu nhập..." oninput="window.currentImportPage = 1; renderImportOrders()"></div>
+                            <div class="action-btn-group">
+                                <button class="primary" onclick="openCreateImportView()"><i class="fa-solid fa-plus"></i> Nhập hàng</button>
+                            </div>
+                        </div>
+                        <div class="kv-table-wrapper">
+                            <table class="kv-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width:40px; text-align:center;"><input type="checkbox"></th>
+                                        <th style="text-align: left;">Mã nhập hàng</th>
+                                        <th style="text-align: left;">Thời gian</th>
+                                        <th>Nhà cung cấp</th>
+                                        <th style="text-align: right;">Cần trả NCC</th>
+                                        <th style="text-align: center;">Trạng thái</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="import-tbody"></tbody>
+                            </table>
+                        </div>
+                        <div id="import-pagination" style="display: flex; justify-content: flex-end; gap: 8px; padding: 15px 20px; align-items: center;"></div>
+                    </div>
+                </div>
+            </div>
+
+<div id="import-order-view" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #f0f2f5; z-index: 1000; flex-direction: column;">
+    
+    <div style="background: white; padding: 10px 20px; display: flex; align-items: center; border-bottom: 1px solid #ddd; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+        <div style="display: flex; align-items: center; font-size: 18px; font-weight: bold; width: 250px;">
+            <i class="fa-solid fa-arrow-left" onclick="closeCreateImportView()" style="cursor: pointer; margin-right: 15px;"></i>
+            Nhập hàng
+        </div>
+        
+<div style="flex: 1; display: flex; justify-content: center;">
+    <div style="position: relative; width: 500px; display: flex; align-items: center; border: 1px solid var(--kv-blue); border-radius: 4px; background: white;">
+        <i class="fa-solid fa-magnifying-glass" style="padding: 0 10px; color: #888;"></i>
+        <input type="text" id="io-search-input" placeholder="Tìm hàng hóa theo mã hoặc tên (F3)" oninput="searchIOProduct(this.value)" style="flex: 1; border: none; padding: 8px 0; outline: none; font-size: 13px;">
+        <i class="fa-solid fa-qrcode" style="padding: 0 10px; color: #888; border-left: 1px solid #eee; cursor: pointer;"></i>
+        
+        <i class="fa-solid fa-plus" onclick="openAddProductModal()" title="Thêm hàng hóa mới" style="padding: 0 10px; color: #888; border-left: 1px solid #eee; cursor: pointer;"></i>
+        
+        <div id="io-search-dropdown" class="ic-dropdown" style="display: none; position: absolute; top: 100%; left: 0; width: 100%; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 10; border-radius: 4px; max-height: 300px; overflow-y: auto; color: #333;"></div>
+    </div>
+</div>
+        
+        <div style="display: flex; gap: 15px; width: 250px; justify-content: flex-end; color: #555; font-size: 16px;">
+            <i class="fa-solid fa-calculator" style="cursor: pointer; padding: 5px; border: 1px solid #ddd; border-radius: 3px;"></i>
+            <i class="fa-solid fa-print" style="cursor: pointer; padding: 5px; border: 1px solid #ddd; border-radius: 3px;"></i>
+            <i class="fa-regular fa-eye" style="cursor: pointer; padding: 5px; border: 1px solid #ddd; border-radius: 3px;"></i>
+            <i class="fa-solid fa-exclamation" style="cursor: pointer; padding: 5px 8px; border: 1px solid #ddd; border-radius: 3px;"></i>
+        </div>
+    </div>
+
+    <div style="display: flex; flex: 1; overflow: hidden; padding: 10px; gap: 10px;">
+        
+        <div style="flex: 1; background: white; border-radius: 4px; border: 1px solid #ddd; display: flex; flex-direction: column; overflow: hidden;">
+            <div style="overflow-y: auto; flex: 1;">
+                <table class="kv-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <thead style="background: #f9f9f9; position: sticky; top: 0; z-index: 1;">
+                        <tr>
+                            <th style="width: 40px; text-align: center;"></th>
+                            <th style="width: 50px; text-align: center;">STT</th>
+                            <th style="text-align: left;">Mã hàng</th>
+                            <th style="text-align: left;">Tên hàng</th>
+                            <th style="text-align: left;">ĐVT</th>
+                            <th style="text-align: center;">Số lượng</th>
+                            <th style="text-align: right;">Đơn giá</th>
+                            <th style="text-align: right;">Giảm giá</th>
+                            <th style="text-align: right;">Thành tiền</th>
+                        </tr>
+                    </thead>
+                    <tbody id="io-items-table-body">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div style="width: 380px; background: white; border-radius: 4px; border: 1px solid #ddd; display: flex; flex-direction: column; overflow: hidden;">
+            <div style="padding: 15px; flex: 1; overflow-y: auto; font-size: 13px;">
+                
+                <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                    <div style="width: 48%; border: 1px solid #ccc; border-radius: 4px; padding: 6px; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-user-circle" style="color: #888;"></i> <span id="io-creator-name">Nhân viên</span>
+                    </div>
+                    <input type="text" id="io-current-time" style="width: 48%; border: none; background: transparent; padding: 6px; outline: none; text-align: right; color: #555;" readonly>
+                </div>
+                
+                <div style="display: flex; margin-bottom: 15px;">
+                    <input type="text" id="io-supplier" placeholder="Tìm nhà cung cấp" style="flex: 1; border: 1px solid #ccc; border-right: none; border-radius: 4px 0 0 4px; padding: 8px; outline: none;">
+                    <button style="border: 1px solid #ccc; background: #f9f9f9; padding: 0 12px; border-radius: 0 4px 4px 0; cursor: pointer;"><i class="fa-solid fa-plus"></i></button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 45% 55%; row-gap: 15px; align-items: center;">
+                    <span style="color: #333;">Mã phiếu nhập</span>
+                    <input type="text" id="io-code" placeholder="Mã phiếu tự động" style="border: 1px solid #eee; background: #f9f9f9; padding: 6px; text-align: right; border-radius: 4px; outline: none;" readonly>
+
+                    <span style="color: #333;">Mã đặt hàng nhập</span>
+                    <span></span>
+
+                    <span style="color: #333;">Trạng thái</span>
+                    <span id="io-status-badge" style="text-align: right;">Phiếu tạm</span>
+
+                    <span style="color: #333; font-weight: 500;">Tổng tiền hàng (<span id="io-total-qty">0</span>)</span>
+                    <strong id="io-total-amount" style="text-align: right;">0</strong>
+
+                    <span style="color: #333;">Giảm giá</span>
+                    <input type="text" id="io-discount" value="0" oninput="formatCurrency(this); calculateIOTotals()" style="border: 1px solid #ccc; padding: 6px; text-align: right; border-radius: 4px; outline: none;">
+
+                    <span style="color: #333;">Chi phí nhập trả NCC</span>
+                    <input type="text" id="io-extra-fee" value="0" oninput="formatCurrency(this); calculateIOTotals()" style="border: 1px solid #ccc; padding: 6px; text-align: right; border-radius: 4px; outline: none;">
+
+                    <strong style="color: var(--kv-blue); margin-top: 5px;">Cần trả nhà cung cấp</strong>
+                    <strong id="io-must-pay" style="color: var(--kv-blue); text-align: right; margin-top: 5px;">0</strong>
+
+                    <span style="color: #333; margin-top: 5px;">Tiền trả nhà cung cấp (F8)</span>
+                    <div style="display: flex; margin-top: 5px;">
+                        <button style="border: 1px solid var(--kv-blue); background: white; color: var(--kv-blue); padding: 0 8px; border-radius: 4px 0 0 4px;"><i class="fa-regular fa-credit-card"></i></button>
+                        <input type="text" id="io-paid" value="0" oninput="formatCurrency(this); calculateIOTotals()" style="flex: 1; border: 1px solid var(--kv-blue); border-left: none; padding: 6px; text-align: right; border-radius: 0 4px 4px 0; outline: none; font-weight: bold; width: 100%;">
+                    </div>
+
+                    <span style="color: #888;">Tiền mặt</span>
+                    <span></span>
+
+                    <span style="color: #333;">Tính vào công nợ</span>
+                    <strong id="io-debt" style="text-align: right;">0</strong>
+
+                    <span style="color: #333;">Chi phí nhập khác</span>
+                    <strong style="color: var(--kv-blue); text-align: right;">0</strong>
+                </div>
+
+                <textarea id="io-note" placeholder="Ghi chú" style="width: 100%; height: 60px; border: 1px solid #ccc; border-radius: 4px; padding: 10px; margin-top: 20px; outline: none; resize: none; font-family: inherit;"></textarea>
+            </div>
+
+            <div id="io-action-buttons" style="padding: 15px; border-top: 1px solid #eee; display: flex; gap: 10px; background: white;">
+    <button onclick="saveImportOrder('temp')" style="flex: 1; padding: 12px; border: none; background: var(--kv-pink); color: white; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s;">
+        <i class="fa-solid fa-floppy-disk"></i> Lưu tạm
+    </button>
+    <button onclick="saveImportOrder('done')" style="flex: 1; padding: 12px; border: none; background: #00c851; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s;">
+        <i class="fa-solid fa-check"></i> Hoàn thành
+    </button>
+</div>
+        </div>
+    </div>
+</div>
+            <div id="tab-kiem-kho" class="tab-section">
+                <div class="list-layout">
+                    <div class="list-sidebar">
+                        <h3 style="font-size: 16px; margin-bottom: 15px;">Phiếu kiểm kho</h3>
+                        
+                        <div class="filter-block">
+                            <div class="filter-title">Ngày tạo</div>
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;">
+                                <input type="radio" name="ic-date-type" value="predefined" checked onchange="toggleICDateFilter()" style="accent-color: var(--kv-blue); width: 16px; height: 16px;">
+                                <div id="ic-predefined-box" style="flex: 1; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--kv-blue); border-radius: 4px; padding: 6px 10px; font-size: 13px; background: white;">
+                                    <select id="ic-date-predefined" onchange="window.currentICPage = 1; renderInventoryChecks()" style="border: none; outline: none; background: transparent; width: 100%; cursor: pointer; color: #333;">
+                                        <option value="all">Toàn thời gian</option>
+                                        <option value="today">Hôm nay</option>
+                                        <option value="yesterday">Hôm qua</option>
+                                        <option value="this_week">Tuần này</option>
+                                        <option value="this_month" selected>Tháng này</option>
+                                        <option value="last_month">Tháng trước</option>
+                                    </select>
+                                </div>
+                            </label>
+                            
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px;">
+                                <input type="radio" name="ic-date-type" value="custom" onchange="toggleICDateFilter()" style="accent-color: var(--kv-blue); width: 16px; height: 16px;">
+                                <div id="ic-custom-box" style="flex: 1; display: flex; justify-content: space-between; align-items: center; border: 1px solid #ddd; border-radius: 4px; padding: 6px 10px; font-size: 13px; background: #fafafa; color: #555;">
+                                    <span>Tùy chỉnh</span>
+                                    <i class="fa-regular fa-calendar" style="color: #888;"></i>
+                                </div>
+                            </label>
+                            
+                            <div id="ic-date-custom-wrapper" style="display: none; flex-direction: column; gap: 8px; margin-left: 24px; margin-top: 5px;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 12px; color: #555; width: 25px;">Từ:</span>
+                                    <input type="date" id="ic-date-from" onchange="window.currentICPage = 1; renderInventoryChecks()" style="flex: 1; padding: 6px; border: 1px solid #ddd; border-radius: 4px; outline: none; font-size: 12px;">
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 12px; color: #555; width: 25px;">Đến:</span>
+                                    <input type="date" id="ic-date-to" onchange="window.currentICPage = 1; renderInventoryChecks()" style="flex: 1; padding: 6px; border: 1px solid #ddd; border-radius: 4px; outline: none; font-size: 12px;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="filter-block">
+                            <div class="filter-title">Trạng thái</div>
+                            <label style="display: block; font-size: 13px; margin-bottom: 8px; cursor: pointer;"><input type="checkbox" id="filter-ic-temp" checked onchange="window.currentICPage = 1; renderInventoryChecks()"> Phiếu tạm</label>
+                            <label style="display: block; font-size: 13px; margin-bottom: 8px; cursor: pointer;"><input type="checkbox" id="filter-ic-done" checked onchange="window.currentICPage = 1; renderInventoryChecks()"> Đã cân bằng kho</label>
+                            <label style="display: block; font-size: 13px; cursor: pointer;"><input type="checkbox" id="filter-ic-cancel" onchange="window.currentICPage = 1; renderInventoryChecks()"> Đã hủy</label>
+                        </div>
+
+                        <div class="filter-block">
+                            <div class="filter-title">Người tạo</div>
+                            <select id="filter-ic-creator" class="filter-select" onchange="window.currentICPage = 1; renderInventoryChecks()">
+                                <option value="">Tất cả người tạo</option>
+                            </select>
+                        </div>
+                    </div> <div class="list-main">
+                        <div class="list-toolbar" style="justify-content: space-between;">
+                            <div class="search-bar"><i class="fa-solid fa-magnifying-glass"></i><input type="text" id="search-ic" placeholder="Theo mã phiếu kiểm..." oninput="window.currentICPage = 1; renderInventoryChecks()"></div>
+                            
+                            <div class="action-btn-group">
+                                <button class="primary" onclick="openCreateCheckView()"><i class="fa-solid fa-plus"></i> Kiểm kho</button>
+                            </div>
+
+                        </div>
+                        <div class="kv-table-wrapper">
+                            <table class="kv-table" id="ic-list-table">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align: left;">Mã kiểm kho</th>
+                                        <th style="text-align: left;">Thời gian</th>
+                                        <th style="text-align: left;">Ngày cân bằng</th>
+                                        <th style="text-align: center;">SL thực tế</th>
+                                        <th style="text-align: right;">Tổng thực tế</th>
+                                        <th style="text-align: right;">Tổng chênh lệch</th>
+                                        <th style="text-align: right;">Tổng giá trị lệch</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div id="ic-pagination" style="display: flex; justify-content: flex-end; gap: 8px; padding: 15px 20px; align-items: center;"></div>
+                    </div> </div> </div> ```
+
+
+<div id="inventory-check-view">
+    <div class="ic-header">
+        <div style="display: flex; align-items: center;">
+            <i class="fa-solid fa-arrow-left" onclick="closeCreateCheckView()" style="cursor: pointer; font-size: 18px; color: #555; margin-right: 15px;"></i>
+            <h2 style="font-size: 16px; color: #333;">Kiểm kho</h2>
+            <div class="ic-search-box">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="ic-search-input" placeholder="Tìm hàng hóa theo mã hoặc tên (F3)" oninput="searchICProduct(this.value)">
+                <div id="ic-search-dropdown" class="ic-dropdown"></div>
+            </div>
+        </div>
+        <div style="display: flex; gap: 15px; color: #555;">
+            <i class="fa-solid fa-barcode" style="cursor: pointer;" title="Quét mã vạch"></i>
+            <i class="fa-solid fa-print" style="cursor: pointer;" title="In phiếu"></i>
+        </div>
+    </div>
+
+    <div class="ic-layout">
+        <div class="ic-left">
+            <div class="ic-tabs">
+                <div class="ic-tab active">Tất cả (<span id="ic-count-all">0</span>)</div>
+                <div class="ic-tab">Khớp (0)</div>
+                <div class="ic-tab">Lệch (0)</div>
+            </div>
+            <div class="kv-table-wrapper">
+<table class="kv-table" id="ic-items-table">
+    <thead>
+        <tr>
+            <th></th>
+            <th style="text-align: left;">Mã hàng</th>
+            <th style="text-align: left;">Tên hàng</th>
+            <th style="text-align: left;">ĐVT</th> <th style="text-align: center;">Tồn kho</th>
+            <th style="text-align: center;">Thực tế</th>
+            <th style="text-align: center;">SL lệch</th>
+            <th style="text-align: right;">Giá trị lệch</th>
+        </tr>
+    </thead>
+        <tbody id="product-table-body"></tbody>
+</table>
+            </div>
+        </div>
+
+        <div class="ic-right">
+            <div style="padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; font-size: 13px;">
+                <span style="color: #555;"><i class="fa-solid fa-user"></i> <span id="ic-creator-name">Nhân viên</span></span>
+                <span id="ic-current-time" style="color: #888;">00/00/0000 00:00</span>
+            </div>
+            <div style="padding: 20px; flex: 1;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 13px;">
+                    <span style="color: #555;">Mã kiểm kho</span>
+                    <input type="text" id="ic-code" placeholder="Mã phiếu tự động" style="border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; text-align: right; width: 140px; outline: none;">
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 13px; align-items: center;">
+                    <span style="color: #555;">Trạng thái</span>
+                    <span class="status-badge status-temp" id="ic-status-badge">Phiếu tạm</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 13px; align-items: center;">
+                    <span style="color: #555;">Tổng SL thực tế</span>
+                    <strong id="ic-total-actual-qty" style="font-size: 15px;">0</strong>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <textarea id="ic-note" placeholder="Ghi chú" style="width: 100%; height: 80px; border: 1px solid #ddd; border-radius: 4px; padding: 10px; font-size: 13px; outline: none; resize: none;"></textarea>
+                </div>
+            </div>
+            
+            <div style="padding: 15px; border-top: 1px solid #eee; display: flex; gap: 10px;">
+                <button onclick="saveInventoryCheck('temp')" style="flex: 1; padding: 12px; border: none; background: #e04f8e; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s;"><i class="fa-solid fa-floppy-disk"></i> Lưu tạm</button>
+                <button onclick="saveInventoryCheck('done')" style="flex: 1; padding: 12px; border: none; background: #00c851; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s;"><i class="fa-solid fa-check"></i> Hoàn thành</button>
+            </div>
+        </div>
+    </div>
+</div>
+        </div>
+    </div>
+
+<div id="pos-view">
+        <div class="pos-header">
+            <div class="pos-header-left">
+                <div class="pos-search-area">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="pos-search-input" placeholder="Tìm hàng hóa (F3)" oninput="searchPOSProduct(this.value)">
+                    <div class="barcode-btn" title="Quét mã vạch"><i class="fa-solid fa-barcode"></i></div>
+                    <div id="pos-search-dropdown" class="pos-dropdown" style="display: none;"></div>
+                </div>
+                
+                <div id="pos-tabs-container" class="pos-tabs">
+                    </div>
+            </div>
+            
+            <div class="pos-header-right">
+                <span id="pos-user-name" style="margin: 0 15px; font-weight: 500;"></span>
+                
+                <div style="position: relative;">
+                    <i class="fa-solid fa-bars" onclick="togglePOSMenu()" style="font-size: 20px; cursor: pointer; padding: 5px;"></i>
+                    <ul id="pos-hamburger-menu" class="dropdown-menu" style="right: 0; left: auto; top: 40px; width: 230px; z-index: 1000; box-shadow: 0 5px 20px rgba(0,0,0,0.15); border-radius: 6px; display: none;">
+                        <li onclick="openEndOfDayReport()"><i class="fa-solid fa-chart-pie" style="width: 25px; color: #888;"></i> Xem báo cáo cuối ngày</li>
+                        <li onclick="showShortcutModal()"><i class="fa-solid fa-keyboard" style="width: 25px; color: #888;"></i> Phím tắt</li>
+                        <li onclick="switchToDashboard()"><i class="fa-solid fa-chart-simple" style="width: 25px; color: #888;"></i> Quản lý</li>
+                        <li onclick="logout()" style="border-top: 1px solid #eee; margin-top: 5px; padding-top: 10px;"><i class="fa-solid fa-arrow-right-from-bracket" style="width: 25px; color: #d9534f;"></i> Đăng xuất</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="pos-body">
+            <div class="pos-left">
+                <div class="pos-cart-header">
+                    <div style="width: 40px; text-align: center;">STT</div>
+                    <div style="flex: 1;">Tên hàng</div>
+                    <div style="width: 100px; text-align: center;">ĐVT</div>
+                    <div style="width: 100px; text-align: center;">Số lượng</div>
+                    <div style="width: 120px; text-align: right;">Đơn giá</div>
+                    <div style="width: 120px; text-align: right;">Thành tiền</div>
+                    <div style="width: 40px; text-align: center;"></div>
+                </div>
+                <div class="pos-cart-body" id="pos-cart-list"></div>
+            </div>
+
+            <div class="pos-right">
+                <div class="pos-bill-box">
+                    <div class="pos-bill-header">
+                        <div style="display: flex; gap: 15px; align-items: center;">
+                            <span id="pos-seller-name" style="font-weight: bold; color: var(--kv-blue); font-size: 14px;">Nhân viên</span>
+                        </div>
+                        <span id="pos-current-time" style="color: #888;"></span>
+                    </div>
+
+                    <div class="pos-bill-row">
+                        <select id="pos-pricebook-select" style="width: 100%;" onchange="changePOSPriceBook(this.value)">
+                            <option value="default">Bảng giá chung</option>
+                        </select>
+                    </div>
+
+                    <div class="pos-summary-lines">
+                        <div class="pos-line">
+                            <span>Tổng tiền hàng (<span id="pos-total-qty">0</span>)</span>
+                            <strong id="pos-total-goods">0</strong>
+                        </div>
+                        <div class="pos-line">
+                            <span>Giảm giá</span>
+                            <input type="text" id="pos-discount" value="0" onfocus="this.select()" oninput="formatCurrency(this); calcPOSTotals()">
+                        </div>
+                        <div class="pos-line">
+                            <span>Thu khác</span>
+                            <input type="text" id="pos-extra-fee" value="0" onfocus="this.select()" oninput="formatCurrency(this); calcPOSTotals()">
+                        </div>
+                        <div class="pos-line total-line">
+                            <strong style="color: #333; font-size: 15px;">Khách cần trả</strong>
+                            <strong id="pos-must-pay" style="color: var(--kv-blue); font-size: 22px;">0</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="pos-checkout-wrapper">
+                    <button class="pos-checkout-btn" onclick="processCheckout()">THANH TOÁN (F9)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="report-modal" class="modal-overlay" style="z-index: 9998;">
+        <div class="modal-box" style="width: 1000px; padding: 0; overflow: hidden; background: #f4f6f9; max-height: 95vh; display: flex; flex-direction: column;">
+            
+            <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; background: white; border-bottom: 1px solid #eee;">
+                <h3 style="font-size: 18px; color: #333; margin: 0;"><i class="fa-solid fa-chart-pie" style="color: var(--kv-blue); margin-right: 8px;"></i>Báo cáo doanh thu</h3>
+                <i class="fa-solid fa-xmark" onclick="document.getElementById('report-modal').style.display='none'" style="cursor: pointer; font-size: 18px; color: #888; padding: 5px;"></i>
+            </div>
+            
+            <div style="padding: 15px 20px; background: white; display: flex; gap: 15px; align-items: flex-end; border-bottom: 1px solid #eee;">
+                <div>
+                    <label style="display:block; font-size:12px; font-weight:bold; color:#555; margin-bottom:5px;">Kiểu lọc</label>
+                    <select id="report-filter-type" onchange="toggleReportDateInput()" style="padding:8px 12px; border:1px solid #ccc; border-radius:4px; outline:none; background: #f9f9f9; cursor: pointer;">
+                        <option value="day">Theo ngày cụ thể</option>
+                        <option value="month">Theo tháng</option>
+                        <option value="year">Theo năm</option>
+                    </select>
+                </div>
+                <div id="report-date-wrapper">
+                    <label style="display:block; font-size:12px; font-weight:bold; color:#555; margin-bottom:5px;">Chọn thời gian</label>
+                    <input type="date" id="report-date-day" style="padding:7px 10px; border:1px solid #ccc; border-radius:4px; outline:none; cursor: pointer;" onchange="generateEndOfDayReport()">
+                    <input type="month" id="report-date-month" style="padding:7px 10px; border:1px solid #ccc; border-radius:4px; outline:none; cursor: pointer; display:none;" onchange="generateEndOfDayReport()">
+                    <input type="number" id="report-date-year" placeholder="Nhập năm (VD: 2026)" style="padding:8px 10px; border:1px solid #ccc; border-radius:4px; outline:none; display:none; width: 140px;" oninput="generateEndOfDayReport()">
+                </div>
+                <div>
+                    <label style="display:block; font-size:12px; font-weight:bold; color:#555; margin-bottom:5px;">Nhân viên bán</label>
+                    <select id="report-seller-filter" onchange="generateEndOfDayReport()" style="padding:8px 12px; border:1px solid #ccc; border-radius:4px; outline:none; min-width: 180px; background: #f9f9f9; cursor: pointer;">
+                        <option value="all">Tất cả nhân viên</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="padding: 20px 20px 0 20px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+                <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); border-bottom: 4px solid var(--kv-blue); text-align: center;">
+                    <div style="font-size: 14px; color: #888; margin-bottom: 8px; font-weight: 500;">TỔNG TIỀN HÀNG</div>
+                    <div id="report-sum-revenue" style="font-size: 26px; font-weight: bold; color: #333;">0</div>
+                </div>
+                <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); border-bottom: 4px solid #f0ad4e; text-align: center;">
+                    <div style="font-size: 14px; color: #888; margin-bottom: 8px; font-weight: 500;">TỔNG GIẢM GIÁ</div>
+                    <div id="report-sum-discount" style="font-size: 26px; font-weight: bold; color: #333;">0</div>
+                </div>
+                <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); border-bottom: 4px solid #28a745; text-align: center;">
+                    <div style="font-size: 14px; color: #888; margin-bottom: 8px; font-weight: 500;">THỰC THU (TIỀN VÀO KÉT)</div>
+                    <div id="report-sum-net" style="font-size: 28px; font-weight: bold; color: #28a745;">0</div>
+                </div>
+            </div>
+
+            <div style="padding: 20px; overflow-y: auto; flex: 1;">
+                <table class="kv-table" style="border: 1px solid #eee; width: 100%; background: white;">
+                    <thead style="position: sticky; top: 0; z-index: 1;">
+                        <tr style="background: #f8f9fa;">
+                            <th style="text-align: left;">Mã Hóa Đơn</th>
+                            <th style="text-align: left;">Thời gian</th>
+                            <th style="text-align: left;">Nhân viên</th>
+                            <th style="text-align: right;">Tiền hàng</th>
+                            <th style="text-align: right;">Giảm giá</th>
+                            <th style="text-align: right;">Khách trả</th>
+                        </tr>
+                    </thead>
+                    <tbody id="report-tbody"></tbody>
+                </table>
+            </div>
+            
+            <div id="report-pagination" style="display: flex; justify-content: flex-end; gap: 8px; padding: 15px 20px; align-items: center; border-top: 1px solid #eee;"></div>
+            
+        </div>
+    </div>
+        </div>
+    </div>
+         <div id="shortcut-modal" class="modal-overlay" style="z-index: 9999;">
+    <div class="modal-box" style="width: 450px; padding: 0; overflow: hidden;">
+        <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; background: var(--kv-blue); color: white;">
+            <h3 style="font-size: 16px; margin: 0;"><i class="fa-solid fa-keyboard"></i> Phím tắt chức năng</h3>
+            <i class="fa-solid fa-xmark" onclick="document.getElementById('shortcut-modal').style.display='none'" style="cursor: pointer; font-size: 18px;"></i>
+        </div>
+        <div style="padding: 20px; line-height: 2.5; font-size: 14px; color: #333; background: #fafafa;">
+            <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F1:</strong> <span>Thêm hóa đơn (Tab) mới</span></div>
+            <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F3:</strong> <span>Tìm hàng hóa</span></div>
+            <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F9:</strong> <span>Thanh toán hóa đơn</span></div>
+            </div>
+    </div>
+</div>
+
+        <div id="add-product-modal" class="modal-overlay">
+        <div class="product-modal-box">
+            <div class="product-modal-header">
+                <h3>Thêm hàng hóa</h3>
+                <i class="fa-solid fa-xmark" onclick="closeAddProductModal()" style="cursor: pointer;"></i>
+            </div>
+            
+            <div class="product-modal-body">
+                <div class="pm-top-section">
+                    <div class="pm-form-left">
+                        <div class="pm-row-2">
+                            <div class="pm-form-group">
+                                <label>Mã hàng</label>
+                                <input type="text" id="pm-code" placeholder="Mã tự sinh nếu để trống">
+                            </div>
+                            <div class="pm-form-group">
+                                <label>Mã vạch</label>
+                                <input type="text" id="pm-barcode" placeholder="Quét hoặc nhập mã vạch">
+                            </div>
+                        </div>
+                        <div class="pm-form-group">
+                            <label>Tên hàng</label>
+                            <input type="text" id="pm-name" placeholder="Ví dụ: Bánh quy hạt óc chó" style="border-bottom: 2px solid var(--kv-pink);">
+                        </div>
+                        <div class="pm-form-group">
+                            <div class="pm-label-flex">
+                                <label>Nhóm hàng</label>
+                                <span class="pm-link" onclick="openGroupModal()">+ Tạo mới</span>
+                            </div>
+                            <select id="pm-group">
+                                </select>
+                        </div>
+                    </div>
+                    <div class="pm-image-right">
+                        <div class="pm-image-upload">
+                            <i class="fa-solid fa-camera" style="font-size: 24px; color: #ccc;"></i>
+                            <strong>Thêm ảnh</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pm-collapsible">
+                    <div class="pm-col-header" onclick="togglePMSection(this)">
+                        <strong>Giá vốn, giá bán</strong>
+                        <i class="fa-solid fa-chevron-up"></i>
+                    </div>
+                    <div class="pm-col-body">
+    <div class="pm-row-4">
+        <div class="pm-form-group">
+            <label>Giá vốn</label>
+            <input type="text" id="pm-cost" value="0" oninput="formatCurrency(this)">
+        </div>
+        <div class="pm-form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <label style="margin: 0;">Giá bán</label>
+                <span onclick="openQuickPriceSetup()" style="color: #007bff; cursor: pointer; font-size: 13px; font-weight: 500;">
+                    <i class="fa-solid fa-tags"></i> Thiết lập giá
+                </span>
+            </div>
+            <input type="text" id="pm-price" value="0" oninput="formatCurrency(this)">
+        </div>
+        <div class="pm-form-group"><label>Tồn kho</label><input type="number" id="pm-stock" value="0"></div>
+    </div>
+</div>
+                </div>
+
+                <div class="pm-collapsible" style="border: 1px solid #ddd; border-radius: 4px; margin-bottom: 15px;">
+                    <div style="padding: 15px; display: flex; justify-content: space-between; align-items: center; background: white; border-radius: 4px;">
+                        <div>
+                            <strong style="font-size: 14px; color: #333;">Quản lý theo đơn vị tính</strong>
+                            <p style="font-size: 12px; color: #888; margin-top: 5px; font-weight: normal;">Tạo nhiều hàng hoá khác đơn vị tính (chai, lốc, thùng). Mỗi hàng hóa có 1 mã hàng riêng.</p>
+                        </div>
+                        <button type="button" class="btn-thiet-lap" onclick="openUnitAttrModal()">Thiết lập</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="product-modal-footer">
+                    <label style="font-size: 13px; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="checkbox" id="pm-sell-direct" checked> Bán trực tiếp
+                    </label>
+                <div class="pm-footer-btns" style="display: flex; gap: 15px; align-items: center;">
+                            <label style="font-size: 13px; display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--kv-blue); font-weight: bold;">
+                            <input type="checkbox" id="pm-continue-add"> Thêm liên tục
+                        </label>
+                    <button class="pm-btn-cancel" onclick="closeAddProductModal()">Bỏ qua</button>
+                    <button class="pm-btn-save" onclick="saveProduct()">Lưu</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="unit-attr-modal" class="modal-overlay" style="z-index: 400;">
+        <div class="modal-box" style="width: 900px; padding: 0; overflow: hidden; background: #f4f6f9; max-height: 95vh; display: flex; flex-direction: column;">
+            <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; background: white; border-bottom: 1px solid #eee;">
+                <h3 style="font-size: 16px; color: #333;">Thiết lập đơn vị tính</h3>
+                <i class="fa-solid fa-xmark" onclick="closeUnitAttrModal()" style="cursor: pointer; color: #888; font-size: 18px;"></i>
+            </div>
+            
+            <div style="padding: 20px; overflow-y: auto; flex: 1;">
+                <div class="ua-section" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <div id="unit-tags-container" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    </div>
+                    <div class="ua-add-btn" id="btn-add-unit" onclick="openAddUnitModal(false)" style="margin-top: 0;"><i class="fa-solid fa-plus"></i> Thêm đơn vị</div>
+                </div>
+
+                <div class="ua-section" id="variant-section" style="display: none;">
+                    <div class="ua-sec-title" style="display: flex; justify-content: space-between;">
+                        <span>Hàng cùng loại</span>
+                        <span style="color: var(--kv-blue); cursor: pointer; font-size: 13px; font-weight: normal;"><i class="fa-solid fa-tag"></i> Thiết lập giá</span>
+                    </div>
+                    <div style="overflow-x: auto; margin-top: 15px;">
+                        <table class="kv-table variant-table" style="min-width: 800px;">
+                            <thead>
+                                <tr>
+                                    <th>Đơn vị</th>
+                                    <th>Quy đổi</th>
+                                    <th>Mã hàng</th>
+                                    <th>Mã vạch</th>
+                                    <th style="text-align: right;">Giá vốn</th>
+                                    <th style="text-align: right;">Giá bán</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="variant-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div style="padding: 15px 20px; background: white; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 10px;">
+                <button onclick="closeUnitAttrModal()" style="padding: 8px 15px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer; color: #333;">Bỏ qua</button>
+                <button onclick="saveUnitAttr()" style="padding: 8px 25px; border: none; background: var(--kv-blue); color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">Xong</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="add-unit-modal" class="modal-overlay" style="z-index: 450;">
+        <div class="modal-box" style="width: 500px; padding: 0;">
+            <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee;">
+                <h3 id="add-unit-title" style="font-size: 16px; color: #333;">Thêm đơn vị cơ bản</h3>
+                <i class="fa-solid fa-xmark" onclick="closeAddUnitModal()" style="cursor: pointer; color: #888;"></i>
+            </div>
+            <div style="padding: 20px;">
+                <p id="add-unit-desc" style="font-size: 12px; color: #888; margin-bottom: 15px;">Đơn vị cơ bản là đơn vị bán phổ biến nhất hoặc đơn vị chính dùng để quản lý tồn kho.</p>
+                
+                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                    <div style="flex: 1;">
+                        <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Tên đơn vị</label>
+                        <input type="text" id="sub-unit-name" placeholder="VD: Chai, Lốc..." style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; outline: none;">
+                    </div>
+                    <div id="sub-unit-rate-group" style="flex: 1; display: none;">
+                        <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Giá trị quy đổi</label>
+                        <div style="display: flex; align-items: center; border: 1px solid #ccc; border-radius: 4px; padding: 0 10px; background: white;">
+                            <span style="color: #888; font-size: 14px;"><i class="fa-solid fa-xmark"></i></span>
+                            <input type="number" id="sub-unit-rate" value="1" style="width: 100%; padding: 8px; border: none; outline: none; text-align: right;">
+                            <span id="sub-unit-base-lbl" style="color: #888; font-size: 12px; margin-left: 5px;">Gói</span>
+                        </div>
+                    </div>
+                </div>
+
+                <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Giá bán</label>
+                <input type="number" id="sub-unit-price" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; outline: none; text-align: right;">
+
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; margin-bottom: 20px;">
+                    <input type="checkbox" id="sub-unit-sell" checked> Bán trực tiếp
+                </label>
+
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button onclick="closeAddUnitModal()" style="padding: 8px 15px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer;">Bỏ qua</button>
+                    <button id="btn-save-unit-next" style="padding: 8px 15px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer;">Xong & Thêm mới</button>
+                    <button onclick="saveSubUnit()" style="padding: 8px 25px; border: none; background: var(--kv-blue); color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">Xong</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="group-modal" class="modal-overlay" style="z-index: 300;">
+        <div class="modal-box" style="width: 400px; padding: 0; overflow: hidden;">
+            <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee;">
+                <h3 id="group-modal-title" style="font-size: 16px;">Tạo nhóm hàng</h3>
+                <i class="fa-solid fa-xmark" onclick="closeGroupModal()" style="cursor: pointer; color: #888;"></i>
+            </div>
+            <div style="padding: 20px;">
+                <label style="font-size: 12px; font-weight: bold; color: #555; display: block; margin-bottom: 5px;">Tên nhóm</label>
+                <input type="text" id="group-name" style="width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; outline: none;">
+                
+                <label style="font-size: 12px; font-weight: bold; color: #555; display: block; margin-bottom: 5px;">Nhóm cha</label>
+                <select id="group-parent" style="width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 20px; outline: none;">
+                    </select>
+                
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button onclick="closeGroupModal()" style="padding: 8px 15px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer;">Bỏ qua</button>
+                    <button onclick="saveGroup()" style="padding: 8px 15px; border: none; background: var(--kv-pink); color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">Lưu</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="pricebook-modal" class="modal-overlay" style="z-index: 300;">
+        <div class="modal-box" style="width: 400px; padding: 0; overflow: hidden;">
+            <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee;">
+                <h3 style="font-size: 16px;">Thêm bảng giá</h3>
+                <i class="fa-solid fa-xmark" onclick="closePriceBookModal()" style="cursor: pointer; color: #888;"></i>
+            </div>
+            <div style="padding: 20px;">
+                <label style="font-size: 12px; font-weight: bold; color: #555; display: block; margin-bottom: 5px;">Tên bảng giá <span style="color:red">*</span></label>
+                <input type="text" id="pricebook-name" placeholder="VD: Bảng giá sỉ, Giá Tết..." style="width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 20px; outline: none;">
+                
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button onclick="closePriceBookModal()" style="padding: 8px 15px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer;">Bỏ qua</button>
+                    <button onclick="savePriceBook()" style="padding: 8px 15px; border: none; background: var(--kv-pink); color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">Lưu</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="quick-price-modal" class="modal-overlay" style="z-index: 500;">
+        <div class="modal-box" style="width: 600px; padding: 0; overflow: hidden; background: white; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
+            <div style="padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0; font-size: 16px;">Chọn bảng giá</h3>
+                    <span id="quick-price-count" style="font-size: 12px; color: #888;">Có 0 bảng giá đang hoạt động</span>
+                </div>
+                <i class="fa-solid fa-xmark" style="cursor: pointer; font-size: 18px; color: #888;" onclick="closeQuickPriceSetup()"></i>
+            </div>
+            
+            <div style="padding: 20px; max-height: 400px; overflow-y: auto;">
+                <table class="kv-table" style="width: 100%; border-collapse: collapse;">
+                    <thead style="background: #f9f9f9;">
+                        <tr>
+                            <th style="text-align: left; padding: 10px; border-bottom: 2px solid #eee;">Tên bảng giá</th>
+                            <th style="text-align: right; padding: 10px; border-bottom: 2px solid #eee; width: 150px;">Giá bán</th>
+                        </tr>
+                    </thead>
+                    <tbody id="quick-price-tbody">
+                        </tbody>
+                </table>
+            </div>
+            
+            <div style="padding: 15px 20px; border-top: 1px solid #eee; text-align: right; background: #fafafa; display: flex; justify-content: flex-end; gap: 10px;">
+                <button onclick="closeQuickPriceSetup()" style="padding: 8px 15px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer; color: #333;">Bỏ qua</button>
+                <button onclick="saveQuickPriceSetup()" style="padding: 8px 25px; border: none; background: #007bff; color: white; border-radius: 4px; cursor: pointer; font-weight: bold;">Xong</button>
+            </div>
+        </div>
+    </div>
+    <div id="bulk-import-modal" class="modal-overlay" style="z-index: 1000; display: none;">
+    <div class="modal-box" style="width: 800px; max-width: 95vw; background: #fff; display: flex; flex-direction: column;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
+            <h3 style="margin: 0; color: #28a745;"><i class="fa-solid fa-paste"></i> Nhập hàng loạt từ Excel (Copy/Paste)</h3>
+            <i class="fa-solid fa-xmark" style="cursor: pointer; font-size: 18px; color: #888;" onclick="closeBulkImportModal()"></i>
+        </div>
+        
+        <div style="background: #e8f5e9; color: #2e7d32; padding: 10px; border-radius: 4px; font-size: 13px; margin-bottom: 15px; border: 1px solid #c8e6c9;">
+            <strong>Hướng dẫn:</strong> Mở file Excel, bôi đen toàn bộ dữ liệu <b>(bao gồm cả dòng tiêu đề)</b>, nhấn Ctrl+C để copy, sau đó click chuột vào ô bên dưới và nhấn <b>Ctrl+V</b> để dán.
+        </div>
+
+        <textarea id="bulk-import-data" placeholder="Dán (Ctrl+V) dữ liệu Excel vào đây..." style="width: 100%; height: 300px; padding: 15px; border: 1px dashed #28a745; border-radius: 4px; font-family: monospace; font-size: 12px; white-space: pre; overflow-wrap: normal; overflow-x: auto; outline: none; background: #fafafa;"></textarea>
+        
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+            <button class="btn-cancel" onclick="closeBulkImportModal()" style="padding: 10px 20px; border: 1px solid #ccc; border-radius: 4px; background: white; cursor: pointer;">Hủy</button>
+            <button class="btn-confirm" onclick="processBulkImport()" style="padding: 10px 20px; border: none; border-radius: 4px; background: #28a745; color: white; font-weight: bold; cursor: pointer;"><i class="fa-solid fa-bolt"></i> Xử lý & Tạo hàng hóa</button>
+        </div>
+    </div>
+</div>
+<div id="custom-confirm-modal" class="modal-overlay" style="z-index: 10000; display: none;">
+    <div class="modal-box" style="width: 420px; text-align: center; padding: 35px; border-radius: 12px; border: none; box-shadow: 0 15px 40px rgba(0,0,0,0.2);">
+        <div id="confirm-icon" style="font-size: 55px; margin-bottom: 20px;">
+            </div>
+        <h3 id="confirm-title" style="margin-bottom: 12px; font-size: 20px; color: #333; font-weight: 700;">Xác nhận</h3>
+        <p id="confirm-message" style="font-size: 15px; color: #666; margin-bottom: 30px; line-height: 1.6;"></p>
+        <div style="display: flex; gap: 12px; justify-content: center;">
+            <button id="btn-confirm-cancel" style="flex: 1; padding: 12px 0; border: 1px solid #ddd; background: #f9f9f9; border-radius: 8px; cursor: pointer; font-weight: 600; color: #666; transition: 0.2s;">Bỏ qua</button>
+            <button id="btn-confirm-ok" style="flex: 1; padding: 12px 0; border: none; background: var(--kv-pink); color: white; border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.2s; box-shadow: 0 4px 12px rgba(212, 26, 115, 0.2);">Đồng ý</button>
+        </div>
+    </div>
+</div>
+<div id="custom-prompt-modal" class="modal-overlay" style="z-index: 10001; display: none;">
+    <div class="modal-box" style="width: 400px; padding: 25px; border-radius: 12px;">
+        <h3 id="prompt-title" style="margin-bottom: 15px; color: #333;">Nhập thông tin</h3>
+        <p id="prompt-message" style="font-size: 14px; color: #666; margin-bottom: 15px; line-height: 1.5;"></p>
+        <input type="text" id="prompt-input" style="width: 100%; padding: 12px; border: 2px solid #eee; border-radius: 8px; margin-bottom: 20px; outline: none; transition: 0.2s;">
+        <div style="display: flex; gap: 10px;">
+            <button id="btn-prompt-cancel" style="flex: 1; padding: 10px; border: 1px solid #ddd; background: #f9f9f9; border-radius: 8px; cursor: pointer;">Hủy</button>
+            <button id="btn-prompt-ok" style="flex: 1; padding: 10px; border: none; background: var(--kv-pink); color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">Xác nhận</button>
+        </div>
+    </div>
+</div>
+<script type="module">
+    // 1. Nhập các thư viện cần thiết từ CDN của Firebase
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+
+    // 2. Cấu hình dự án POS của bạn
+    const firebaseConfig = {
+        apiKey: "AIzaSyBDUQwwIcBYUAWLc8OG3XICeZ2EpVGJV8M",
+        authDomain: "pos-9128b.firebaseapp.com",
+        databaseURL: "https://pos-9128b-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "pos-9128b",
+        storageBucket: "pos-9128b.firebasestorage.app",
+        messagingSenderId: "731903903213",
+        appId: "1:731903903213:web:2bac917cfbe818dc7953e4",
+        measurementId: "G-KJG1G0W35W"
+    };
+
+    // 3. Khởi tạo Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // 4. Công khai các công cụ ra Global (Cửa sổ trình duyệt) để script.js có thể gọi được
+    window.fbDb = db;
+    window.fbRef = ref;
+    window.fbSet = set;
+    window.fbOnValue = onValue;
+    window.fbUpdate = update;
+
+    // 5. Hàm đẩy dữ liệu lên Cloud
+    window.uploadToCloud = function(path, data) {
+        set(ref(db, path), data)
+            .then(() => console.log(`✅ Đã đồng bộ [${path}] lên Firebase thành công.`))
+            .catch((error) => console.error(`❌ Lỗi đồng bộ [${path}]:`, error));
+    };
+
+    // 6. Xử lý logic khởi chạy ứng dụng sau khi trang nạp xong hoàn toàn
+    // Thay thế đoạn window.onload cũ trong index.html
+// Trong file index.html (đoạn thẻ script module)
+window.onload = function() {
+    console.log("🚀 226 POS: Đang kiểm tra kết nối...");
+    
+    // Đảm bảo Firebase DB đã sẵn sàng trước khi nạp
+    const checkDb = setInterval(() => {
+        if (window.fbDb) {
+            clearInterval(checkDb);
+            if (typeof window.initApp === 'function') {
+                window.initApp(); 
+                console.log("✅ CSDL đã được kích hoạt tải về.");
+            }
+        }
+    }, 500); // Kiểm tra mỗi 0.5 giây cho đến khi kết nối Cloud sẵn sàng
+};
+</script>
+
+<script src="script.js?v=1.0.1"></script>
+</body>
+</html>
