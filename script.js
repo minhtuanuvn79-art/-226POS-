@@ -81,7 +81,10 @@ function handleLogin(type) {
 
     if(!u || !p) { err.style.display = 'block'; return; }
 
-    const user = accounts.find(x => x.username === u && x.password === p);
+    // FIX LỖI: Ép đọc trực tiếp từ bộ nhớ máy (nơi Firebase vừa tải về) thay vì dùng biến cũ
+    const latestAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || accounts;
+    const user = latestAccounts.find(x => x.username === u && x.password === p);
+
     if(user) {
         err.style.display = 'none';
         currentUser = user;
@@ -4571,12 +4574,13 @@ window.initApp = function() {
 
                 localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                 
-                if (item.path === 'products') window.products = dataArray;
-                if (item.path === 'groups') window.productGroups = dataArray;
-                if (item.path === 'pricebooks') window.priceBooks = dataArray;
-                if (item.path === 'accounts') window.accounts = dataArray;
+// FIX LỖI: Cập nhật luôn cả biến cục bộ để mọi chức năng (Thêm/Sửa/Xóa) đều dùng dữ liệu chuẩn
+        if (item.path === 'products') { window.products = dataArray; products = dataArray; }
+        if (item.path === 'groups') { window.productGroups = dataArray; productGroups = dataArray; }
+        if (item.path === 'pricebooks') { window.priceBooks = dataArray; priceBooks = dataArray; }
+        if (item.path === 'accounts') { window.accounts = dataArray; accounts = dataArray; }
 
-                const currentTab = localStorage.getItem('kv_current_tab');
+                const currentTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
                 const currentView = sessionStorage.getItem('kv_current_view'); // Sử dụng sessionStorage để kiểm tra view
 
                 if (currentView === 'pos-view') {
