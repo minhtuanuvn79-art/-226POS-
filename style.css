@@ -777,3 +777,9 @@ button, input, select, textarea { outline: none; font-family: inherit; }
     transform: scale(1);
     opacity: 1;
 }
+.beer-switch input:checked + span { background-color: #00bcd4; }
+    .beer-switch span:before {
+        position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px;
+        background-color: white; transition: .4s; border-radius: 50%;
+    }
+    .beer-switch input:checked + span:before { transform: translateX(20px); }

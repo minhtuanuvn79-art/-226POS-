@@ -476,6 +476,10 @@
                     <div class="list-main">
                         <div class="list-toolbar" style="justify-content: space-between;">
                             <div class="search-bar"><i class="fa-solid fa-magnifying-glass"></i><input type="text" id="search-invoice" placeholder="Theo mã hóa đơn..." oninput="window.currentInvoicePage = 1; renderInvoices()"></div>
+                            <div class="search-bar" style="margin-left: 10px; width: 350px;">
+    <i class="fa-solid fa-box-open"></i>
+    <input type="text" id="search-product-in-invoice" placeholder="Tìm tên hoặc mã hàng trong hóa đơn..." oninput="window.currentInvoicePage = 1; renderInvoices()">
+</div>
                             <div class="action-btn-group">
                                 <button class="primary" onclick="switchToPOS()"><i class="fa-solid fa-plus"></i> Hóa đơn</button>
                             </div>
@@ -881,6 +885,7 @@
                 <div style="position: relative;">
                     <i class="fa-solid fa-bars" onclick="togglePOSMenu()" style="font-size: 20px; cursor: pointer; padding: 5px;"></i>
                     <ul id="pos-hamburger-menu" class="dropdown-menu" style="right: 0; left: auto; top: 40px; width: 230px; z-index: 1000; box-shadow: 0 5px 20px rgba(0,0,0,0.15); border-radius: 6px; display: none;">
+                        <li onclick="openAddProductModal()"><i class="fa-solid fa-circle-plus" style="width: 25px; color: var(--kv-pink);"></i> Thêm hàng hóa nhanh</li>
                         <li onclick="openEndOfDayReport()"><i class="fa-solid fa-chart-pie" style="width: 25px; color: #888;"></i> Xem báo cáo cuối ngày</li>
                         <li onclick="showShortcutModal()"><i class="fa-solid fa-keyboard" style="width: 25px; color: #888;"></i> Phím tắt</li>
                         <li onclick="switchToDashboard()"><i class="fa-solid fa-chart-simple" style="width: 25px; color: #888;"></i> Quản lý</li>
@@ -894,6 +899,7 @@
             <div class="pos-left">
                 <div class="pos-cart-header">
                     <div style="width: 40px; text-align: center;">STT</div>
+                    <div style="width: 30px; text-align: center;"><i class="fa-solid fa-snowflake" title="Tính tiền lạnh"></i></div>
                     <div style="flex: 1;">Tên hàng</div>
                     <div style="width: 100px; text-align: center;">ĐVT</div>
                     <div style="width: 100px; text-align: center;">Số lượng</div>
@@ -920,6 +926,16 @@
                     </div>
 
                     <div class="pos-summary-lines">
+<div class="pos-line" style="background: #f0fbfc; padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #cceef0;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <label class="beer-switch" style="position: relative; display: inline-block; width: 40px; height: 20px;">
+                <input type="checkbox" id="enable-beer-ice" onchange="toggleBeerIceFeature(this.checked)" style="opacity: 0; width: 0; height: 0;">
+                <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px;"></span>
+            </label>
+            <span style="font-size: 13px; font-weight: bold; color: #00838f;">Tính tiền bia lạnh</span>
+        </div>
+        <strong id="pos-beer-ice-amount" style="color: #00838f; font-size: 16px; display: none;">0</strong>
+</div>
                         <div class="pos-line">
                             <span>Tổng tiền hàng (<span id="pos-total-qty">0</span>)</span>
                             <strong id="pos-total-goods">0</strong>
@@ -1023,6 +1039,7 @@
         <div style="padding: 20px; line-height: 2.5; font-size: 14px; color: #333; background: #fafafa;">
             <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F1:</strong> <span>Thêm hóa đơn (Tab) mới</span></div>
             <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F3:</strong> <span>Tìm hàng hóa</span></div>
+            <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-pink);">F4:</strong> <span>Thêm nhanh hàng hóa mới</span></div>
             <div style="display: flex; border-bottom: 1px dashed #ddd;"><strong style="width: 80px; color: var(--kv-blue);">F9:</strong> <span>Thanh toán hóa đơn</span></div>
             </div>
     </div>
@@ -1192,7 +1209,7 @@
                 </div>
 
                 <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Giá bán</label>
-                <input type="number" id="sub-unit-price" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; outline: none; text-align: right;">
+                <input type="text" id="sub-unit-price" oninput="formatCurrency(this)" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; outline: none; text-align: right;">
 
                 <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; margin-bottom: 20px;">
                     <input type="checkbox" id="sub-unit-sell" checked> Bán trực tiếp
