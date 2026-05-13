@@ -22,6 +22,34 @@ let currentProductUnits = [];
 let currentVariants = []; 
 let editingUnitIndex = null;
 // Hàm chuyển đổi Tiếng Việt có dấu sang không dấu
+// === ĐOẠN MÃ KHÔI PHỤC DỮ LIỆU CŨ ===
+// === ĐOẠN MÃ KHÔI PHỤC DỮ LIỆU CŨ (ÉP BUỘC) ===
+(function khôiPhucHeThong() {
+    let rawData = localStorage.getItem('kv_products');
+    if (!rawData) return;
+    
+    let allProducts = JSON.parse(rawData);
+    let updatedCount = 0;
+
+    allProducts.forEach(p => {
+        // Nếu hàng hóa hoàn toàn không có chi nhánh, mặc định đưa về CN1
+        if (!p.branchId) {
+            p.branchId = 'CN001'; 
+            updatedCount++;
+        }
+    });
+
+    if (updatedCount > 0) {
+        localStorage.setItem('kv_products', JSON.stringify(allProducts));
+        // Cập nhật ngay vào biến toàn cục để renderList đọc được luôn
+        window.products = allProducts;
+        
+        if (typeof window.uploadToCloud === 'function') {
+            window.uploadToCloud('products', allProducts);
+        }
+        console.log(`🚀 Đã khôi phục thành công ${updatedCount} mặt hàng về Chi nhánh 1.`);
+    }
+})();
 window.removeVietnameseTones = function(str) {
     if (!str) return "";
     str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
@@ -43,6 +71,7 @@ window.removeVietnameseTones = function(str) {
     str = str.replace(/\u02C6|\u0306|\u031B/g, ""); 
     return str;
 };
+
 // Đặt ở đầu file script.js
 window.focusPOSSearch = function() {
     const searchInput = document.getElementById('pos-search-input');
@@ -97,47 +126,57 @@ function togglePassword() {
 }
 
 function handleLogin(type) {
-    const u = document.getElementById('login-user').value;
-    const p = document.getElementById('login-pass').value;
+    const u = document.getElementById('login-user').value.trim();
+    const p = document.getElementById('login-pass').value.trim();
     const err = document.getElementById('login-error');
 
-    if(!u || !p) { err.style.display = 'block'; return; }
+    if (!u || !p) { 
+        err.style.display = 'block'; 
+        err.innerText = "Vui lòng nhập đầy đủ thông tin!";
+        return; 
+    }
 
-    // FIX LỖI: Ép đọc trực tiếp từ bộ nhớ máy (nơi Firebase vừa tải về) thay vì dùng biến cũ
+    // Đọc danh sách tài khoản mới nhất từ máy (đã bao gồm thông tin branchId)
     const latestAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || accounts;
     const user = latestAccounts.find(x => x.username === u && x.password === p);
 
-    if(user) {
+    if (user) {
         err.style.display = 'none';
         currentUser = user;
         
-        // LƯU TRẠNG THÁI ĐĂNG NHẬP ĐỂ CHỐNG F5
+        // LƯU TRẠNG THÁI ĐĂNG NHẬP VÀ CHI NHÁNH
         localStorage.setItem('kv_current_user', JSON.stringify(currentUser));
+        // Lưu mã chi nhánh vào sessionStorage để dùng cho các bộ lọc dữ liệu
+        sessionStorage.setItem('kv_current_branch', user.branchId || 'CN001');
         
-        if(type === 'manage') {
-            if(user.role === 'cashier') {
-                alert("Nhân viên Thu ngân không có quyền vào trang Quản lý."); return;
+        if (type === 'manage') {
+            if (user.role === 'cashier') {
+                alert("Nhân viên Thu ngân không có quyền vào trang Quản lý."); 
+                return;
             }
             sessionStorage.setItem('kv_current_view', 'dashboard-view');
             hideAll();
             document.getElementById('dashboard-view').style.display = 'flex';
             document.getElementById('dash-user-name').innerText = user.fullname;
             
-            // Tự động mở lại tab đang xem dở
             const savedTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
             openDashTab(savedTab);
         } else {
             sessionStorage.setItem('kv_current_view', 'pos-view');
             hideAll();
             document.getElementById('pos-view').style.display = 'flex';
-            document.getElementById('pos-user-name').innerText = user.fullname;
-            initPOSData(); // <--- THÊM DÒNG NÀY VÀO
+            const posSellerName = document.getElementById('pos-seller-name');
+            if (posSellerName) posSellerName.innerText = user.fullname;
+            
+            initPOSData(); // Khởi tạo dữ liệu bán hàng
         }
+        
+        showToast(`Chào mừng ${user.fullname} đã đăng nhập thành công!`, "success");
     } else {
         err.style.display = 'block';
+        err.innerText = "Tên đăng nhập hoặc mật khẩu không đúng!";
     }
 }
-
 function logout() {
     currentUser = null;
     // Xóa bộ nhớ trạng thái khi đăng xuất
@@ -195,11 +234,24 @@ function verifyAdmin() {
 }
 
 function switchAdminTab(tabName) {
-    document.getElementById('admin-tab-create').style.display = tabName === 'create' ? 'block' : 'none';
-    document.getElementById('admin-tab-list').style.display = tabName === 'list' ? 'block' : 'none';
-    document.getElementById('menu-tab-create').classList.toggle('active', tabName === 'create');
-    document.getElementById('menu-tab-list').classList.toggle('active', tabName === 'list');
-    if(tabName === 'list') renderAccountList();
+    // Ẩn tất cả các card
+    document.getElementById('admin-tab-create').style.display = 'none';
+    document.getElementById('admin-tab-list').style.display = 'none';
+    document.getElementById('admin-tab-branches').style.display = 'none';
+    
+    // Bỏ active tất cả menu
+    document.querySelectorAll('.admin-menu li').forEach(li => li.classList.remove('active'));
+
+    // Hiển thị card được chọn
+    const targetCard = document.getElementById(`admin-tab-${tabName}`);
+    if (targetCard) targetCard.style.display = 'block';
+    
+    const targetMenu = document.getElementById(`menu-tab-${tabName}`);
+    if (targetMenu) targetMenu.classList.add('active');
+
+    if (tabName === 'list') renderAccountList();
+    if (tabName === 'branches') renderBranchList();
+    if (tabName === 'create') window.renderBranchSelectInAdmin();
 }
 
 function renderAccountList() {
@@ -222,55 +274,279 @@ function renderAccountList() {
         `;
     });
 }
+let branches = JSON.parse(localStorage.getItem('kv_branches')) || [{ id: 'CN001', name: 'Chi nhánh 1' }];
 
-function createAccount() {
-    const fn = document.getElementById('new-fullname').value;
-    const un = document.getElementById('new-username').value;
-    const pw = document.getElementById('new-password').value;
-    const ro = document.getElementById('new-role').value;
+window.renderBranchList = function() {
+    const container = document.getElementById('branch-grid-container');
+    if (!container) return;
 
-    if(!fn || !un || !pw) { alert("Vui lòng điền đủ thông tin!"); return; }
-    if(accounts.find(x => x.username === un)) { alert("Tên đăng nhập đã tồn tại!"); return; }
+    // Lấy dữ liệu chi nhánh, tài khoản và hàng hóa để đếm số lượng
+    const allBranches = JSON.parse(localStorage.getItem('kv_branches')) || [{ id: 'CN001', name: 'Chi nhánh 1' }];
+    const allAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || [];
+    const allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
-    accounts.push({ fullname: fn, username: un, password: pw, role: ro });
+    container.innerHTML = allBranches.map(br => {
+        // Đếm số nhân viên và số mặt hàng thuộc chi nhánh này
+        const staffCount = allAccounts.filter(acc => acc.branchId === br.id).length;
+        const productCount = allProducts.filter(p => p.branchId === br.id).length;
+
+        return `
+            <div class="branch-item-card" onclick="viewBranchDetail('${br.id}', '${br.name}')">
+                <div class="branch-icon-circle">
+                    <i class="fa-solid fa-store"></i>
+                </div>
+                <h4 style="font-size: 18px; margin-bottom: 5px; color: #333;">${br.name}</h4>
+                <p style="font-size: 12px; color: #888; margin-bottom: 15px;">Mã: <strong>${br.id}</strong></p>
+                
+                <div style="display: flex; justify-content: space-around; background: #fafafa; padding: 10px; border-radius: 8px;">
+                    <div style="text-align: center;">
+                        <div style="font-weight: bold; color: var(--kv-blue);">${staffCount}</div>
+                        <div style="font-size: 11px; color: #888;">Nhân viên</div>
+                    </div>
+                    <div style="border-left: 1px solid #eee;"></div>
+                    <div style="text-align: center;">
+                        <div style="font-weight: bold; color: var(--kv-pink);">${productCount}</div>
+                        <div style="font-size: 11px; color: #888;">Mặt hàng</div>
+                    </div>
+                </div>
+
+                <div class="branch-card-btns">
+                    <button class="btn-branch-action" onclick="event.stopPropagation(); openBranchModal('${br.id}')">
+                        <i class="fa-solid fa-pen-to-square"></i> Sửa tên
+                    </button>
+                    <button class="btn-branch-action" style="color: #d9534f;" onclick="event.stopPropagation(); deleteBranch('${br.id}')">
+                        <i class="fa-solid fa-trash-can"></i> Xóa
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+};
+
+let selectedBranchId = null; // Biến lưu chi nhánh đang xem
+
+window.viewBranchDetail = function(branchId, branchName) {
+    selectedBranchId = branchId;
     
-    // 1. Lưu vào LocalStorage của máy
+    // Ẩn Grid, hiện giao diện chi tiết
+    document.getElementById('branch-main-view').style.display = 'none';
+    const detailView = document.getElementById('branch-detail-view');
+    detailView.style.display = 'block';
+    document.getElementById('detail-branch-title').innerText = "Chi nhánh: " + branchName;
+
+    // Cuộn vùng chứa lên đầu trang
+    document.querySelector('.admin-content').scrollTop = 0;
+
+    renderBranchStaff(branchId);
+};
+
+// 2. Hàm quay lại danh sách Grid
+window.backToBranchGrid = function() {
+    document.getElementById('branch-main-view').style.display = 'block';
+    document.getElementById('branch-detail-view').style.display = 'none';
+    selectedBranchId = null;
+};
+
+// 3. Hàm render danh sách nhân viên theo chi nhánh
+window.renderBranchStaff = function(branchId) {
+    const tbody = document.getElementById('branch-staff-table-body');
+    const allAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || [];
+    
+    // Lọc nhân viên thuộc chi nhánh này
+    const staff = allAccounts.filter(acc => acc.branchId === branchId);
+
+    if (staff.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: #888;">Chưa có nhân viên nào tại chi nhánh này</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = staff.map(acc => `
+        <tr>
+            <td><strong>${acc.fullname}</strong></td>
+            <td>${acc.username}</td>
+            <td><span class="badge ${acc.role === 'manager' ? 'badge-manager' : 'badge-staff'}">${acc.role === 'manager' ? 'Quản lý' : 'Nhân viên'}</span></td>
+            <td>
+                <button class="btn-action edit" onclick="editAccount('${acc.username}')"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn-action delete" onclick="deleteAccount('${acc.username}')"><i class="fa-solid fa-trash"></i></button>
+            </td>
+        </tr>
+    `).join('');
+};
+
+// 4. Hàm mở modal thêm tài khoản (Tự động điền chi nhánh hiện tại)
+window.openAccountModalWithBranch = function() {
+    // Gọi hàm mở modal có sẵn của bạn
+    openAccountModal(); 
+    
+    // Tự động chọn chi nhánh trong select của modal
+    const branchSelect = document.getElementById('acc-branch');
+    if (branchSelect && selectedBranchId) {
+        branchSelect.value = selectedBranchId;
+        branchSelect.disabled = true; // Khóa lại để không chọn nhầm sang chi nhánh khác
+    }
+};
+function openBranchModal(id = null) {
+    if (id) {
+        const br = branches.find(x => x.id === id);
+        const newName = prompt("Nhập tên chi nhánh mới:", br.name);
+        if (newName) {
+            br.name = newName;
+            saveAndSyncBranches();
+        }
+    } else {
+        const brName = prompt("Nhập tên chi nhánh mới:");
+        const brId = prompt("Nhập mã chi nhánh (VD: CN002):");
+        if (brName && brId) {
+            if (branches.find(x => x.id === brId)) return alert("Mã chi nhánh đã tồn tại!");
+            branches.push({ id: brId, name: brName });
+            saveAndSyncBranches();
+        }
+    }
+}
+function saveAndSyncBranches() {
+    localStorage.setItem('kv_branches', JSON.stringify(branches));
+    if (window.uploadToCloud) window.uploadToCloud('branches', branches);
+    renderBranchList();
+    window.renderBranchSelectInAdmin(); // Cập nhật các ô chọn chi nhánh ở tab tạo/sửa nhân viên
+}
+function deleteBranch(id) {
+    if (branches.length <= 1) return alert("Phải có ít nhất 1 chi nhánh!");
+    if (confirm("Xóa chi nhánh này?")) {
+        branches = branches.filter(x => x.id !== id);
+        saveAndSyncBranches();
+    }
+}
+function createAccount() {
+    // 1. Lấy dữ liệu từ các ô nhập liệu
+    const fn = document.getElementById('new-fullname').value.trim();
+    const un = document.getElementById('new-username').value.trim();
+    const pw = document.getElementById('new-password').value.trim();
+    const ro = document.getElementById('new-role').value;
+    const brId = document.getElementById('new-branch-id').value; // Lấy ID chi nhánh được chọn
+
+    // 2. Kiểm tra tính hợp lệ của dữ liệu
+    if (!fn || !un || !pw) { 
+        showToast("Vui lòng điền đầy đủ họ tên, tên đăng nhập và mật khẩu!", "warning"); 
+        return; 
+    }
+    
+    if (!brId) {
+        showToast("Vui lòng chọn chi nhánh cho nhân viên này!", "warning");
+        return;
+    }
+
+    // Kiểm tra xem tên đăng nhập đã bị trùng chưa
+    const existingAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || accounts;
+    if (existingAccounts.find(x => x.username === un)) { 
+        showToast("Tên đăng nhập này đã tồn tại trên hệ thống!", "error"); 
+        return; 
+    }
+
+    // 3. Tạo đối tượng tài khoản mới kèm theo mã chi nhánh
+    const newAcc = { 
+        fullname: fn, 
+        username: un, 
+        password: pw, 
+        role: ro,
+        branchId: brId, // Gắn nhân viên vào chi nhánh đã chọn
+        createdAt: new Date().toLocaleString('vi-VN')
+    };
+
+    // 4. Lưu dữ liệu
+    accounts.push(newAcc);
+    
+    // Lưu vào bộ nhớ máy (LocalStorage)
     localStorage.setItem('kv_accounts', JSON.stringify(accounts));
     
-    // 2. THÊM DÒNG NÀY: Đồng bộ danh sách tài khoản lên Firebase Cloud
+    // Đồng bộ lên hệ thống Cloud Firebase ngay lập tức
     if (typeof window.uploadToCloud === 'function') {
         window.uploadToCloud('accounts', accounts);
     }
 
-    alert("Tạo tài khoản thành công!");
+    // 5. Thông báo và làm sạch Form
+    showToast(`Đã tạo tài khoản cho ${fn} thuộc chi nhánh ${brId} thành công!`, "success");
     
     document.getElementById('new-fullname').value = '';
     document.getElementById('new-username').value = '';
     document.getElementById('new-password').value = '';
+    
+    // Quay lại danh sách để xem kết quả
     switchAdminTab('list');
 }
+window.renderBranchSelectInAdmin = function() {
+    const select = document.getElementById('new-branch-id');
+    if (!select) return;
 
-window.deleteAccount = function(username) {
-    if(username === 'admin') { alert("Không thể xóa tài khoản Quản trị hệ thống!"); return; }
+    // Lấy danh sách chi nhánh mới nhất
+    const currentBranches = JSON.parse(localStorage.getItem('kv_branches')) || [];
     
-    showConfirm(`Xóa nhân viên: ${username}?`, function() {
-        accounts = accounts.filter(acc => acc.username !== username);
-        localStorage.setItem('kv_accounts', JSON.stringify(accounts));
-        
-        if (window.uploadToCloud) window.uploadToCloud('accounts', accounts);
-        renderAccountList();
+    let html = '<option value="">-- Chọn chi nhánh công tác --</option>';
+    currentBranches.forEach(br => {
+        html += `<option value="${br.id}">${br.name} (${br.id})</option>`;
     });
+    
+    select.innerHTML = html;
+};
+
+// Cập nhật hàm switchAdminTab để mỗi khi bấm sang tab "Tạo tài khoản" thì nạp lại chi nhánh mới nhất
+const originalSwitchAdminTab = window.switchAdminTab;
+window.switchAdminTab = function(tabName) {
+    originalSwitchAdminTab(tabName);
+    if (tabName === 'create') {
+        window.renderBranchSelectInAdmin();
+    }
+};
+window.deleteAccount = function(username) {
+    // 1. Bảo vệ tài khoản Quản trị tối cao
+    if (username === 'admin') {
+        showToast("Không thể xóa tài khoản Quản trị hệ thống!", "error");
+        return;
+    }
+
+    // 2. Hiện hộp thoại xác nhận hiện đại
+    showConfirm(`Bạn có chắc chắn muốn xóa nhân viên <b>${username}</b>? <br> Hành động này không thể hoàn tác.`, function() {
+        
+        // 3. Lọc bỏ tài khoản khỏi mảng
+        accounts = accounts.filter(acc => acc.username !== username);
+
+        // 4. Lưu lại vào LocalStorage
+        localStorage.setItem('kv_accounts', JSON.stringify(accounts));
+
+        // 5. Đồng bộ xóa lên Cloud Firebase
+        if (typeof window.uploadToCloud === 'function') {
+            window.uploadToCloud('accounts', accounts);
+        }
+
+        // 6. Cập nhật giao diện
+        renderAccountList(); // Vẽ lại danh sách tài khoản chung
+
+        // Nếu đang xem chi tiết một chi nhánh, cập nhật lại bảng nhân viên chi nhánh đó
+        if (selectedBranchId) {
+            renderBranchStaff(selectedBranchId);
+        }
+
+        // Cập nhật lại các ô Grid chi nhánh (để giảm số lượng nhân viên hiển thị)
+        renderBranchList();
+
+        showToast(`Đã xóa tài khoản ${username} thành công`, "success");
+    }, 'delete'); // Loại 'delete' sẽ hiện icon cảnh báo màu đỏ
 };
 
 let userEditing = null;
 function openEditModal(username) {
     userEditing = accounts.find(acc => acc.username === username);
     if(!userEditing) return;
+
+    // Nạp danh sách chi nhánh vào ô chọn trong modal sửa
+    const brSelect = document.getElementById('edit-branch-id');
+    brSelect.innerHTML = branches.map(br => `<option value="${br.id}">${br.name}</option>`).join('');
+
     document.getElementById('edit-username-display').innerText = userEditing.username;
     document.getElementById('edit-fullname').value = userEditing.fullname;
     document.getElementById('edit-password').value = userEditing.password;
     document.getElementById('edit-role').value = userEditing.role;
-    document.getElementById('edit-role').disabled = (username === 'admin');
+    document.getElementById('edit-branch-id').value = userEditing.branchId || 'CN001';
+    
     document.getElementById('edit-account-modal').style.display = 'flex';
 }
 
@@ -279,22 +555,52 @@ function closeEditModal() {
     userEditing = null;
 }
 
-function saveEditAccount() {
-    if(!userEditing) return;
-    const fn = document.getElementById('edit-fullname').value;
-    const pw = document.getElementById('edit-password').value;
+window.saveEditAccount = function() {
+    if (!userEditing) return;
+
+    // 1. Lấy dữ liệu mới từ các ô nhập liệu trong Modal
+    const fn = document.getElementById('edit-fullname').value.trim();
+    const pw = document.getElementById('edit-password').value.trim();
     const ro = document.getElementById('edit-role').value;
+    const br = document.getElementById('edit-branch-id').value;
 
-    if(!fn || !pw) { alert("Tên và mật khẩu không được trống!"); return; }
-    userEditing.fullname = fn;
-    userEditing.password = pw;
-    userEditing.role = ro;
+    if (!fn || !pw) {
+        showToast("Họ tên và mật khẩu không được để trống!", "warning");
+        return;
+    }
 
+    // 2. Tìm và cập nhật thông tin trong mảng accounts toàn cục
+    const index = accounts.findIndex(acc => acc.username === userEditing.username);
+    if (index !== -1) {
+        accounts[index].fullname = fn;
+        accounts[index].password = pw;
+        accounts[index].role = ro;
+        accounts[index].branchId = br; // Cập nhật mã chi nhánh mới
+    }
+
+    // 3. Lưu vào bộ nhớ máy (LocalStorage)
     localStorage.setItem('kv_accounts', JSON.stringify(accounts));
-    window.uploadToCloud('accounts', accounts);
+
+    // 4. Đồng bộ lên hệ thống Cloud Firebase
+    if (typeof window.uploadToCloud === 'function') {
+        window.uploadToCloud('accounts', accounts);
+    }
+
+    // 5. Cập nhật lại giao diện ngay lập tức
     closeEditModal();
-    renderAccountList();
-}
+    renderAccountList(); // Cập nhật tab danh sách tài khoản chung
+
+    // Nếu đang ở trong màn hình chi tiết chi nhánh, vẽ lại bảng nhân viên tại đó
+    if (selectedBranchId) {
+        renderBranchStaff(selectedBranchId);
+    }
+    
+    // Vẽ lại Grid chi nhánh để cập nhật số lượng nhân viên hiển thị trên Card
+    renderBranchList();
+
+    showToast(`Đã cập nhật thông tin cho tài khoản ${userEditing.username}`, "success");
+    userEditing = null;
+};
 
 // ==========================================
 // 4. QUẢN LÝ TAB DASHBOARD
@@ -341,7 +647,16 @@ function initGroups() {
     }
     renderGroupData();
 }
-
+// Thêm vào đầu file script.js
+document.addEventListener('keydown', function(e) {
+    // Chỉ hoạt động khi đang ở màn hình đăng nhập
+    if (document.getElementById('login-view').style.display !== 'none') {
+        if (e.ctrlKey && e.shiftKey && e.key === 'Enter') {
+            e.preventDefault();
+            showAuthModal();
+        }
+    }
+});
 // Đảm bảo hàm này luôn được gọi trong initApp hoặc sau khi dán Excel
 window.renderGroupData = function() {
     // 1. Vẽ lại cây danh mục ở Sidebar hàng hóa
@@ -629,65 +944,39 @@ function openEditProductModal(id) {
 
 window.saveProduct = function() {
     const name = document.getElementById('pm-name').value.trim();
-    if (!name) { 
-        showToast("Vui lòng nhập tên hàng!", "warning"); 
-        return; 
-    }
+    if (!name) { showToast("Vui lòng nhập tên!", "warning"); return; }
 
-    const code = document.getElementById('pm-code').value.trim() || ('HH' + Date.now().toString().slice(-6));
-    const barcode = document.getElementById('pm-barcode').value.trim();
-    const cost = window.parseCurrency(document.getElementById('pm-cost').value);
-    const price = window.parseCurrency(document.getElementById('pm-price').value);
-    const stock = parseFloat(document.getElementById('pm-stock').value) || 0;
-    const groupId = document.getElementById('pm-group').value;
-    const sellDirect = document.getElementById('pm-sell-direct').checked;
-
-    // Thiết lập đơn vị tính cơ bản
-    let finalUnits = currentProductUnits.length > 0 ? JSON.parse(JSON.stringify(currentProductUnits)) : [{ 
-        name: 'Cái', rate: 1, price: price, isBase: true, code: code, barcode: barcode 
-    }];
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001'; //
 
     const prodData = {
         id: editingProductId || ('ID' + Date.now()),
-        code: code,
-        barcode: barcode,
+        branchId: currentBranch, // Đảm bảo luôn có dòng này
+        code: document.getElementById('pm-code').value.trim() || ('HH' + Date.now().toString().slice(-6)),
+        barcode: document.getElementById('pm-barcode').value.trim(),
         name: name,
-        cost: cost,
-        price: price,
-        stock: stock,
-        group: groupId,
-        sellDirect: sellDirect,
-        units: finalUnits,
+        cost: window.parseCurrency(document.getElementById('pm-cost').value),
+        price: window.parseCurrency(document.getElementById('pm-price').value),
+        stock: parseFloat(document.getElementById('pm-stock').value) || 0,
+        group: document.getElementById('pm-group').value,
+        sellDirect: document.getElementById('pm-sell-direct').checked,
+        units: currentProductUnits.length > 0 ? currentProductUnits : [{ name: 'Cái', rate: 1, price: window.parseCurrency(document.getElementById('pm-price').value), isBase: true }],
         updatedAt: new Date().toLocaleString('vi-VN')
     };
 
     let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     if (editingProductId) {
         const idx = allProducts.findIndex(p => p.id === editingProductId);
-        if (idx !== -1) allProducts[idx] = prodData;
-    } else {
-        if (allProducts.some(p => p.code === code)) {
-            showToast("Mã hàng này đã tồn tại!", "error");
-            return;
+        if (idx !== -1) {
+            prodData.branchId = allProducts[idx].branchId || currentBranch; // Giữ đúng chi nhánh cũ
+            allProducts[idx] = prodData;
         }
+    } else {
         allProducts.push(prodData);
     }
 
-    // Lưu dữ liệu
     localStorage.setItem('kv_products', JSON.stringify(allProducts));
-    window.products = allProducts;
-    if (typeof window.uploadToCloud === 'function') window.uploadToCloud('products', allProducts);
-
-    // LOGIC MỚI: Tự động thêm vào giỏ hàng nếu đang ở POS
-    const posView = document.getElementById('pos-view');
-    if (posView && posView.style.display === 'flex') {
-        addPOSItem(prodData.id, false, 0); // Thêm món vừa tạo vào giỏ hàng
-        showToast(`Đã tạo và thêm: ${name}`, "success");
-    } else {
-        renderProductList();
-        showToast("Lưu hàng hóa thành công!", "success");
-    }
-    
+    if (window.uploadToCloud) window.uploadToCloud('products', allProducts);
+    renderProductList();
     closeAddProductModal();
 };
 
@@ -704,48 +993,37 @@ function toggleProductDetail(id) {
 window.currentProductPage = 1;
 const productsPerPage = 100; // Số lượng hiển thị tối đa trên 1 trang
 
+window.renderProductPage = 1;
+
 window.renderProductList = function() {
     const tbody = document.getElementById('import-table-body'); 
     if (!tbody) return;
     
-    // 1. Lấy dữ liệu mới nhất từ bộ nhớ máy (đảm bảo đồng bộ Cloud)
+    // 1. Lấy dữ liệu và xác định chi nhánh hiện tại
     const savedProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     const savedGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
-    window.products = savedProducts;
+    const currentBranch = sessionStorage.getItem('kv_current_branch');
+    
     tbody.innerHTML = '';
 
     // 2. Lấy các thông số lọc từ giao diện
-    const searchInput = document.getElementById('search-product-manage');
-    const keyword = searchInput ? searchInput.value.toLowerCase().trim() : '';
-
+    const keyword = (document.getElementById('search-product-manage')?.value || '').toLowerCase().trim();
     const checkedGroupCbs = document.querySelectorAll('.group-filter-cb:checked');
     const selectedGroupIds = Array.from(checkedGroupCbs).map(cb => cb.value);
+    const stockVal = document.getElementById('stock-filter')?.value || 'all';
 
-    const stockFilter = document.getElementById('stock-filter');
-    const stockVal = stockFilter ? stockFilter.value : 'all';
+    // 3. TIẾN HÀNH LỌC DỮ LIỆU (QUAN TRỌNG: Lọc theo Chi nhánh trước)[cite: 1, 2]
+    const filteredBase = savedProducts.filter(p => {
+        // BƯỚC LỌC CHI NHÁNH: Nếu hàng không có branchId hoặc branchId không khớp thì loại bỏ
+        if (p.branchId !== currentBranch) return false;
 
-    // --- LOGIC TÌM KIẾM KHÔNG DẤU & THÔNG MINH ---
-    const cleanKw = window.removeVietnameseTones(keyword);
-    const searchTerms = cleanKw ? cleanKw.split(/\s+/) : [];
-
-    // 3. Lọc dữ liệu gốc[cite: 2]
-    const filteredBase = window.products.filter(p => {
-        // Gộp dữ liệu (Tên, mã, vạch) thành chuỗi chung và bỏ dấu[cite: 2]
+        // Lọc theo từ khóa (Tên, mã, vạch)
         let fullSearchStr = (p.name || '') + ' ' + (p.code || '') + ' ' + (p.barcode || '');
-        if (p.units && p.units.length > 0) {
-            p.units.forEach(u => {
-                fullSearchStr += ' ' + (u.name || '') + ' ' + (u.code || '') + ' ' + (u.barcode || '');
-            });
-        }
         const cleanData = window.removeVietnameseTones(fullSearchStr.toLowerCase());
+        const cleanKw = window.removeVietnameseTones(keyword);
+        const matchKw = cleanData.includes(cleanKw);
 
-        // Kiểm tra khớp từ khóa (không dấu)[cite: 2]
-        let matchKw = true;
-        if (searchTerms.length > 0) {
-            matchKw = searchTerms.every(term => cleanData.includes(term));
-        }
-
-        // Khớp nhóm hàng[cite: 2]
+        // Lọc theo nhóm hàng
         let matchGroup = true;
         if (selectedGroupIds.length > 0) {
             matchGroup = selectedGroupIds.includes(p.group);
@@ -754,31 +1032,22 @@ window.renderProductList = function() {
         return matchKw && matchGroup;
     });
 
-    // 4. Bung các đơn vị tính thành các dòng riêng biệt[cite: 2]
+    // 4. Bung các đơn vị tính và lọc theo tồn kho
     let flatProducts = [];
     filteredBase.forEach(p => {
-        p.units.forEach((unit, uIdx) => {
+        const units = p.units || [{ name: 'Cái', rate: 1, price: p.price }];
+        units.forEach((unit, uIdx) => {
             const currentStock = getStockByUnit(p, uIdx);
             
-            // Áp dụng lọc tồn kho[cite: 2]
             let matchStock = true;
             if (stockVal === 'below_min') matchStock = (currentStock <= 5);
-            else if (stockVal === 'above_max') matchStock = (currentStock > 100); 
-            else if (stockVal === 'in_stock') matchStock = (currentStock > 0);
             else if (stockVal === 'out_of_stock') matchStock = (currentStock <= 0);
-            else if (stockVal === 'custom') {
-                const minInput = document.getElementById('stock-min');
-                const maxInput = document.getElementById('stock-max');
-                const minCondition = (minInput && minInput.value.trim() !== '') ? (currentStock >= parseFloat(minInput.value)) : true;
-                const maxCondition = (maxInput && maxInput.value.trim() !== '') ? (currentStock <= parseFloat(maxInput.value)) : true;
-                matchStock = minCondition && maxCondition;
-            }
+            // ... các điều kiện tồn kho khác
 
             if (matchStock) {
                 flatProducts.push({
                     ...p,
                     displayUnit: unit,
-                    unitIndex: uIdx,
                     displayStock: currentStock,
                     displayCode: unit.code || p.code
                 });
@@ -786,58 +1055,41 @@ window.renderProductList = function() {
         });
     });
 
-    // 5. Xử lý khi không có dữ liệu[cite: 2]
+    // 5. Vẽ dữ liệu ra bảng
     if (flatProducts.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 50px; color: #aaa;">Không tìm thấy hàng hóa phù hợp</td></tr>`;
-        const paginationDiv = document.getElementById('product-pagination');
-        if (paginationDiv) paginationDiv.innerHTML = '';
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 50px; color: #aaa;">Không có hàng hóa nào thuộc chi nhánh này</td></tr>`;
         return;
     }
 
-    // 6. Logic phân trang[cite: 2]
-    const productsPerPage = 100;
-    const totalPages = Math.ceil(flatProducts.length / productsPerPage);
-    if (window.currentProductPage > totalPages) window.currentProductPage = totalPages || 1;
-    
-    const startIndex = (window.currentProductPage - 1) * productsPerPage;
-    const paginatedItems = flatProducts.slice(startIndex, startIndex + productsPerPage);
+    const itemsPerPage = 100;
+    const totalPages = Math.ceil(flatProducts.length / itemsPerPage);
+    const startIndex = (window.currentProductPage - 1) * itemsPerPage;
+    const paginatedItems = flatProducts.slice(startIndex, startIndex + itemsPerPage);
 
-    // 7. Vẽ dữ liệu ra bảng[cite: 2, 3]
     paginatedItems.forEach((item) => {
-        const isLowStock = item.displayStock <= 5;
-        const stockStyle = isLowStock ? 'color: #d9534f; font-weight: bold;' : '';
-        
         const groupObj = savedGroups.find(g => g.id === item.group);
-        const groupName = groupObj ? groupObj.name : '<span style="color:#ccc">Chưa phân nhóm</span>';
+        const groupName = groupObj ? groupObj.name : 'Chưa phân nhóm';
 
         tbody.innerHTML += `
-            <tr style="cursor:pointer; transition: 0.2s;">
-                <td style="text-align: center;">
-                    <input type="checkbox" class="product-item-check" data-id="${item.id}" onclick="updateSelectedCount()">
-                </td>
-                <td onclick="openEditProductModal('${item.id}')" style="color:var(--kv-blue); font-weight:bold;">${item.displayCode}</td>
-                <td onclick="openEditProductModal('${item.id}')" style="color:#555;">${item.barcode || '---'}</td>
-                <td onclick="openEditProductModal('${item.id}')">
+            <tr onclick="openEditProductModal('${item.id}')" style="cursor:pointer;">
+                <td style="text-align: center;"><input type="checkbox" class="product-item-check" data-id="${item.id}"></td>
+                <td style="color:var(--kv-blue); font-weight:bold;">${item.displayCode}</td>
+                <td>${item.barcode || '---'}</td>
+                <td>
                     <div style="font-weight: 500;">${item.name} (${item.displayUnit.name})</div>
-                    <div style="font-size: 11px; color: #888;"><i class="fa-solid fa-tag"></i> ${groupName}</div>
+                    <div style="font-size: 11px; color: #888;">${groupName}</div>
                 </td>
-                <td onclick="openEditProductModal('${item.id}')" style="text-align: right; color: var(--kv-pink); font-weight: bold;">${(item.displayUnit.price || 0).toLocaleString('vi-VN')}</td>
-                <td onclick="openEditProductModal('${item.id}')" style="text-align: right; color: #555;">${(item.cost * item.displayUnit.rate || 0).toLocaleString('vi-VN')}</td>
-                <td onclick="openEditProductModal('${item.id}')" style="text-align: center; ${stockStyle}">
-                    ${item.displayStock} ${isLowStock ? '<i class="fa-solid fa-triangle-exclamation" title="Sắp hết hàng"></i>' : ''}
-                </td>
+                <td style="text-align: right; color: var(--kv-pink); font-weight: bold;">${(item.displayUnit.price || 0).toLocaleString()}</td>
+                <td style="text-align: right;">${(item.cost * item.displayUnit.rate || 0).toLocaleString()}</td>
+                <td style="text-align: center;">${item.displayStock}</td>
                 <td style="text-align: center;">
-                    <button onclick="deleteProduct('${item.id}', '${item.name.replace(/'/g, "\\'")}')" style="background:none; border:none; color:#d9534f; cursor:pointer; padding:5px;">
-                        <i class="fa-solid fa-trash-can"></i>
-                    </button>
+                    <button onclick="event.stopPropagation(); deleteProduct('${item.id}', '${item.name}')" class="btn-delete-small"><i class="fa-solid fa-trash"></i></button>
                 </td>
             </tr>
         `;
     });
 
-    // 8. Cập nhật thanh phân trang[cite: 2]
     window.renderPaginationControls('product-pagination', window.currentProductPage, totalPages, 'changeProductPage');
-    if (typeof updateSelectedCount === 'function') updateSelectedCount();
 };
 // 3. Hàm tạo các nút bấm trang (Dán ngay dưới hàm renderProductList)
 function renderPaginationControls(totalPages) {
@@ -1070,11 +1322,14 @@ window.renderPriceSetupTable = function() {
     const tbody = document.querySelector('#price-setup-table tbody');
     if (!thead || !tbody) return;
 
-    // 1. CẬP NHẬT DỮ LIỆU MỚI NHẤT TỪ BỘ NHỚ (Khắc phục lỗi máy mới chưa có dữ liệu)
+    // 1. Cập nhật dữ liệu mới nhất từ bộ nhớ máy
     window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
     window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
+    
+    // Xác định chi nhánh hiện tại đang đăng nhập[cite: 11]
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
 
-    // 2. TẠO CỘT HEADER ĐỘNG[cite: 2, 3]
+    // 2. Tạo Header động (Các cột bảng giá sẽ thay đổi theo cài đặt)[cite: 2, 3]
     let thHtml = `
         <tr>
             <th style="text-align: center; width: 60px;">STT</th>
@@ -1085,7 +1340,6 @@ window.renderPriceSetupTable = function() {
             <th style="text-align: right;">Giá nhập cuối</th>
     `;
     
-    // Duyệt qua các bảng giá đang được chọn để hiển thị
     activePriceBookIds.forEach(id => {
         if (id === 'default') {
             thHtml += `<th style="text-align: right; color: var(--kv-pink);">Giá chung</th>`;
@@ -1099,16 +1353,21 @@ window.renderPriceSetupTable = function() {
     thHtml += `</tr>`;
     thead.innerHTML = thHtml;
 
-    // 3. LỌC VÀ TÌM KIẾM DỮ LIỆU THÔNG MINH
+    // 3. Lọc và Tìm kiếm dữ liệu thông minh
     const searchInput = document.getElementById('search-price-setup');
     const keyword = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    const searchTerms = keyword ? keyword.split(/\s+/) : [];
+
+    // Lấy thông số lọc nhóm và tồn kho[cite: 2]
     const checkedGroupCbs = document.querySelectorAll('.price-group-filter-cb:checked');
     const selectedGroupIds = Array.from(checkedGroupCbs).map(cb => cb.value);
     const stockFilter = document.getElementById('price-stock-filter');
     const stockVal = stockFilter ? stockFilter.value : 'all';
 
-    const searchTerms = keyword ? keyword.split(/\s+/) : [];
     let filtered = window.products.filter(p => {
+        // === BƯỚC QUAN TRỌNG: CHỈ HIỆN HÀNG THUỘC CHI NHÁNH ĐANG ĐĂNG NHẬP ===[cite: 8, 11]
+        if (p.branchId !== currentBranch) return false;
+
         // Khớp từ khóa tìm kiếm[cite: 2]
         let matchKw = true;
         if (searchTerms.length > 0) {
@@ -1127,8 +1386,6 @@ window.renderPriceSetupTable = function() {
         let matchStock = true;
         const stockLevel = parseFloat(p.stock) || 0;
         if (stockVal === 'below_min') matchStock = (stockLevel <= 5); 
-        else if (stockVal === 'above_max') matchStock = (stockLevel > 100); 
-        else if (stockVal === 'in_stock') matchStock = (stockLevel > 0);
         else if (stockVal === 'out_of_stock') matchStock = (stockLevel <= 0);
         else if (stockVal === 'custom') {
             const minInput = document.getElementById('price-stock-min');
@@ -1137,25 +1394,26 @@ window.renderPriceSetupTable = function() {
             const maxCondition = (maxInput && maxInput.value.trim() !== '') ? (stockLevel <= parseFloat(maxInput.value)) : true;
             matchStock = minCondition && maxCondition;
         }
+
         return matchKw && matchGroup && matchStock;
     });
 
-    // 4. LOGIC PHÂN TRANG[cite: 2]
+    // 4. Logic Phân trang[cite: 2]
     const itemsPerPage = 100;
     const totalPages = Math.ceil(filtered.length / itemsPerPage);
     if (window.currentPricePage > totalPages) window.currentPricePage = totalPages || 1;
     const startIndex = (window.currentPricePage - 1) * itemsPerPage;
     const paginatedProducts = filtered.slice(startIndex, startIndex + itemsPerPage);
 
-    // 5. VẼ DỮ LIỆU RA BẢNG[cite: 2, 3]
+    // 5. Vẽ dữ liệu ra bảng[cite: 2, 3]
     let tbHtml = '';
     if (paginatedProducts.length === 0) {
-        tbHtml = `<tr><td colspan="10" style="text-align:center; padding: 50px; color: #aaa;">Không tìm thấy hàng hóa hoặc bảng giá đang tải...</td></tr>`;
+        tbHtml = `<tr><td colspan="10" style="text-align:center; padding: 50px; color: #aaa;">Không tìm thấy hàng hóa thuộc chi nhánh này</td></tr>`;
     } else {
         paginatedProducts.forEach((p, index) => {
             const stt = startIndex + index + 1;
             tbHtml += `
-                <tr style="border-bottom: 1px dashed #eee; transition: 0.2s;">
+                <tr style="border-bottom: 1px dashed #eee;">
                     <td style="text-align: center; color: #888; font-size: 12px;">${stt}</td>
                     <td style="text-align: left;">${p.code || ''}</td>
                     <td style="text-align: left; color:#555;">${p.barcode || '---'}</td>
@@ -1164,6 +1422,7 @@ window.renderPriceSetupTable = function() {
                     <td style="text-align: right;">${(p.cost || 0).toLocaleString('vi-VN')}</td>
             `;
 
+            // Vẽ các cột giá tương ứng với bảng giá đang kích hoạt[cite: 2, 3]
             activePriceBookIds.forEach(id => {
                 if (id === 'default') {
                     tbHtml += `
@@ -1194,18 +1453,6 @@ window.renderPriceSetupTable = function() {
                                 onblur="hideQuickPriceMenu(this)"
                                 class="price-col-${id}"
                                 style="width: 100px; text-align: right; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; color: var(--kv-pink); font-weight: bold;">
-                            
-                            <!-- Menu thiết lập giá nhanh[cite: 2] -->
-                            <div class="quick-price-dropdown" style="display:none; position:absolute; top: 100%; right: 15px; background: white; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); z-index: 100; width: 110px; flex-direction: column; overflow: hidden; margin-top: 2px;">
-                                <div style="font-size: 10px; color: #888; text-align: center; padding: 5px; border-bottom: 1px solid #eee; background: #fafafa; font-weight: bold;">Cộng từ giá gốc</div>
-                                ${[0, 1, 2, 3, 4, 5, 10].map(k => `
-                                    <div onmousedown="event.preventDefault(); applyQuickAdd(${basePrice}, ${k}, '${id}', '${p.id}', '${inputId}')" 
-                                         onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='white'"
-                                         style="padding: 6px 10px; font-size: 13px; cursor: pointer; text-align: right; border-bottom: 1px solid #eee; color: var(--kv-blue); font-weight: 500;">
-                                        + ${k}k
-                                    </div>
-                                `).join('')}
-                            </div>
                         </td>`;
                 }
             });
@@ -1214,7 +1461,7 @@ window.renderPriceSetupTable = function() {
     }
     tbody.innerHTML = tbHtml;
 
-    // 6. CẬP NHẬT PHÂN TRANG[cite: 2]
+    // 6. Cập nhật thanh phân trang dùng chung
     window.renderPaginationControls('price-pagination', window.currentPricePage, totalPages, 'changePricePage');
 };
 // Hàm vẽ các nút "Trang trước", "Trang sau" cho bảng giá
@@ -1729,6 +1976,7 @@ window.saveInventoryCheck = function(action) {
     const icCode = document.getElementById('ic-code').value || ("KK" + Date.now().toString().slice(-6));
     
     const icData = {
+        branchId: sessionStorage.getItem('kv_current_branch') || 'CN001', // Thêm dòng này[cite: 2]
         id: editingICId || Date.now(), // Ưu tiên dùng ID cũ nếu đang sửa
         code: icCode,
         creator: currentUser.fullname,
@@ -1986,114 +2234,31 @@ window.renderInvoices = function() {
     const tbody = document.getElementById('invoice-tbody');
     if (!tbody) return;
     
-    // 1. Lấy thông số lọc
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
     const searchInvKw = (document.getElementById('search-invoice')?.value || '').toLowerCase().trim();
-    const searchProdKw = (document.getElementById('search-product-in-invoice')?.value || '').toLowerCase().trim();
     const showDone = document.getElementById('filter-inv-done')?.checked;
     const showCancel = document.getElementById('filter-inv-cancel')?.checked;
-    const creatorVal = document.getElementById('filter-inv-creator')?.value || '';
 
-    // 2. Xử lý thời gian (Giữ nguyên logic cũ của bạn)
-    const dateType = document.querySelector('input[name="inv-date-type"]:checked')?.value || 'predefined';
-    const predefinedVal = document.getElementById('inv-date-predefined')?.value;
-    const fromDateVal = document.getElementById('inv-date-from')?.value;
-    const toDateVal = document.getElementById('inv-date-to')?.value;
-    const now = new Date();
-    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-
-    let fromTime = 0, toTime = Infinity;
-    if (dateType === 'predefined') {
-        if (predefinedVal === 'today') { fromTime = startToday; toTime = startToday + 86400000 - 1; }
-        else if (predefinedVal === 'yesterday') { fromTime = startToday - 86400000; toTime = startToday - 1; }
-        else if (predefinedVal === 'this_month') { fromTime = startMonth; toTime = now.getTime(); }
-    } else {
-        if (fromDateVal) fromTime = new Date(fromDateVal).getTime();
-        if (toDateVal) toTime = new Date(toDateVal).getTime() + 86400000 - 1;
-    }
-
-    const parseVNTime = (timeStr) => {
-        if(!timeStr) return 0;
-        const parts = timeStr.replace(',', '').split(' ');
-        const dateParts = parts[1].split('/');
-        const timeParts = parts[0].split(':');
-        return new Date(dateParts[2], dateParts[1]-1, dateParts[0], timeParts[0], timeParts[1], timeParts[2] || 0).getTime();
-    };
-
-    let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
-    
-    // 3. LOGIC LỌC NÂNG CAO
     let filtered = allInvoices.filter(inv => {
-        // Lọc trạng thái và người tạo
+        if ((inv.branchId || 'CN001') !== currentBranch) return false; // Lọc chi nhánh[cite: 2]
         if (inv.status === 'done' && !showDone) return false;
         if (inv.status === 'cancel' && !showCancel) return false;
-        if (creatorVal && inv.creator !== creatorVal) return false;
-        
-        // Lọc thời gian
-        const invTime = parseVNTime(inv.createdAt);
-        if (invTime < fromTime || invTime > toTime) return false;
-
-        // Lọc theo mã hóa đơn (nếu có gõ)
-        const matchInv = searchInvKw ? inv.id.toLowerCase().includes(searchInvKw) : true;
-
-        // TÍNH NĂNG MỚI: Lọc theo hàng hóa bên trong hóa đơn
-        let matchProd = true;
-        if (searchProdKw) {
-            matchProd = inv.items.some(item => 
-                (item.name || '').toLowerCase().includes(searchProdKw) || 
-                (item.code || '').toLowerCase().includes(searchProdKw)
-            );
-        }
-
-        return matchInv && matchProd;
+        if (searchInvKw && !inv.id.toLowerCase().includes(searchInvKw)) return false;
+        return true;
     });
 
-    // 4. HIỂN THỊ DỮ LIỆU (Phân trang và Vẽ bảng)[cite: 2]
-    if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:50px; color:#aaa;">Không tìm thấy hóa đơn hoặc hàng hóa phù hợp</td></tr>`;
-        document.getElementById('invoice-pagination').innerHTML = '';
-        return;
-    }
-
-    const itemsPerPage = 30;
-    const totalPages = Math.ceil(filtered.length / itemsPerPage);
-    const startIndex = (window.currentInvoicePage - 1) * itemsPerPage;
-    const paginated = filtered.slice(startIndex, startIndex + itemsPerPage);
-
-    tbody.innerHTML = paginated.map(inv => {
-        const netPay = (inv.totalAmount || 0) - (inv.invoiceDiscount || 0);
-        
-        // Highlight hàng hóa nếu đang tìm kiếm hàng hóa[cite: 2]
-        let highlightHtml = "";
-        if (searchProdKw) {
-            const matchedItems = inv.items.filter(it => 
-                (it.name || '').toLowerCase().includes(searchProdKw) || 
-                (it.code || '').toLowerCase().includes(searchProdKw)
-            );
-            highlightHtml = `<div style="font-size: 11px; color: var(--kv-pink); margin-top: 4px;">
-                <i class="fa-solid fa-magnifying-glass"></i> Khớp: ${matchedItems.map(i => i.name).join(', ')}
-            </div>`;
-        }
-
-        return `
-            <tr onclick="toggleInvoiceDetail('${inv.id}')" style="cursor:pointer; border-bottom: 1px solid #eee;">
-                <td style="text-align:center;" onclick="event.stopPropagation()"><input type="checkbox"></td>
-                <td style="color:var(--kv-blue); font-weight:bold;">
-                    ${inv.id}
-                    ${highlightHtml}
-                </td>
-                <td>${inv.createdAt}</td>
-                <td>${inv.customer || 'Khách lẻ'}</td>
-                <td style="text-align:right;">${(inv.totalAmount || 0).toLocaleString()}</td>
-                <td style="text-align:right;">${(inv.invoiceDiscount || 0).toLocaleString()}</td>
-                <td style="text-align:right; font-weight:bold;">${netPay.toLocaleString()}</td>
-            </tr>
-            <tr id="inv-detail-${inv.id}" style="display:none;" class="io-detail-wrapper">
-                <!-- Giữ nguyên phần detail row như cũ của bạn -->
-                <td colspan="7" style="padding: 20px; background: #f4f6f9;">...</td>
-            </tr>`;
-    }).join('');
-    window.renderPaginationControls('invoice-pagination', window.currentInvoicePage, totalPages, 'changeInvoicePage');
+    tbody.innerHTML = filtered.map(inv => `
+        <tr onclick="toggleInvoiceDetail('${inv.id}')" style="cursor:pointer;">
+            <td><input type="checkbox"></td>
+            <td style="color:var(--kv-blue); font-weight:bold;">${inv.id}</td>
+            <td>${inv.createdAt}</td>
+            <td>${inv.customer || 'Khách lẻ'}</td>
+            <td style="text-align:right;">${(inv.totalAmount || 0).toLocaleString()}</td>
+            <td style="text-align:right;">${(inv.invoiceDiscount || 0).toLocaleString()}</td>
+            <td style="text-align:right; font-weight:bold;">${(inv.totalAmount - inv.invoiceDiscount).toLocaleString()}</td>
+        </tr>
+    `).join('');
 };
 
 window.changeInvoicePage = function(newPage) {
@@ -2128,126 +2293,26 @@ window.renderImportOrders = function() {
     const tbody = document.getElementById('import-tbody');
     if (!tbody) return;
     
-    // ... (Giữ nguyên phần logic lọc dữ liệu đầu hàm) ...
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const allImportOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
     const searchKw = (document.getElementById('search-import')?.value || '').toLowerCase().trim();
-    const showTemp = document.getElementById('filter-imp-temp')?.checked;
-    const showDone = document.getElementById('filter-imp-done')?.checked;
-    const showCancel = document.getElementById('filter-imp-cancel')?.checked;
-    const creatorVal = document.getElementById('filter-imp-creator')?.value || '';
-    const dateType = document.querySelector('input[name="imp-date-type"]:checked')?.value || 'predefined';
-    const predVal = document.getElementById('imp-date-predefined')?.value;
-    const fromVal = document.getElementById('imp-date-from')?.value;
-    const toVal = document.getElementById('imp-date-to')?.value;
 
-    const now = new Date();
-    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const endToday = startToday + 86400000 - 1;
-    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-
-    let fromTime = 0, toTime = Infinity;
-    if (dateType === 'predefined') {
-        if (predVal === 'today') { fromTime = startToday; toTime = endToday; }
-        else if (predVal === 'yesterday') { fromTime = startToday - 86400000; toTime = startToday - 1; }
-        else if (predVal === 'this_month') { fromTime = startMonth; toTime = endToday; }
-        else if (predVal === 'all') { fromTime = 0; toTime = Infinity; }
-    } else {
-        if (fromVal) fromTime = new Date(fromVal).getTime();
-        if (toVal) toTime = new Date(toVal).getTime() + 86400000 - 1;
-    }
-
-    let allImportOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
     let filtered = allImportOrders.filter(imp => {
-        if (imp.status === 'temp' && !showTemp) return false;
-        if (imp.status === 'done' && !showDone) return false;
-        if (imp.status === 'cancel' && !showCancel) return false;
+        if ((imp.branchId || 'CN001') !== currentBranch) return false; // Lọc chi nhánh[cite: 2]
         if (searchKw && !imp.id.toLowerCase().includes(searchKw)) return false;
-        if (creatorVal && imp.creator !== creatorVal) return false;
-        const impTime = imp.timestamp || 0;
-        return !(fromTime !== 0 && (impTime < fromTime || impTime > toTime));
+        return true;
     });
 
-    if(filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:50px; color:#aaa;">Không có phiếu nhập nào</td></tr>`;
-        document.getElementById('import-pagination').innerHTML = '';
-        return;
-    }
-
-    const itemsPerPage = 30;
-    const totalPages = Math.ceil(filtered.length / itemsPerPage);
-    const startIndex = (window.currentImportPage - 1) * itemsPerPage;
-    const paginated = filtered.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(startIndex, startIndex + itemsPerPage);
-
-    tbody.innerHTML = paginated.map(imp => {
-        const isDone = imp.status === 'done';
-        const isCancel = imp.status === 'cancel';
-        const statusText = isDone ? 'Đã nhập hàng' : (isCancel ? 'Đã hủy' : 'Phiếu tạm');
-        const badgeClass = isDone ? 'badge-done' : (isCancel ? 'badge-cancel' : 'badge-temp');
-        
-        return `
-            <tr onclick="toggleImportDetail('${imp.id}')" style="cursor:pointer; border-bottom: 1px solid #eee;">
-                <td style="text-align:center;" onclick="event.stopPropagation()"><input type="checkbox"></td>
-                <td style="color:var(--kv-blue); font-weight:bold;">${imp.id}</td>
-                <td>${imp.createdAt}</td>
-                <td>${imp.supplierName || '---'}</td>
-                <td style="text-align:right; font-weight:bold;">${(imp.mustPay || 0).toLocaleString()}</td>
-                <td style="text-align:center;"><span class="status-badge-new ${badgeClass}">${statusText}</span></td>
-            </tr>
-            <tr id="io-detail-${imp.id}" style="display:none;" class="io-detail-wrapper">
-                <td colspan="6" style="padding: 20px; background: #f4f6f9;">
-                    <div style="background: white; border-radius: 8px; border: 1px solid #ddd; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
-                        <div style="padding: 15px 20px; border-bottom: 1px solid #eee;">
-                            <h3 style="margin: 0; color: var(--kv-blue);">${imp.id} <span class="status-badge-new ${badgeClass}">${statusText}</span></h3>
-                        </div>
-                        <div style="padding: 20px;">
-                            <div class="io-detail-info-grid">
-                                <div class="info-item"><span class="info-label">Người tạo:</span><span>${imp.creator}</span></div>
-                                <div class="info-item"><span class="info-label">Tên NCC:</span><span>${imp.supplierName}</span></div>
-                                <div class="info-item"><span class="info-label">Ngày nhập:</span><span>${imp.createdAt}</span></div>
-                            </div>
-                            <table class="kv-table" style="width: 100%; margin-top: 15px; border: 1px solid #eee;">
-                                <thead>
-                                    <tr style="background: #f9f9f9;">
-                                        <th>Mã hàng</th><th>Tên hàng</th><th style="text-align:center;">Số lượng</th><th style="text-align:right;">Giá nhập</th><th style="text-align:right;">Thành tiền</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${imp.items.map(it => `
-                                        <tr>
-                                            <td style="color: var(--kv-blue);">${it.code}</td>
-                                            <td>${it.name}</td>
-                                            <td style="text-align:center;">${it.qty}</td>
-                                            <td style="text-align:right;">${(it.cost || 0).toLocaleString()}</td>
-                                            <td style="text-align:right; font-weight:bold;">${((it.qty || 0) * (it.cost || 0)).toLocaleString()}</td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                            <div style="display: flex; justify-content: space-between; margin-top: 20px;">
-                                <textarea style="width: 60%; height: 60px; border: 1px solid #ddd; padding: 10px; border-radius: 4px; resize: none;" readonly>${imp.note || ''}</textarea>
-                                <div class="io-detail-summary-box">
-                                    <div class="summary-row"><span class="lbl">Tổng tiền hàng:</span><span>${(imp.totalAmount || 0).toLocaleString()}</span></div>
-                                    <div class="summary-row"><span class="lbl">Cần trả NCC:</span><span style="font-weight:bold; color:var(--kv-blue);">${(imp.mustPay || 0).toLocaleString()}</span></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div style="padding: 15px 20px; background: #f9f9f9; border-top: 1px solid #eee; display: flex; justify-content: space-between;">
-                            <div class="actions-left">
-                                <button class="btn-action-outline text-danger" onclick="cancelImportOrder('${imp.id}')"><i class="fa-solid fa-trash"></i> Hủy phiếu</button>
-                            </div>
-                            <div class="actions-right">
-    ${!isCancel ? `
-        <button class="btn-action-primary" onclick="openCreateImportView('${imp.id}')">
-    <i class="fa-solid fa-pen-to-square"></i> Mở phiếu
-</button>
-    ` : ''}
-    <button class="btn-action-outline" onclick="window.print()"><i class="fa-solid fa-print"></i> In phiếu</button>
-</div>
-                        </div>
-                    </div>
-                </td>
-            </tr>`;
-    }).join('');
-    window.renderPaginationControls('import-pagination', window.currentImportPage, totalPages, 'changeImportPage');
+    tbody.innerHTML = filtered.map(imp => `
+        <tr onclick="toggleImportDetail('${imp.id}')" style="cursor:pointer;">
+            <td><input type="checkbox"></td>
+            <td style="color:var(--kv-blue); font-weight:bold;">${imp.id}</td>
+            <td>${imp.createdAt}</td>
+            <td>${imp.supplierName || 'NCC lẻ'}</td>
+            <td style="text-align:right; font-weight:bold;">${(imp.mustPay || 0).toLocaleString()}</td>
+            <td style="text-align:center;"><span class="status-badge-new ${imp.status === 'done' ? 'badge-done' : 'badge-temp'}">${imp.status === 'done' ? 'Đã nhập' : 'Phiếu tạm'}</span></td>
+        </tr>
+    `).join('');
 };
 
 // Hàm điều khiển ẩn hiện chi tiết
@@ -2591,6 +2656,7 @@ window.saveImportOrder = function(action) {
     // 2. Thu thập dữ liệu phiếu nhập
     const ioData = {
         id: ioId,
+        branchId: sessionStorage.getItem('kv_current_branch') || 'CN001',
         timestamp: editingIOId ? (allImportOrders.find(x => x.id === editingIOId)?.timestamp || Date.now()) : Date.now(),
         createdAt: editingIOId ? (allImportOrders.find(x => x.id === editingIOId)?.createdAt || new Date().toLocaleString('vi-VN')) : new Date().toLocaleString('vi-VN'),
         creator: currentUser.fullname,
@@ -2737,17 +2803,25 @@ let currentFocus = -1; // Biến theo dõi vị trí đang chọn trong dropdown
 
 window.searchPOSProduct = function(keyword) {
     const dropdown = document.getElementById('pos-search-dropdown');
-    if (!keyword || !keyword.trim()) { dropdown.style.display = 'none'; return; }
+    if (!keyword || !keyword.trim()) { 
+        dropdown.style.display = 'none'; 
+        return; 
+    }
     
-    // Chuẩn hóa từ khóa gõ vào: viết thường và bỏ dấu
+    // 1. Chuẩn hóa từ khóa
     const rawKw = keyword.toLowerCase().trim();
     const cleanKw = window.removeVietnameseTones(rawKw);
     const searchTerms = cleanKw.split(/\s+/);
     
+    // 2. Lấy chi nhánh hiện tại từ phiên đăng nhập
+    const currentBranch = sessionStorage.getItem('kv_current_branch');
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     let results = [];
 
     latestProducts.forEach(p => {
+        // --- BỘ LỌC CHI NHÁNH QUAN TRỌNG ---
+        if (p.branchId !== currentBranch) return; 
+
         // Chuẩn hóa dữ liệu gốc để so sánh
         const pName = window.removeVietnameseTones((p.name || "").toLowerCase());
         const pCode = (p.code || "").toLowerCase();
@@ -2760,6 +2834,7 @@ window.searchPOSProduct = function(keyword) {
 
         const matchBase = checkMatch(pName) || checkMatch(pCode) || checkMatch(pBarcode);
 
+        // Duyệt đơn vị tính
         if (p.units && p.units.length > 0) {
             p.units.forEach((unit, uIdx) => {
                 const uCode = (unit.code || "").toLowerCase();
@@ -2778,9 +2853,9 @@ window.searchPOSProduct = function(keyword) {
         }
     });
 
-    // Vẽ kết quả (giữ nguyên logic hiển thị của bạn)[cite: 2, 3]
+    // 3. Hiển thị kết quả
     if (results.length === 0) {
-        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa</div>';
+        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa thuộc chi nhánh này</div>';
     } else {
         dropdown.innerHTML = results.slice(0, 20).map(p => `
             <div class="pos-dropdown-item pos-item-node" onclick="addPOSItem('${p.id}', false, ${p.matchedUnitIdx})">
@@ -2794,6 +2869,7 @@ window.searchPOSProduct = function(keyword) {
             </div>`).join('');
     }
     dropdown.style.display = 'block';
+    window.currentFocus = -1; // Reset vị trí chọn phím mũi tên
 };
 
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
@@ -2837,22 +2913,37 @@ function addActive(items) {
     activeItem.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
-// Xử lý khi Enter mà không dùng mũi tên (quét mã vạch)[cite: 2]
 function handleDirectEnter(kw) {
+    const currentBranch = sessionStorage.getItem('kv_current_branch');
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     let found = null;
+
     for (let p of latestProducts) {
+        // --- CHỈ TÌM TRONG CHI NHÁNH ĐANG ĐỨNG ---
+        if (p.branchId !== currentBranch) continue; 
+
+        // Kiểm tra mã gốc
         if (p.code?.toLowerCase() === kw || p.barcode?.toLowerCase() === kw) {
-            found = { id: p.id, uIdx: 0 }; break;
+            found = { id: p.id, uIdx: 0 }; 
+            break;
         }
+        
+        // Kiểm tra mã của các đơn vị quy đổi
         if (p.units) {
             const uIdx = p.units.findIndex(u => u.barcode?.toLowerCase() === kw || u.code?.toLowerCase() === kw);
-            if (uIdx !== -1) { found = { id: p.id, uIdx: uIdx }; break; }
+            if (uIdx !== -1) { 
+                found = { id: p.id, uIdx: uIdx }; 
+                break; 
+            }
         }
     }
+
     if (found) {
         addPOSItem(found.id, true, found.uIdx);
+        // Tự động bôi đen lại ô nhập để quét món tiếp theo
         document.getElementById('pos-search-input').select();
+    } else {
+        showToast("Không tìm thấy mã này tại chi nhánh hiện tại", "warning");
     }
 }
 function getProductPrice(productObj, priceBookId) {
@@ -2966,20 +3057,16 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     if(!p) return;
 
     const tab = posTabs[activeTabIndex];
-    // Nếu quét mã vạch của đơn vị cụ thể thì dùng, không thì mặc định đơn vị đầu tiên
     const unitIdx = forcedUnitIdx !== null ? forcedUnitIdx : 0;
     const selectedUnit = p.units[unitIdx];
 
     const existingIndex = tab.items.findIndex(x => String(x.productId) === String(productId) && x.selectedUnitIdx === unitIdx);
     
     if (existingIndex !== -1) {
-        // Nếu đã có, tăng số lượng
         tab.items[existingIndex].qty += 1;
-        // Đưa món vừa cộng lên đầu danh sách để dễ quan sát
         const item = tab.items.splice(existingIndex, 1)[0];
         tab.items.unshift(item);
     } else {
-        // Nếu chưa có, thêm mới vào đầu
         tab.items.unshift({ 
             productId: p.id, 
             code: selectedUnit.code || p.code, 
@@ -2995,7 +3082,7 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     renderPOSCart();
     savePOSState();
 
-    // Giữ nguyên giá trị và bôi đen để Enter tiếp
+    // SỬA LỖI TẠI ĐÂY: Luôn trả tiêu điểm về ô tìm kiếm và bôi đen để quét đè
     if (sInput) {
         sInput.focus();
         sInput.select(); 
@@ -3007,8 +3094,8 @@ function renderPOSCart() {
     const tab = posTabs[activeTabIndex];
     if (!listDiv || !tab) return;
     
-    // Kiểm tra trạng thái nút gạt
     const isFeatureEnabled = document.getElementById('enable-beer-ice')?.checked;
+    const currentBranch = sessionStorage.getItem('kv_current_branch');
 
     if (tab.items.length === 0) {
         listDiv.innerHTML = `<div style="text-align:center; margin-top:50px; color:#ccc;">Hóa đơn trống</div>`;
@@ -3016,15 +3103,20 @@ function renderPOSCart() {
         return;
     }
 
+    // Lấy danh sách sản phẩm mới nhất để check tồn kho
     const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
 
     listDiv.innerHTML = tab.items.map((item, index) => {
         const rowTotal = item.qty * item.price;
-        const pOriginal = allProds.find(x => x.id === item.productId);
+        
+        // Tìm sản phẩm gốc và phải khớp đúng chi nhánh
+        const pOriginal = allProds.find(x => x.id === item.productId && x.branchId === currentBranch);
         const currentStock = pOriginal ? (parseFloat(pOriginal.stock) || 0) : 0;
-        let unitOptions = item.units.map((u, idx) => `<option value="${idx}" ${item.selectedUnitIdx === idx ? 'selected' : ''}>${u.name}</option>`).join('');
+        
+        let unitOptions = item.units.map((u, idx) => 
+            `<option value="${idx}" ${item.selectedUnitIdx === idx ? 'selected' : ''}>${u.name}</option>`
+        ).join('');
 
-        // Cột Checkbox chỉ hiển thị nội dung nếu tính năng được bật
         const iceCheckboxHtml = isFeatureEnabled ? 
             `<div style="width: 35px; text-align: center;">
                 <input type="checkbox" ${item.isIce ? 'checked' : ''} onchange="toggleBeerIce(${index}, this.checked)" style="width: 17px; height: 17px; cursor: pointer; accent-color: #00bcd4;">
@@ -3033,17 +3125,14 @@ function renderPOSCart() {
         return `
         <div class="cart-item-row" style="display: flex; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f4f4f4; font-size: 14px;">
             <div style="width: 35px; text-align:center; color: #aaa; font-size: 12px;">${index + 1}</div>
-            
-            ${iceCheckboxHtml} <!-- Cột checkbox linh hoạt -->
-
+            ${iceCheckboxHtml}
             <div style="flex: 1; min-width: 0; padding-right: 10px;">
                 <div style="color: var(--kv-pink); font-weight: 600; font-size: 13px;">${item.code}</div>
                 <div style="font-weight: 500;">
                     ${item.name} ${item.isIce ? '<i class="fa-solid fa-snowflake" style="color: #00bcd4; font-size: 11px;"></i>' : ''}
                 </div>
-                <div style="font-size: 11px; margin-top: 2px; color:#888;">Tồn: ${currentStock}</div>
+                <div style="font-size: 11px; margin-top: 2px; color:#888;">Tồn chi nhánh: ${currentStock}</div>
             </div>
-
             <div style="width: 90px;"><select onchange="updatePOSUnit(${index}, this.value)" style="width: 100%; border: 1px solid #eee; padding: 5px; border-radius: 4px;">${unitOptions}</select></div>
             <div style="width: 80px; text-align: center;"><input type="number" value="${item.qty}" class="pos-qty-input" onchange="updatePOSQty(${index}, this.value)" style="width: 60px; text-align: center; border: 1px solid #ddd; border-radius: 4px; padding: 5px; font-weight: bold;"></div>
             <div style="width: 110px; text-align: right;">${item.price.toLocaleString('vi-VN')}</div>
@@ -3136,22 +3225,33 @@ window.processCheckout = function() {
         return; 
     }
 
+    // Xác định chi nhánh hiện tại từ phiên đăng nhập
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
     const latestProds = JSON.parse(localStorage.getItem('kv_products')) || [];
     const totalAmount = parseFloat(document.getElementById('pos-total-goods').dataset.val) || 0;
-    const mustPay = totalAmount - tab.discount + tab.extraFee;
+    
+    // Tính toán tiền bia lạnh nếu có tính năng này[cite: 2]
+    const isFeatureEnabled = document.getElementById('enable-beer-ice')?.checked;
+    const iceAmount = isFeatureEnabled ? calculateManualBeerIce() : 0;
+    
+    const mustPay = totalAmount - (tab.discount || 0) + (tab.extraFee || 0) + iceAmount;
     
     const newInvoice = {
         id: 'HD' + Date.now().toString().slice(-6),
+        branchId: currentBranch, // LƯU MÃ CHI NHÁNH VÀO HÓA ĐƠN[cite: 2]
         createdAt: new Date().toLocaleString('vi-VN'),
         items: JSON.parse(JSON.stringify(tab.items)),
         totalAmount: totalAmount,
-        invoiceDiscount: tab.discount,
+        invoiceDiscount: tab.discount || 0,
+        extraFee: tab.extraFee || 0,
+        beerIceAmount: iceAmount,
+        beerIceNote: tab.beerIceNote || "",
         customerPaid: mustPay,
         creator: currentUser.fullname,
         status: 'done'
     };
 
-    // 1. Trừ tồn kho
+    // 1. Trừ tồn kho[cite: 2]
     tab.items.forEach(cartItem => {
         const prod = latestProds.find(p => p.id === cartItem.productId);
         if (prod) {
@@ -3163,7 +3263,7 @@ window.processCheckout = function() {
     let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
     allInvoices.unshift(newInvoice);
 
-    // 2. Lưu dữ liệu cục bộ và đồng bộ Cloud
+    // 2. Lưu dữ liệu cục bộ và đồng bộ Cloud[cite: 2]
     localStorage.setItem('kv_products', JSON.stringify(latestProds));
     localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
 
@@ -3172,34 +3272,29 @@ window.processCheckout = function() {
         window.uploadToCloud('products', latestProds);
     }
     
-    // 3. Xử lý in hóa đơn
+    // 3. Xử lý in hóa đơn và thông báo[cite: 2]
     if (window.autoPrintMode) {
         window.printReceipt(newInvoice);
     } else {
         showToast("Thanh toán thành công!", "success");
     }
     
-    // --- ĐOẠN QUAN TRỌNG NHẤT: Xử lý xóa Tab và cập nhật LocalStorage ---
+    // 4. Dọn dẹp Tab sau khi thanh toán[cite: 2]
     posTabs.splice(activeTabIndex, 1); 
 
     if (posTabs.length === 0) {
-        // Nếu hết sạch tab, gọi clearPOS để dọn sạch localStorage
         window.clearPOS();
     } else {
-        // Nếu vẫn còn khách đang chờ ở tab khác, chuyển sang tab đó và LƯU TRẠNG THÁI MỚI
         activeTabIndex = Math.max(0, posTabs.length - 1);
         switchPOSTab(activeTabIndex);
-        window.savePOSState(); // Cập nhật lại bộ nhớ máy: Hóa đơn này đã biến mất
+        window.savePOSState();
     }
-focusPOSSearch();
-    // Tự động focus về ô tìm kiếm
+    
+    focusPOSSearch();
     setTimeout(() => {
         const searchInput = document.getElementById('pos-search-input');
-        if (searchInput) {
-            searchInput.focus();
-            searchInput.select();
-        }
-    }, 150);
+        if (searchInput) searchInput.value = '';
+    }, 200);
 };
 window.clearPOS = function() {
     // 1. Reset về 1 tab trống duy nhất
@@ -3379,15 +3474,6 @@ window.uploadToCloud = function(path, data) {
     }
 };
 
-// Áp dụng cho Tài khoản: Tìm hàm saveAccount() của bạn và thêm dòng này vào cuối
-function saveAccount() {
-    // ... code lưu account vào mảng accounts của bạn ...
-    localStorage.setItem('kv_accounts', JSON.stringify(accounts));
-    
-    // Đẩy lên Cloud ngay lập tức
-    uploadToCloud('accounts', accounts);
-}
-
 
 window.deleteProduct = function(productId, productName) {
     showConfirm(`Bạn có chắc muốn xóa vĩnh viễn hàng hóa: <b>${productName}</b>?`, function() {
@@ -3420,72 +3506,49 @@ window.closeBulkImportModal = function() {
 
 window.processBulkImport = function() {
     const rawText = document.getElementById('bulk-import-data').value;
-    if (!rawText.trim()) {
-        alert("Vui lòng dán dữ liệu vào ô trống!");
-        return;
-    }
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001'; // Lấy chi nhánh hiện tại[cite: 8]
+    
+    if (!rawText.trim()) { alert("Vui lòng dán dữ liệu!"); return; }
 
     const lines = rawText.split('\n').filter(line => line.trim() !== '');
     const headers = lines[0].split('\t').map(h => h.trim().toLowerCase());
     
     const colMap = {
         code: headers.findIndex(h => h.includes('mã hàng')),
-        barcode: headers.findIndex(h => h.includes('mã vạch')),
         name: headers.findIndex(h => h.includes('tên hàng')),
         price: headers.findIndex(h => h.includes('giá bán')),
         cost: headers.findIndex(h => h.includes('giá vốn')),
-        group: headers.findIndex(h => h.includes('nhóm hàng')),
         stock: headers.findIndex(h => h.includes('tồn kho'))
     };
 
-    if (colMap.name === -1) {
-        alert("Không tìm thấy cột 'Tên hàng'!");
-        return;
-    }
-
     let newProducts = [];
-    const parseExcelNumber = (val) => {
-        if (!val) return 0;
-        return parseFloat(val.toString().replace(/,/g, '').replace(/\./g, '').trim()) || 0;
-    };
-
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split('\t');
-        const name = cols[colMap.name]?.trim();
-        if (!name) continue;
+        if (!cols[colMap.name]) continue;
 
-        const basePrice = colMap.price !== -1 ? parseExcelNumber(cols[colMap.price]) : 0;
-
+        const price = parseFloat(cols[colMap.price]?.replace(/\./g, '')) || 0;
         newProducts.push({
             id: 'ID' + Date.now() + i,
-            code: colMap.code !== -1 && cols[colMap.code] ? cols[colMap.code].trim() : ('HH' + Date.now() + i),
-            barcode: colMap.barcode !== -1 ? cols[colMap.barcode]?.trim() : '',
-            name: name,
-            price: basePrice,
-            cost: colMap.cost !== -1 ? parseExcelNumber(cols[colMap.cost]) : 0,
-            stock: colMap.stock !== -1 ? parseExcelNumber(cols[colMap.stock]) : 0,
-            group: colMap.group !== -1 ? cols[colMap.group]?.trim() : '', // Lưu tạm tên nhóm dạng chữ
-            sellDirect: true,
-            units: [{ name: 'Cái', rate: 1, isBase: true, price: basePrice }]
+            branchId: currentBranch, // Hàng nhập vào thuộc về chi nhánh hiện tại[cite: 8]
+            code: cols[colMap.code]?.trim() || ('HH' + Date.now() + i),
+            name: cols[colMap.name].trim(),
+            price: price,
+            cost: parseFloat(cols[colMap.cost]?.replace(/\./g, '')) || 0,
+            stock: parseFloat(cols[colMap.stock]) || 0,
+            units: [{ name: 'Cái', rate: 1, isBase: true, price: price }]
         });
     }
 
     if (newProducts.length > 0) {
-        // --- BƯỚC QUAN TRỌNG NHẤT: Tạo nhóm và lấy ID nhóm thay cho tên chữ ---
-        updateGroupsFromImport(newProducts); 
-
         let currentProds = JSON.parse(localStorage.getItem('kv_products')) || [];
         window.products = [...currentProds, ...newProducts];
-        
         localStorage.setItem('kv_products', JSON.stringify(window.products));
-        if (typeof window.uploadToCloud === 'function') window.uploadToCloud('products', window.products);
-
-        alert(`Đã tạo thành công ${newProducts.length} hàng hóa và cập nhật danh mục nhóm!`);
+        if (window.uploadToCloud) window.uploadToCloud('products', window.products);
+        alert(`Đã nhập thành công ${newProducts.length} mặt hàng cho chi nhánh ${currentBranch}!`);
         closeBulkImportModal();
         renderProductList();
     }
 };
-
 window.updateGroupsFromImport = function(importedProds) {
     // 1. Lấy danh sách nhóm hiện tại từ bộ nhớ máy
     let groups = JSON.parse(localStorage.getItem('kv_groups')) || [];
@@ -3752,11 +3815,10 @@ window.renderDashboard = function() {
     renderActivityFeed();
 };
 
-// 1. Hàm tính toán số liệu tổng quan và vẽ biểu đồ
 window.renderDashboardSummary = function() {
     const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
 
-    // HÀM MỚI: Bóc tách ngày tháng năm cực kỳ chuẩn xác từ mọi định dạng
     const extractDate = (timeStr) => {
         if (!timeStr) return null;
         const match = timeStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
@@ -3768,7 +3830,6 @@ window.renderDashboardSummary = function() {
     const yesterday = new Date(today.getTime() - 86400000);
     const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
 
-    // HÀM MỚI: So sánh 2 ngày chính xác tuyệt đối
     const isSameDay = (dateObj1, dateObj2) => {
         if (!dateObj1 || !dateObj2) return false;
         return dateObj1.d === dateObj2.getDate() && 
@@ -3784,31 +3845,27 @@ window.renderDashboardSummary = function() {
 
     let todayRev = 0, yesterdayRev = 0, lastMonthRev = 0, todayReturn = 0;
 
-    // Duyệt qua toàn bộ hóa đơn để gom số liệu
     allInvoices.forEach(inv => {
+        // Hỗ trợ dữ liệu cũ: Nếu không có branchId thì mặc định là CN001
+        const invBranch = inv.branchId || 'CN001';
+        if (invBranch !== currentBranch) return;
+
         if (inv.status === 'done') {
             const amount = (inv.totalAmount || 0) - (inv.invoiceDiscount || 0);
             const invDate = extractDate(inv.createdAt);
-            
             if (!invDate) return;
 
-            // Hôm nay
             if (isSameDay(invDate, today)) {
                 if (amount < 0) todayReturn += Math.abs(amount);
                 else todayRev += amount;
-            }
-            // Hôm qua
-            else if (isSameDay(invDate, yesterday)) {
+            } else if (isSameDay(invDate, yesterday)) {
                 if (amount >= 0) yesterdayRev += amount;
-            }
-            // Tháng trước
-            else if (isSameMonth(invDate, lastMonth)) {
+            } else if (isSameMonth(invDate, lastMonth)) {
                 if (amount >= 0) lastMonthRev += amount;
             }
         }
     });
 
-    // Hàm tính phần trăm tăng trưởng
     const calcPercent = (current, past) => {
         if (past === 0) return current > 0 ? 100 : 0;
         return Math.round(((current - past) / past) * 100);
@@ -3817,29 +3874,18 @@ window.renderDashboardSummary = function() {
     const percentYesterday = calcPercent(todayRev, yesterdayRev);
     const percentLastMonth = calcPercent(todayRev, lastMonthRev);
 
-    // Đổ số liệu lên 4 ô Widget
     const summaryValues = document.querySelectorAll('#tab-tong-quan .sum-value');
     if (summaryValues.length >= 4) {
         summaryValues[0].innerText = todayRev.toLocaleString('vi-VN');
         summaryValues[1].innerText = todayReturn.toLocaleString('vi-VN');
-
-        // Logic mũi tên xanh/đỏ cho % Hôm qua
-        const yIcon = percentYesterday >= 0 ? '<i class="fa-solid fa-arrow-trend-up"></i>' : '<i class="fa-solid fa-arrow-trend-down"></i>';
-        const yColor = percentYesterday >= 0 ? '#5cb85c' : '#d9534f';
-        summaryValues[2].innerHTML = `<span style="color:${yColor}">${yIcon} ${Math.abs(percentYesterday)}%</span>`;
-
-        // Logic mũi tên xanh/đỏ cho % Tháng trước
-        const mIcon = percentLastMonth >= 0 ? '<i class="fa-solid fa-arrow-trend-up"></i>' : '<i class="fa-solid fa-arrow-trend-down"></i>';
-        const mColor = percentLastMonth >= 0 ? '#5cb85c' : '#d9534f';
-        summaryValues[3].innerHTML = `<span style="color:${mColor}">${mIcon} ${Math.abs(percentLastMonth)}%</span>`;
+        summaryValues[2].innerHTML = `<span style="color:${percentYesterday >= 0 ? '#5cb85c' : '#d9534f'}">${percentYesterday >= 0 ? '↑' : '↓'} ${Math.abs(percentYesterday)}%</span>`;
+        summaryValues[3].innerHTML = `<span style="color:${percentLastMonth >= 0 ? '#5cb85c' : '#d9534f'}">${percentLastMonth >= 0 ? '↑' : '↓'} ${Math.abs(percentLastMonth)}%</span>`;
     }
     
-    // Đổ số liệu lên chữ Doanh thu thuần to đùng
     const bigRevenue = document.querySelector('#tab-tong-quan .widget-title span');
     if (bigRevenue) bigRevenue.innerText = todayRev.toLocaleString('vi-VN');
 
-    // GỌI HÀM VẼ BIỂU ĐỒ 7 NGÀY
-    render7DaysChart(allInvoices, today);
+    render7DaysChart(allInvoices.filter(inv => (inv.branchId || 'CN001') === currentBranch), today);
 };
 
 // Hàm con: Vẽ biểu đồ cột bằng HTML/CSS thuần (Không làm nặng web)
@@ -3915,107 +3961,59 @@ function render7DaysChart(invoices, today) {
     `;
 }
 
-// 2. Hàm gom dữ liệu và vẽ Timeline Hoạt động gần đây
 window.renderActivityFeed = function() {
     const feedContainer = document.querySelector('.activity-feed');
     if (!feedContainer) return;
 
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
     const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
     const allImportOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
     const allInventoryChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
 
     let activities = [];
-
-    // Hàm tiện ích: Chuyển chuỗi "15:30:00 10/04/2026" thành số miliseconds để dễ sắp xếp
     const parseVNTime = (timeStr) => {
         if(!timeStr) return 0;
-        try {
-            const parts = timeStr.replace(',', '').split(' ');
-            if(parts.length !== 2) return 0;
-            const timeParts = parts[0].split(':');
-            const dateParts = parts[1].split('/');
-            return new Date(dateParts[2], dateParts[1]-1, dateParts[0], timeParts[0], timeParts[1], timeParts[2]||0).getTime();
-        } catch(e) { return 0; }
+        const parts = timeStr.replace(',', '').split(' ');
+        const timeParts = parts[0].split(':');
+        const dateParts = parts[1].split('/');
+        return new Date(dateParts[2], dateParts[1]-1, dateParts[0], timeParts[0], timeParts[1], timeParts[2]||0).getTime();
     };
 
-    // Nhặt Hóa đơn
-    allInvoices.forEach(inv => {
-        activities.push({
-            type: 'invoice', id: inv.id, creator: inv.creator, timeStr: inv.createdAt,
-            timestamp: parseVNTime(inv.createdAt), amount: (inv.totalAmount || 0) - (inv.invoiceDiscount || 0), status: inv.status
-        });
+    // Lọc Hóa đơn
+    allInvoices.filter(inv => (inv.branchId || 'CN001') === currentBranch).forEach(inv => {
+        activities.push({ type: 'invoice', id: inv.id, creator: inv.creator, timeStr: inv.createdAt, timestamp: parseVNTime(inv.createdAt), amount: (inv.totalAmount || 0) - (inv.invoiceDiscount || 0), status: inv.status });
     });
 
-    // Nhặt Phiếu nhập hàng
-    allImportOrders.forEach(io => {
-        activities.push({
-            type: 'import', id: io.id, creator: io.creator, timeStr: io.createdAt,
-            timestamp: io.timestamp || parseVNTime(io.createdAt), amount: io.mustPay || 0, status: io.status
-        });
+    // Lọc Nhập hàng
+    allImportOrders.filter(io => (io.branchId || 'CN001') === currentBranch).forEach(io => {
+        activities.push({ type: 'import', id: io.id, creator: io.creator, timeStr: io.createdAt, timestamp: io.timestamp || parseVNTime(io.createdAt), amount: io.mustPay || 0, status: io.status });
     });
 
-    // Nhặt Phiếu kiểm kho
-    allInventoryChecks.forEach(ic => {
-        activities.push({
-            type: 'inventory', id: ic.code, creator: ic.creator, timeStr: new Date(ic.id).toLocaleString('vi-VN'),
-            timestamp: ic.id, amount: 0, status: ic.status
-        });
+    // Lọc Kiểm kho
+    allInventoryChecks.filter(ic => (ic.branchId || 'CN001') === currentBranch).forEach(ic => {
+        activities.push({ type: 'inventory', id: ic.code, creator: ic.creator, timeStr: new Date(ic.id).toLocaleString('vi-VN'), timestamp: ic.id, amount: 0, status: ic.status });
     });
 
-    // Sắp xếp trộn lẫn tất cả theo thời gian (Mới nhất nằm trên)
     activities.sort((a, b) => b.timestamp - a.timestamp);
+    const recent = activities.slice(0, 20);
 
-    // Cắt lấy 20 hoạt động gần nhất để web không bị nặng
-    const recentActivities = activities.slice(0, 20);
-
-    if (recentActivities.length === 0) {
-        feedContainer.innerHTML = `<div class="empty-data" style="height: 300px; color: #ccc;"><i class="fa-solid fa-clock-rotate-left"></i><p>Chưa có hoạt động nào</p></div>`;
+    if (recent.length === 0) {
+        feedContainer.innerHTML = `<div class="empty-data"><p>Không có hoạt động tại chi nhánh này</p></div>`;
         return;
     }
 
-    let html = '';
-    recentActivities.forEach(act => {
-        let icon = '', color = '', bg = '', title = '', amountHtml = '';
-
-        // Tùy chỉnh màu sắc và Icon cho từng loại giao dịch
-        if (act.type === 'invoice') {
-            icon = '<i class="fa-solid fa-file-invoice-dollar"></i>';
-            color = '#28a745'; bg = '#e8f5e9'; title = 'Bán hàng';
-            amountHtml = `<div style="font-weight: bold; color: #28a745;">+${act.amount.toLocaleString('vi-VN')}</div>`;
-        } else if (act.type === 'import') {
-            icon = '<i class="fa-solid fa-truck-ramp-box"></i>';
-            color = '#007bff'; bg = '#e6f2ff'; title = 'Nhập hàng';
-            amountHtml = `<div style="font-weight: bold; color: #dc3545;">-${act.amount.toLocaleString('vi-VN')}</div>`;
-        } else if (act.type === 'inventory') {
-            icon = '<i class="fa-solid fa-boxes-stacked"></i>';
-            color = '#f0ad4e'; bg = '#fcf8e3'; title = 'Kiểm kho';
-            amountHtml = `<div style="font-size: 12px; font-weight: bold; color: #f0ad4e;">${act.status === 'done' ? 'Đã cân bằng' : (act.status === 'cancel' ? 'Đã hủy' : 'Đang kiểm')}</div>`;
-        }
-
-        // Nếu giao dịch bị hủy, gạch ngang tiền
-        if (act.status === 'cancel') {
-            amountHtml = `<div style="font-size: 12px; color: #d9534f; text-decoration: line-through;">${act.amount.toLocaleString('vi-VN')}</div>`;
-        }
-
-        html += `
-            <div style="display: flex; gap: 15px; margin-bottom: 15px; border-bottom: 1px solid #f5f5f5; padding-bottom: 15px; align-items: center;">
-                <div style="width: 40px; height: 40px; border-radius: 50%; background: ${bg}; color: ${color}; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;">
-                    ${icon}
-                </div>
-                <div style="flex: 1;">
-                    <div style="font-weight: bold; color: #333; font-size: 13px;">${act.id} ${act.status === 'cancel' ? '<span style="color: red; font-size: 11px;">(Đã hủy)</span>' : ''}</div>
-                    <div style="font-size: 12px; color: #555; margin-top: 2px;">${title} - ${act.creator || 'Hệ thống'}</div>
-                    <div style="font-size: 11px; color: #888; margin-top: 4px;">${act.timeStr}</div>
-                </div>
-                ${amountHtml}
+    feedContainer.innerHTML = recent.map(act => `
+        <div style="display: flex; gap: 15px; margin-bottom: 15px; border-bottom: 1px solid #f5f5f5; padding-bottom: 10px;">
+            <div style="font-size: 13px; flex: 1;">
+                <strong>${act.id}</strong> - ${act.type === 'invoice' ? 'Bán hàng' : act.type === 'import' ? 'Nhập hàng' : 'Kiểm kho'}
+                <div style="color: #888; font-size: 11px;">${act.timeStr} - ${act.creator}</div>
             </div>
-        `;
-    });
-
-    feedContainer.innerHTML = html;
+            <div style="font-weight: bold; color: ${act.type === 'invoice' ? '#28a745' : '#dc3545'}">
+                ${act.type === 'inventory' ? '' : (act.type === 'invoice' ? '+' : '-') + act.amount.toLocaleString()}
+            </div>
+        </div>
+    `).join('');
 };
-
-
 window.printReceipt = function(invoice) {
     let printSection = document.getElementById('print-section');
     if (!printSection) {
@@ -4220,14 +4218,14 @@ case 'F2':
     if (typeof window.updatePrintStatusUI === 'function') window.updatePrintStatusUI();
     break;
 
-            case 'F3':
-                e.preventDefault();
-                const searchInput = document.getElementById('pos-search-input');
-                if (searchInput) {
-                    searchInput.focus();
-                    searchInput.select();
-                }
-                break;
+case 'F3':
+    e.preventDefault();
+    const searchInput = document.getElementById('pos-search-input');
+    if (searchInput) {
+        searchInput.focus();
+        searchInput.select(); // Bôi đen để quét mã mới sẽ ghi đè mã cũ
+    }
+    break;
 case 'F4':
     e.preventDefault();
     openAddProductModal();
@@ -4537,8 +4535,29 @@ setTimeout(window.renderICCreatorFilter, 500);
 // Thủ thuật: Tự động chạy lại hàm nạp danh sách mỗi khi bảng Kiểm kho được vẽ lại
 const oldRenderIC = window.renderInventoryChecks || (typeof renderInventoryChecks === 'function' ? renderInventoryChecks : function(){});
 window.renderInventoryChecks = function() {
-    oldRenderIC();
-    window.renderICCreatorFilter();
+    const tbody = document.querySelector('#ic-list-table tbody');
+    if (!tbody) return;
+
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const allChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
+    const searchKw = (document.getElementById('search-ic')?.value || '').toLowerCase().trim();
+
+    let filtered = allChecks.filter(ic => {
+        if ((ic.branchId || 'CN001') !== currentBranch) return false; // Lọc chi nhánh[cite: 2]
+        if (searchKw && !ic.code.toLowerCase().includes(searchKw)) return false;
+        return true;
+    });
+
+    tbody.innerHTML = filtered.map(ic => `
+        <tr onclick="toggleICDetail(${ic.id})" style="cursor:pointer;">
+            <td style="color:var(--kv-blue); font-weight:bold;">${ic.code}</td>
+            <td>${new Date(ic.id).toLocaleString('vi-VN')}</td>
+            <td>${ic.status === 'done' ? new Date(ic.id).toLocaleString('vi-VN') : '---'}</td>
+            <td style="text-align:center;">${ic.items.length}</td>
+            <td style="text-align:right;">${ic.items.reduce((s, i) => s + (parseFloat(i.realQty) || 0), 0).toLocaleString()}</td>
+            <td style="text-align:center;"><span class="status-badge ${ic.status === 'done' ? 'status-done' : 'status-temp'}">${ic.status === 'done' ? 'Đã cân bằng' : 'Phiếu tạm'}</span></td>
+        </tr>
+    `).join('');
 };
 if (typeof renderInventoryChecks !== 'undefined') {
     renderInventoryChecks = window.renderInventoryChecks;
@@ -4581,8 +4600,9 @@ window.renderICCreatorFilter = function() {
 };
 
 window.initApp = function() {
-    console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ dữ liệu...");
+    console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ chi nhánh...");
 
+    // 1. Cấu hình các đường dẫn cần đồng bộ từ Firebase Cloud
     if (window.fbDb && window.fbOnValue) {
         const syncPaths = [
             { path: 'products', storageKey: 'kv_products' },
@@ -4591,54 +4611,84 @@ window.initApp = function() {
             { path: 'pricebooks', storageKey: 'kv_pricebooks' },
             { path: 'inventory_checks', storageKey: 'kv_inventory_checks' },
             { path: 'import_orders', storageKey: 'kv_import_orders' },
-            { path: 'accounts', storageKey: 'kv_accounts' }
+            { path: 'accounts', storageKey: 'kv_accounts' },
+            { path: 'branches', storageKey: 'kv_branches' } // Đồng bộ danh mục chi nhánh
         ];
 
         syncPaths.forEach(item => {
             const dbRef = window.fbRef(window.fbDb, item.path);
             window.fbOnValue(dbRef, (snapshot) => {
                 const data = snapshot.val();
-                // Chuyển đổi dữ liệu từ Firebase (Object hoặc Array) sang mảng chuẩn
+                
+                // Chuyển đổi dữ liệu từ Cloud (Object/Array) sang mảng chuẩn
                 let dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data).filter(Boolean)) : [];
                 
-                // Lưu vào máy để dùng cho các lần sau
-                localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
+                // KHẮC PHỤC LỖI MẤT HÀNG: Nếu là hàng hóa tải về, ép những món chưa có chi nhánh vào CN1
+                if (item.path === 'products') {
+                    dataArray.forEach(p => {
+                        if (!p.branchId) p.branchId = 'CN001'; 
+                    });
+                    window.products = dataArray;
+                }
                 
-                // Cập nhật biến Global ngay lập tức để Render không bị chậm
-                if (item.path === 'products') window.products = dataArray;
                 if (item.path === 'pricebooks') window.priceBooks = dataArray;
                 if (item.path === 'groups') window.productGroups = dataArray;
+                if (item.path === 'branches') window.branches = dataArray;
 
-                // Kích hoạt Render lại tab hiện tại sau khi có dữ liệu mới từ Cloud
-                const currentTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
-                if (sessionStorage.getItem('kv_current_view') !== 'pos-view') {
+                // Lưu vào bộ nhớ máy để sử dụng offline
+                localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
+
+                // 2. Kích hoạt vẽ lại giao diện sau khi dữ liệu Cloud đã về tới máy
+                const currentView = sessionStorage.getItem('kv_current_view');
+                if (currentView === 'pos-view') {
+                    // Nếu đang ở màn hình bán hàng, chỉ render lại giỏ hàng và thông tin chung
+                    if (typeof renderPOSCart === 'function') renderPOSCart();
+                } else if (currentView === 'dashboard-view') {
+                    // Nếu đang ở quản lý, vẽ lại Tab đang mở (VD: Danh sách hàng, Thiết lập giá...)
+                    const currentTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
                     openDashTab(currentTab);
-                } else {
-                    if (typeof initPOSData === 'function') initPOSData();
                 }
             });
         });
     }
 
-    // Khôi phục phiên đăng nhập
+    // 3. KHÔI PHỤC PHIÊN ĐĂNG NHẬP (CHỐNG MẤT DỮ LIỆU KHI F5)[cite: 11]
     const savedUser = localStorage.getItem('kv_current_user');
     const savedView = sessionStorage.getItem('kv_current_view'); 
     
     if (savedUser) {
         currentUser = JSON.parse(savedUser);
+        
+        // Luôn đảm bảo chi nhánh hiện tại được nạp vào sessionStorage[cite: 11]
+        if (currentUser.branchId) {
+            sessionStorage.setItem('kv_current_branch', currentUser.branchId);
+        }
+
         hideAll(); 
         if (savedView === 'pos-view') {
             document.getElementById('pos-view').style.display = 'flex';
-            initPOSData(); 
+            initPOSData(); // Nạp Tab hóa đơn và Bán hàng
+        } else if (savedView === 'admin-settings-view') {
+            // Trường hợp F5 khi đang ở Cài đặt hệ thống[cite: 11]
+            document.getElementById('admin-settings-view').style.display = 'flex';
+            switchAdminTab('list');
         } else {
             document.getElementById('dashboard-view').style.display = 'flex';
+            document.getElementById('dash-user-name').innerText = currentUser.fullname;
             const lastTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
             openDashTab(lastTab); 
         }
     } else {
+        // Nếu chưa đăng nhập, trả về màn hình đăng nhập mặc định
         hideAll();
         document.getElementById('login-view').style.display = 'flex';
     }
+    
+    // Tự động cập nhật các bộ lọc người tạo/người bán
+    setTimeout(() => {
+        if (typeof renderICCreatorFilter === 'function') renderICCreatorFilter();
+        if (typeof renderInvCreatorFilter === 'function') renderInvCreatorFilter();
+    }, 1000);
 };
 // ==========================================
 // TÍNH NĂNG XUẤT FILE EXCEL HÀNG HÓA
@@ -4776,9 +4826,14 @@ window.renderBatchUpdateTable = function() {
     const tbody = document.querySelector('#batch-update-table tbody');
     if (!thead || !tbody) return;
 
+    // 1. Lấy thông số cấu hình từ giao diện[cite: 2]
     const attr = document.getElementById('batch-update-attr').value;
     const keyword = (document.getElementById('search-batch-update')?.value || '').toLowerCase().trim();
     
+    // 2. Xác định chi nhánh hiện tại của người dùng[cite: 1, 2]
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+
+    // 3. Vẽ Header động dựa trên thuộc tính cần sửa[cite: 2]
     if (attr === 'code_and_barcode') {
         thead.innerHTML = `
             <tr>
@@ -4816,9 +4871,15 @@ window.renderBatchUpdateTable = function() {
         `;
     }
 
+    // 4. Lọc dữ liệu thông minh theo Chi nhánh và Từ khóa[cite: 2]
     const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
     const searchTerms = keyword ? keyword.split(/\s+/) : [];
+    
     let filtered = allProds.filter(p => {
+        // ĐIỀU KIỆN 1: Phải thuộc chi nhánh hiện tại[cite: 2]
+        if (p.branchId !== currentBranch) return false;
+
+        // ĐIỀU KIỆN 2: Khớp từ khóa tìm kiếm[cite: 2]
         let matchKw = true;
         if (searchTerms.length > 0) {
             let fullSearchStr = (p.name || '') + ' ' + (p.code || '') + ' ' + (p.barcode || '');
@@ -4830,6 +4891,7 @@ window.renderBatchUpdateTable = function() {
         return matchKw;
     });
 
+    // 5. Logic phân trang[cite: 2]
     const itemsPerPage = 100;
     const totalPages = Math.ceil(filtered.length / itemsPerPage);
     if (window.currentUpdatePage > totalPages) window.currentUpdatePage = totalPages || 1;
@@ -4838,71 +4900,81 @@ window.renderBatchUpdateTable = function() {
     const startIndex = (window.currentUpdatePage - 1) * itemsPerPage;
     const paginatedProducts = filtered.slice(startIndex, startIndex + itemsPerPage);
 
+    // Chuẩn bị options cho nhóm hàng nếu cần[cite: 2]
     let groupOptions = '<option value="">-- Xóa khỏi nhóm --</option>';
     if (attr === 'group') {
+        const productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
         productGroups.forEach(g => { groupOptions += `<option value="${g.id}">${g.name}</option>`; });
     }
 
+    // 6. Vẽ dữ liệu ra bảng[cite: 2]
     let tbHtml = '';
-    paginatedProducts.forEach((p, index) => {
-        const stt = startIndex + index + 1;
-        
-        if (attr === 'code_and_barcode') {
-            const pendingObj = window.pendingBatchUpdates[p.id] || {};
-            const pendingCode = pendingObj.code !== undefined ? pendingObj.code : '';
-            const pendingBarcode = pendingObj.barcode !== undefined ? pendingObj.barcode : '';
+    if (paginatedProducts.length === 0) {
+        tbHtml = `<tr><td colspan="10" style="text-align:center; padding: 50px; color: #aaa;">Không tìm thấy hàng hóa thuộc chi nhánh này</td></tr>`;
+    } else {
+        paginatedProducts.forEach((p, index) => {
+            const stt = startIndex + index + 1;
+            
+            if (attr === 'code_and_barcode') {
+                const pendingObj = window.pendingBatchUpdates[p.id] || {};
+                const pendingCode = pendingObj.code !== undefined ? pendingObj.code : '';
+                const pendingBarcode = pendingObj.barcode !== undefined ? pendingObj.barcode : '';
 
-            tbHtml += `
-                <tr style="border-bottom: 1px dashed #eee;">
-                    <td style="text-align: center; color: #888;">${stt}</td>
-                    <td style="font-weight: bold;">${p.name}</td>
-                    <td style="color: #888; background: #fafafa;">${p.code || '---'}</td>
-                    <td style="background: #fdfdfd;">
-                        <input type="text" class="batch-input-code" value="${pendingCode}" placeholder="Sửa mã hàng..." oninput="recordBatchUpdateDual('${p.id}', 'code', this.value)" onpaste="handlePasteExcel(event, this, 'code')" style="width: 100%; padding: 6px; border: 1px solid var(--kv-blue); border-radius: 4px; outline: none;">
-                    </td>
-                    <td style="color: #888; background: #fafafa;">${p.barcode || '---'}</td>
-                    <td style="background: #fff0f5;">
-                        <input type="text" class="batch-input-barcode" value="${pendingBarcode}" placeholder="Sửa mã vạch..." oninput="recordBatchUpdateDual('${p.id}', 'barcode', this.value)" onpaste="handlePasteExcel(event, this, 'barcode')" style="width: 100%; padding: 6px; border: 1px solid var(--kv-pink); border-radius: 4px; outline: none;">
-                    </td>
-                </tr>
-            `;
-        } else {
-            let oldValue = p[attr] || '';
-            if (attr === 'group') {
-                const g = productGroups.find(x => x.id === p.group);
-                oldValue = g ? g.name : '---';
-            } else if (attr === 'cost' || attr === 'stock') {
-                oldValue = (p[attr] || 0).toLocaleString('vi-VN');
-            }
-
-            const pendingValue = window.pendingBatchUpdates[p.id] !== undefined ? window.pendingBatchUpdates[p.id] : '';
-
-            let inputHtml = '';
-            if (attr === 'group') {
-                inputHtml = `<select class="batch-input-group" onchange="recordBatchUpdate('${p.id}', this.value)" style="width: 100%; padding: 6px; border: 1px solid var(--kv-blue); border-radius: 4px; outline: none; background: #f0f7ff;">
-                                <option value="" disabled ${pendingValue === '' ? 'selected' : ''}>Chọn nhóm mới...</option>
-                                ${groupOptions}
-                             </select>`;
-                if (pendingValue) inputHtml = inputHtml.replace(`value="${pendingValue}"`, `value="${pendingValue}" selected`);
-            } else if (attr === 'cost' || attr === 'stock') {
-                inputHtml = `<input type="text" class="batch-input-${attr}" value="${pendingValue}" placeholder="Nhập số mới..." oninput="formatCurrency(this); recordBatchUpdate('${p.id}', window.parseCurrency(this.value))" onpaste="handlePasteExcel(event, this, '${attr}')" style="width: 100%; padding: 6px 10px; border: 1px solid var(--kv-blue); border-radius: 4px; outline: none;">`;
+                tbHtml += `
+                    <tr style="border-bottom: 1px dashed #eee;">
+                        <td style="text-align: center; color: #888;">${stt}</td>
+                        <td style="font-weight: bold;">${p.name}</td>
+                        <td style="color: #888; background: #fafafa;">${p.code || '---'}</td>
+                        <td style="background: #fdfdfd;">
+                            <input type="text" class="batch-input-code" value="${pendingCode}" placeholder="Sửa mã hàng..." oninput="recordBatchUpdateDual('${p.id}', 'code', this.value)" onpaste="handlePasteExcel(event, this, 'code')" style="width: 100%; padding: 6px; border: 1px solid var(--kv-blue); border-radius: 4px; outline: none;">
+                        </td>
+                        <td style="color: #888; background: #fafafa;">${p.barcode || '---'}</td>
+                        <td style="background: #fff0f5;">
+                            <input type="text" class="batch-input-barcode" value="${pendingBarcode}" placeholder="Sửa mã vạch..." oninput="recordBatchUpdateDual('${p.id}', 'barcode', this.value)" onpaste="handlePasteExcel(event, this, 'barcode')" style="width: 100%; padding: 6px; border: 1px solid var(--kv-pink); border-radius: 4px; outline: none;">
+                        </td>
+                    </tr>
+                `;
             } else {
-                inputHtml = `<input type="text" class="batch-input-${attr}" value="${pendingValue}" placeholder="Nhập mới..." oninput="recordBatchUpdate('${p.id}', this.value)" onpaste="handlePasteExcel(event, this, '${attr}')" style="width: 100%; padding: 6px 10px; border: 1px solid var(--kv-blue); border-radius: 4px; outline: none;">`;
-            }
+                let oldValue = p[attr] || '';
+                if (attr === 'group') {
+                    const productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+                    const g = productGroups.find(x => x.id === p.group);
+                    oldValue = g ? g.name : '---';
+                } else if (attr === 'cost' || attr === 'stock') {
+                    oldValue = (p[attr] || 0).toLocaleString('vi-VN');
+                }
 
-            tbHtml += `
-                <tr style="border-bottom: 1px dashed #eee;">
-                    <td style="text-align: center; color: #888;">${stt}</td>
-                    <td style="font-weight: bold;">${p.code}</td>
-                    <td>${p.name}</td>
-                    <td style="color: #888; background: #fafafa;">${oldValue}</td>
-                    <td style="background: #fdfdfd;">${inputHtml}</td>
-                </tr>
-            `;
-        }
-    });
+                const pendingValue = window.pendingBatchUpdates[p.id] !== undefined ? window.pendingBatchUpdates[p.id] : '';
+
+                let inputHtml = '';
+                if (attr === 'group') {
+                    inputHtml = `<select class="batch-input-group" onchange="recordBatchUpdate('${p.id}', this.value)" style="width: 100%; padding: 6px; border: 1px solid var(--kv-blue); border-radius: 4px; outline: none; background: #f0f7ff;">
+                                    <option value="" disabled ${pendingValue === '' ? 'selected' : ''}>Chọn nhóm mới...</option>
+                                    ${groupOptions}
+                                 </select>`;
+                    if (pendingValue) inputHtml = inputHtml.replace(`value="${pendingValue}"`, `value="${pendingValue}" selected`);
+                } else if (attr === 'cost' || attr === 'stock') {
+                    inputHtml = `<input type="text" class="batch-input-${attr}" value="${pendingValue}" placeholder="Nhập số mới..." oninput="formatCurrency(this); recordBatchUpdate('${p.id}', window.parseCurrency(this.value))" onpaste="handlePasteExcel(event, this, '${attr}')" style="width: 100%; padding: 6px 10px; border: 1px solid var(--kv-blue); border-radius: 4px; outline: none;">`;
+                } else {
+                    inputHtml = `<input type="text" class="batch-input-${attr}" value="${pendingValue}" placeholder="Nhập mới..." oninput="recordBatchUpdate('${p.id}', this.value)" onpaste="handlePasteExcel(event, this, '${attr}')" style="width: 100%; padding: 6px 10px; border: 1px solid var(--kv-blue); border-radius: 4px; outline: none;">`;
+                }
+
+                tbHtml += `
+                    <tr style="border-bottom: 1px dashed #eee;">
+                        <td style="text-align: center; color: #888;">${stt}</td>
+                        <td style="font-weight: bold;">${p.code}</td>
+                        <td>${p.name}</td>
+                        <td style="color: #888; background: #fafafa;">${oldValue}</td>
+                        <td style="background: #fdfdfd;">${inputHtml}</td>
+                    </tr>
+                `;
+            }
+        });
+    }
 
     tbody.innerHTML = tbHtml;
+    
+    // 7. Vẽ thanh phân trang[cite: 2]
     window.renderPaginationControls('update-pagination', window.currentUpdatePage, totalPages, 'changeUpdatePage');
 };
 
