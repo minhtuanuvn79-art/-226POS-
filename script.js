@@ -2726,6 +2726,8 @@ window.toggleICDateFilter = function() {
 // 14. LOGIC BÁN HÀNG SIÊU ĐỒNG BỘ (FIX LỖI TÌM KIẾM & CHỐNG MẤT DỮ LIỆU KHI F5)
 // ==========================================
 let posTabs = [];
+let lastScanTime = 0;
+let lastScanCode = "";
 let activeTabIndex = 0;
 let tabCounter = 0;
 let clockInterval;
@@ -2858,7 +2860,7 @@ window.searchPOSProduct = function(keyword) {
         dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa thuộc chi nhánh này</div>';
     } else {
         dropdown.innerHTML = results.slice(0, 20).map(p => `
-            <div class="pos-dropdown-item pos-item-node" onclick="addPOSItem('${p.id}', false, ${p.matchedUnitIdx})">
+            <div class="pos-dropdown-item pos-item-node"  onclick="addPOSItem('${p.id}', false, ${p.matchedUnitIdx}); document.getElementById('pos-search-input').value='';">
                 <div style="flex:1;">
                     <strong style="color: var(--kv-blue);">${p.displayCode}</strong> - 
                     <strong>${p.name} (${p.displayUnitName})</strong>
@@ -2914,12 +2916,23 @@ function addActive(items) {
 }
 
 function handleDirectEnter(kw) {
+    const currentTime = Date.now();
+    
+    // Nếu mã quét trùng với mã vừa quét VÀ cách nhau chưa đầy 500ms thì bỏ qua
+    if (kw === lastScanCode && (currentTime - lastScanTime) < 500) {
+        console.warn("⚠️ Phát hiện quét lặp nhanh (Double Scan), đã ngăn chặn.");
+        return;
+    }
+
+    // Cập nhật thời gian và mã quét cuối cùng
+    lastScanTime = currentTime;
+    lastScanCode = kw;
+
     const currentBranch = sessionStorage.getItem('kv_current_branch');
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     let found = null;
 
     for (let p of latestProducts) {
-        // --- CHỈ TÌM TRONG CHI NHÁNH ĐANG ĐỨNG ---
         if (p.branchId !== currentBranch) continue; 
 
         // Kiểm tra mã gốc
@@ -2941,9 +2954,15 @@ function handleDirectEnter(kw) {
     if (found) {
         addPOSItem(found.id, true, found.uIdx);
         // Tự động bôi đen lại ô nhập để quét món tiếp theo
-        document.getElementById('pos-search-input').select();
+        const searchInput = document.getElementById('pos-search-input');
+        if (searchInput) {
+            searchInput.value = ""; // Xóa trắng ô nhập để sẵn sàng cho lần quét tới
+            searchInput.focus();
+        }
     } else {
         showToast("Không tìm thấy mã này tại chi nhánh hiện tại", "warning");
+        // Nếu không tìm thấy cũng xóa trắng ô để quét lại mã khác
+        document.getElementById('pos-search-input').value = "";
     }
 }
 function getProductPrice(productObj, priceBookId) {
