@@ -855,3 +855,31 @@ button, input, select, textarea { outline: none; font-family: inherit; }
     width: 100%;
     margin-bottom: 50px; /* Tạo khoảng cách dưới đáy để dễ nhìn */
 }
+/* 1. Nếu nút của bạn là ô Checkbox vuông mặc định */
+#enable-beer-ice {
+    accent-color: #00bcd4 !important; /* Đổi màu khi có dấu tick */
+    cursor: pointer;
+}
+
+/* 2. Nếu nút của bạn là dạng Công tắc gạt (Toggle Switch) */
+input#enable-beer-ice:checked + .slider,
+input#enable-beer-ice:checked + span,
+input#enable-beer-ice:checked + div {
+    background-color: #00bcd4 !important;
+    border-color: #00bcd4 !important;
+}
+/* Đổi màu Nút gạt bia lạnh sang màu xanh lơ khi bật */
+input#enable-beer-ice:checked + .slider,
+input#enable-beer-ice:checked + span,
+input#enable-beer-ice:checked ~ div {
+    background-color: #00bcd4 !important;
+    border-color: #00bcd4 !important;
+}
+
+/* Đảm bảo ô vuông mặc định bị ẩn đi hoàn toàn */
+input#enable-beer-ice {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}

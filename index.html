@@ -990,7 +990,7 @@
 <div class="pos-line" style="background: #f0fbfc; padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #cceef0;">
         <div style="display: flex; align-items: center; gap: 10px;">
             <label class="beer-switch" style="position: relative; display: inline-block; width: 40px; height: 20px;">
-                <input type="checkbox" id="enable-beer-ice" onchange="toggleBeerIceFeature(this.checked)" style="opacity: 0; width: 0; height: 0;">
+                <input type="checkbox" id="enable-beer-ice">
                 <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px;"></span>
             </label>
             <span style="font-size: 13px; font-weight: bold; color: #00838f;">Tính tiền bia lạnh</span>
@@ -1270,7 +1270,7 @@
                 </div>
 
                 <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Giá bán</label>
-                <input type="text" id="sub-unit-price" oninput="formatCurrency(this)" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; outline: none; text-align: right;">
+                <input type="text" id="sub-unit-price" placeholder="Giá bán quy đổi" oninput="formatCurrency(this)">
 
                 <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; margin-bottom: 20px;">
                     <input type="checkbox" id="sub-unit-sell" checked> Bán trực tiếp
@@ -1393,6 +1393,44 @@
         <div style="display: flex; gap: 10px;">
             <button id="btn-prompt-cancel" style="flex: 1; padding: 10px; border: 1px solid #ddd; background: #f9f9f9; border-radius: 8px; cursor: pointer;">Hủy</button>
             <button id="btn-prompt-ok" style="flex: 1; padding: 10px; border: none; background: var(--kv-pink); color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">Xác nhận</button>
+        </div>
+    </div>
+</div>
+<div id="product-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="product-modal-title">Thông tin hàng hóa</h2>
+            <span class="close" onclick="closeModal('product-modal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Tên hàng hóa</label>
+                <input type="text" id="edit-product-name" placeholder="Nhập tên hàng">
+            </div>
+            <div class="form-row" style="display: flex; gap: 10px;">
+                <div class="form-group" style="flex: 1;">
+                    <label>Giá bán</label>
+                    <input type="number" id="edit-product-price" value="0">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label>Giá vốn</label>
+                    <input type="number" id="edit-product-cost" value="0">
+                </div>
+            </div>
+            <div class="form-row" style="display: flex; gap: 10px; margin-top: 10px;">
+                <div class="form-group" style="flex: 1;">
+                    <label>Tồn kho</label>
+                    <input type="number" id="edit-product-stock" value="0">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label>Nhóm hàng</label>
+                    <select id="edit-product-group"></select>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="text-align: right; margin-top: 20px;">
+            <button class="btn-secondary" onclick="closeModal('product-modal')">Bỏ qua</button>
+            <button class="btn-primary" onclick="saveProduct()">Lưu dữ liệu</button>
         </div>
     </div>
 </div>
