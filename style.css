@@ -93,7 +93,18 @@ button, input, select, textarea { outline: none; font-family: inherit; }
 /* Bảng Dữ Liệu */
 .kv-table-wrapper { flex: 1; overflow: auto; }
 .kv-table { width: 100%; border-collapse: collapse; }
-.kv-table th { background: #f8f9fa; padding: 12px 15px; text-align: left; font-size: 13px; color: #555; font-weight: 600; position: sticky; top: 0; box-shadow: 0 1px 0 #eee; }
+.kv-table th { 
+    background: #f8f9fa; 
+    padding: 12px 15px; 
+    text-align: left; 
+    font-size: 13px; 
+    color: #555; 
+    font-weight: 600; 
+    position: sticky; 
+    top: 0; 
+    box-shadow: 0 1px 0 #eee; 
+    z-index: 10; /* ĐÂY LÀ DÒNG CHỐNG TRÔI Ô NHẬP LIỆU */
+}
 .kv-table td { padding: 15px; font-size: 13px; border-bottom: 1px dashed #eee; color: #333; }
 
 /* Khối hiển thị dữ liệu trống */

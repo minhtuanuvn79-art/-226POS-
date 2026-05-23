@@ -1416,23 +1416,16 @@ window.savePriceBook = function() {
 
 window.currentPricePage = 1;
 
-/**
- * Hàm vẽ bảng Thiết lập giá đa cột
- * Hỗ trợ lọc theo từ khóa, nhóm hàng, tồn kho và phân trang
- */
 window.renderPriceSetupTable = function() {
     const thead = document.querySelector('#price-setup-table thead');
     const tbody = document.querySelector('#price-setup-table tbody');
     if (!thead || !tbody) return;
 
-    // 1. Cập nhật dữ liệu mới nhất từ bộ nhớ máy
     window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
     window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
-    
-    // Xác định chi nhánh hiện tại đang đăng nhập[cite: 11]
     const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
 
-    // 2. Tạo Header động (Các cột bảng giá sẽ thay đổi theo cài đặt)[cite: 2, 3]
+    // 1. Tạo Header động
     let thHtml = `
         <tr>
             <th style="text-align: center; width: 60px;">STT</th>
@@ -1440,38 +1433,32 @@ window.renderPriceSetupTable = function() {
             <th style="text-align: left; min-width: 130px;">Mã vạch</th>
             <th style="text-align: left; min-width: 250px;">Tên hàng</th>
             <th style="text-align: right;">Giá vốn</th>
-            <th style="text-align: right;">Giá nhập cuối</th>
-    `;
-    
+        `;
     activePriceBookIds.forEach(id => {
         if (id === 'default') {
             thHtml += `<th style="text-align: right; color: var(--kv-pink);">Giá chung</th>`;
         } else {
             const pb = window.priceBooks.find(x => x && x.id === id);
-            if (pb && pb.name) {
-                thHtml += `<th style="text-align: right; color: var(--kv-pink);">${pb.name}</th>`;
+            if (pb) {
+                const pbName = (pb.name && pb.name.trim() !== '') ? pb.name : 'Bảng giá';
+                thHtml += `<th style="text-align: right; color: var(--kv-pink);">${pbName}</th>`;
             }
         }
     });
     thHtml += `</tr>`;
     thead.innerHTML = thHtml;
 
-    // 3. Lọc và Tìm kiếm dữ liệu thông minh
+    // 2. Lọc và Tìm kiếm
     const searchInput = document.getElementById('search-price-setup');
     const keyword = searchInput ? searchInput.value.toLowerCase().trim() : '';
     const searchTerms = keyword ? keyword.split(/\s+/) : [];
-
-    // Lấy thông số lọc nhóm và tồn kho[cite: 2]
     const checkedGroupCbs = document.querySelectorAll('.price-group-filter-cb:checked');
     const selectedGroupIds = Array.from(checkedGroupCbs).map(cb => cb.value);
     const stockFilter = document.getElementById('price-stock-filter');
     const stockVal = stockFilter ? stockFilter.value : 'all';
 
     let filtered = window.products.filter(p => {
-        // === BƯỚC QUAN TRỌNG: CHỈ HIỆN HÀNG THUỘC CHI NHÁNH ĐANG ĐĂNG NHẬP ===[cite: 8, 11]
         if (p.branchId !== currentBranch) return false;
-
-        // Khớp từ khóa tìm kiếm[cite: 2]
         let matchKw = true;
         if (searchTerms.length > 0) {
             let fullSearchStr = (p.name || '') + ' ' + (p.code || '') + ' ' + (p.barcode || '');
@@ -1480,82 +1467,110 @@ window.renderPriceSetupTable = function() {
             }
             matchKw = searchTerms.every(term => fullSearchStr.toLowerCase().includes(term));
         }
-        
-        // Khớp nhóm hàng[cite: 2]
         let matchGroup = true;
         if (selectedGroupIds.length > 0) matchGroup = selectedGroupIds.includes(p.group);
-
-        // Khớp tồn kho[cite: 2]
         let matchStock = true;
         const stockLevel = parseFloat(p.stock) || 0;
         if (stockVal === 'below_min') matchStock = (stockLevel <= 5); 
         else if (stockVal === 'out_of_stock') matchStock = (stockLevel <= 0);
-        else if (stockVal === 'custom') {
-            const minInput = document.getElementById('price-stock-min');
-            const maxInput = document.getElementById('price-stock-max');
-            const minCondition = (minInput && minInput.value.trim() !== '') ? (stockLevel >= parseFloat(minInput.value)) : true;
-            const maxCondition = (maxInput && maxInput.value.trim() !== '') ? (stockLevel <= parseFloat(maxInput.value)) : true;
-            matchStock = minCondition && maxCondition;
-        }
-
         return matchKw && matchGroup && matchStock;
     });
 
-    // 4. Logic Phân trang[cite: 2]
+    // 3. Bung các đơn vị tính
+    let flatProducts = [];
+    filtered.forEach(p => {
+        const units = p.units || [{ name: 'Cái', rate: 1, price: p.price }];
+        units.forEach((unit, uIdx) => {
+            flatProducts.push({
+                ...p, displayUnit: unit, uIdx: uIdx, 
+                displayCode: unit.code || p.code, displayBarcode: unit.barcode || p.barcode
+            });
+        });
+    });
+
+    // 4. Phân trang
     const itemsPerPage = 100;
-    const totalPages = Math.ceil(filtered.length / itemsPerPage);
+    const totalPages = Math.ceil(flatProducts.length / itemsPerPage);
     if (window.currentPricePage > totalPages) window.currentPricePage = totalPages || 1;
     const startIndex = (window.currentPricePage - 1) * itemsPerPage;
-    const paginatedProducts = filtered.slice(startIndex, startIndex + itemsPerPage);
+    const paginatedProducts = flatProducts.slice(startIndex, startIndex + itemsPerPage);
 
-    // 5. Vẽ dữ liệu ra bảng[cite: 2, 3]
+    // 5. Vẽ dữ liệu
     let tbHtml = '';
     if (paginatedProducts.length === 0) {
-        tbHtml = `<tr><td colspan="10" style="text-align:center; padding: 50px; color: #aaa;">Không tìm thấy hàng hóa thuộc chi nhánh này</td></tr>`;
+        tbHtml = `<tr><td colspan="10" style="text-align:center; padding: 50px; color: #aaa;">Không tìm thấy hàng hóa</td></tr>`;
     } else {
-        paginatedProducts.forEach((p, index) => {
+        paginatedProducts.forEach((item, index) => {
             const stt = startIndex + index + 1;
+            const baseCost = item.cost || 0;
+            const unitCost = baseCost * (item.displayUnit.rate || 1); 
+            const baseRefPrice = item.displayUnit.price || (item.price * (item.displayUnit.rate || 1));
+
+            // THÊM: transition cho đổi màu mượt hơn
             tbHtml += `
-                <tr style="border-bottom: 1px dashed #eee;">
+                <tr style="border-bottom: 1px dashed #eee; transition: background-color 0.2s ease;">
                     <td style="text-align: center; color: #888; font-size: 12px;">${stt}</td>
-                    <td style="text-align: left;">${p.code || ''}</td>
-                    <td style="text-align: left; color:#555;">${p.barcode || '---'}</td>
-                    <td style="text-align: left; font-weight: bold; color: var(--kv-blue);">${p.name || ''}</td>
-                    <td style="text-align: right;">${(p.cost || 0).toLocaleString('vi-VN')}</td>
-                    <td style="text-align: right;">${(p.cost || 0).toLocaleString('vi-VN')}</td>
+                    <td style="text-align: left; color: var(--kv-blue); font-weight: 500;">${item.displayCode}</td>
+                    <td style="text-align: left; color:#555;">${item.displayBarcode || '---'}</td>
+                    <td style="text-align: left; font-weight: bold;">${item.name} (${item.displayUnit.name})</td>
+                    <td style="text-align: right;">${unitCost.toLocaleString('vi-VN')}</td>
             `;
 
-            // Vẽ các cột giá tương ứng với bảng giá đang kích hoạt[cite: 2, 3]
             activePriceBookIds.forEach(id => {
                 if (id === 'default') {
+                    const inputId = `input-default-${item.id}-${item.uIdx}`;
                     tbHtml += `
                         <td style="text-align: right;">
-                            <input type="text" value="${(p.price || 0).toLocaleString('vi-VN')}" 
+                            <input type="text" id="${inputId}" value="${(item.displayUnit.price || 0).toLocaleString('vi-VN')}" 
                                 oninput="formatCurrency(this)"
-                                onchange="updateMainProductPrice('${p.id}', window.parseCurrency(this.value))"
-                                onkeydown="moveNextOnEnter(event, this, 'price-col-default')"
+                                onchange="updateMainProductPrice('${item.id}', ${item.uIdx}, window.parseCurrency(this.value))"
+                                onfocus="window.highlightRow(this, true)"
+                                onblur="window.highlightRow(this, false)"
                                 class="price-col-default"
-                                style="width: 100px; text-align: right; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none;">
+                                style="width: 100px; text-align: right; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; color: var(--kv-blue); font-weight: 500;">
                         </td>`;
                 } else {
                     const pb = window.priceBooks.find(x => x && x.id === id);
                     if (!pb) return;
 
-                    const pbPrice = pb.prices && pb.prices[p.id] !== undefined ? pb.prices[p.id] : '';
-                    const displayPbPrice = pbPrice !== '' ? pbPrice.toLocaleString('vi-VN') : '';
-                    const basePrice = p.price || 0;
-                    const inputId = `input-${id}-${p.id}`;
+                    const exactKey = `${item.id}_${item.uIdx}`;
+                    let pbPrice = pb.prices && pb.prices[exactKey] !== undefined ? pb.prices[exactKey] : '';
+                    
+                    let placeholderPrice = '';
+                    if (pbPrice === '') {
+                        let basePbPrice = pb.prices && (pb.prices[`${item.id}_0`] !== undefined ? pb.prices[`${item.id}_0`] : pb.prices[item.id]);
+                        if (basePbPrice !== undefined) {
+                            placeholderPrice = (basePbPrice * (item.displayUnit.rate || 1)).toLocaleString('vi-VN');
+                        } else {
+                            placeholderPrice = (item.displayUnit.price || 0).toLocaleString('vi-VN');
+                        }
+                    }
 
+                    const displayPbPrice = pbPrice !== '' ? pbPrice.toLocaleString('vi-VN') : '';
+                    const inputId = `input-${id}-${item.id}-${item.uIdx}`;
+                    
+                    const colorStyle = pbPrice !== '' ? 'color: var(--kv-pink); font-weight: bold;' : 'color: #333; font-weight: normal;';
+
+                    // GỌI HÀM HIGHLIGHT KHI FOCUS VÀ BLUR
                     tbHtml += `
                         <td style="text-align: right; position: relative;">
-                            <input type="text" id="${inputId}" value="${displayPbPrice}" placeholder="${basePrice.toLocaleString('vi-VN')}"
-                                oninput="formatCurrency(this)"
-                                onchange="updatePriceBookValue('${id}', '${p.id}', this.value === '' ? '' : window.parseCurrency(this.value))"
+                            <input type="text" id="${inputId}" value="${displayPbPrice}" placeholder="${placeholderPrice}"
+                                oninput="formatCurrency(this); this.style.color = this.value ? 'var(--kv-pink)' : '#333'; this.style.fontWeight = this.value ? 'bold' : 'normal';"
+                                onchange="updatePriceBookValue('${id}', '${item.id}', ${item.uIdx}, this.value === '' ? '' : window.parseCurrency(this.value))"
                                 onkeydown="moveNextOnEnter(event, this, 'price-col-${id}')"
-                                onfocus="showQuickPriceMenu(this)"
-                                onblur="hideQuickPriceMenu(this)"
+                                onfocus="showQuickPriceMenu(this); window.highlightRow(this, true);"
+                                onblur="hideQuickPriceMenu(this); window.highlightRow(this, false);"
                                 class="price-col-${id}"
-                                style="width: 100px; text-align: right; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; color: var(--kv-pink); font-weight: bold;">
+                                style="width: 100px; text-align: right; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; transition: 0.2s; ${colorStyle}">
+                            
+                            <div class="quick-price-dropdown" style="display: none; position: absolute; right: 10px; top: 100%; background: white; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); z-index: 100; width: 120px; flex-direction: column; overflow: hidden;">
+                                <div onmousedown="applyQuickAdd(${baseRefPrice}, 0, '${id}', '${item.id}', ${item.uIdx}, '${inputId}')" style="padding: 8px; cursor: pointer; text-align: center; border-bottom: 1px solid #eee; font-size: 13px; color: var(--kv-pink); font-weight: bold; background: #fff;" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">+ 0k (Bằng giá)</div>
+                                <div onmousedown="applyQuickAdd(${baseRefPrice}, 1, '${id}', '${item.id}', ${item.uIdx}, '${inputId}')" style="padding: 8px; cursor: pointer; text-align: center; border-bottom: 1px solid #eee; font-size: 13px; color: #007bff; font-weight: 500; background: #fff;" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">+ 1.000</div>
+                                <div onmousedown="applyQuickAdd(${baseRefPrice}, 2, '${id}', '${item.id}', ${item.uIdx}, '${inputId}')" style="padding: 8px; cursor: pointer; text-align: center; border-bottom: 1px solid #eee; font-size: 13px; color: #007bff; font-weight: 500; background: #fff;" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">+ 2.000</div>
+                                <div onmousedown="applyQuickAdd(${baseRefPrice}, 3, '${id}', '${item.id}', ${item.uIdx}, '${inputId}')" style="padding: 8px; cursor: pointer; text-align: center; border-bottom: 1px solid #eee; font-size: 13px; color: #007bff; font-weight: 500; background: #fff;" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">+ 3.000</div>
+                                <div onmousedown="applyQuickAdd(${baseRefPrice}, 4, '${id}', '${item.id}', ${item.uIdx}, '${inputId}')" style="padding: 8px; cursor: pointer; text-align: center; border-bottom: 1px solid #eee; font-size: 13px; color: #007bff; font-weight: 500; background: #fff;" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">+ 4.000</div>
+                                <div onmousedown="applyQuickAdd(${baseRefPrice}, 5, '${id}', '${item.id}', ${item.uIdx}, '${inputId}')" style="padding: 8px; cursor: pointer; text-align: center; font-size: 13px; color: #007bff; font-weight: 500; background: #fff;" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">+ 5.000</div>
+                            </div>
                         </td>`;
                 }
             });
@@ -1563,8 +1578,6 @@ window.renderPriceSetupTable = function() {
         });
     }
     tbody.innerHTML = tbHtml;
-
-    // 6. Cập nhật thanh phân trang dùng chung
     window.renderPaginationControls('price-pagination', window.currentPricePage, totalPages, 'changePricePage');
 };
 // Hàm vẽ các nút "Trang trước", "Trang sau" cho bảng giá
@@ -1590,46 +1603,49 @@ window.changePricePage = function(newPage) {
     renderPriceSetupTable();
 };
 
-window.updateMainProductPrice = function(productId, newPrice) {
-    const cleanPrice = typeof newPrice === 'string' ? 
-        parseFloat(newPrice.replace(/\./g, '').replace(/,/g, '')) : newPrice;
-
+window.updateMainProductPrice = function(productId, unitIdx, newPrice) {
+    const cleanPrice = typeof newPrice === 'string' ? parseFloat(newPrice.replace(/\./g, '').replace(/,/g, '')) : newPrice;
     const pIndex = window.products.findIndex(x => x.id === productId);
+    
     if(pIndex !== -1) {
-        window.isSyncLocked = true; // Khóa đồng bộ tạm thời
-        window.products[pIndex].price = cleanPrice || 0;
+        window.isSyncLocked = true; 
+        
+        // Cập nhật giá vào đúng vị trí của đơn vị tính
+        if (window.products[pIndex].units && window.products[pIndex].units[unitIdx]) {
+            window.products[pIndex].units[unitIdx].price = cleanPrice || 0;
+        }
+        
+        // Nếu đang sửa đơn vị cơ bản (unitIdx = 0), đồng bộ ra giá lớp ngoài
+        if (unitIdx === 0) {
+            window.products[pIndex].price = cleanPrice || 0;
+        }
         
         localStorage.setItem('kv_products', JSON.stringify(window.products));
-        if (typeof window.uploadToCloud === 'function') {
-            window.uploadToCloud('products', window.products);
-        }
+        if (typeof window.uploadToCloud === 'function') window.uploadToCloud('products', window.products);
         
         if (typeof renderProductList === 'function') renderProductList();
         setTimeout(() => { window.isSyncLocked = false; }, 3000);
     }
 };
 
-function updatePriceBookValue(pbId, productId, newPrice) {
-    // 1. Tìm bảng giá trong biến toàn cục
-    const pb = priceBooks.find(x => x.id === pbId);
+window.updatePriceBookValue = function(pbId, productId, unitIdx, newPrice) {
+    const pb = window.priceBooks.find(x => x.id === pbId);
     if (pb) {
-        if (!pb.prices) pb.prices = {}; // Đảm bảo object prices tồn tại
+        if (!pb.prices) pb.prices = {}; 
+        
+        // Lưu chìa khóa dưới dạng "SP01_1" (ID sản phẩm + Vị trí đơn vị tính)
+        const exactKey = `${productId}_${unitIdx}`;
         
         if (newPrice === '' || newPrice === null) {
-            delete pb.prices[productId]; 
+            delete pb.prices[exactKey]; 
         } else {
-            pb.prices[productId] = parseFloat(newPrice);
+            pb.prices[exactKey] = parseFloat(newPrice);
         }
         
-        // 2. Lưu vào bộ nhớ máy
-        localStorage.setItem('kv_pricebooks', JSON.stringify(priceBooks));
-        
-        // 3. Đẩy lên Cloud ngay lập tức
-        if (typeof window.uploadToCloud === 'function') {
-            window.uploadToCloud('pricebooks', priceBooks);
-        }
+        localStorage.setItem('kv_pricebooks', JSON.stringify(window.priceBooks));
+        if (typeof window.uploadToCloud === 'function') window.uploadToCloud('pricebooks', window.priceBooks);
     }
-}
+};
 
 // ==========================================
 // 9. HÀM KHỞI CHẠY HỆ THỐNG KHI LOAD TRANG (CHỐNG F5)
@@ -3037,7 +3053,37 @@ function initPOSData() {
         window.clearPOS();
     }
 }
+// Hàm cốt lõi: Tính toán và lấy giá chính xác của đơn vị tính trong Bảng giá
+window.getProductPrice = function(productObj, priceBookId, unitIdx = 0) {
+    // 1. Nếu là bảng giá chung (default)
+    if (!priceBookId || String(priceBookId) === 'default') {
+        if (productObj.units && productObj.units[unitIdx]) return productObj.units[unitIdx].price;
+        return productObj.price || 0;
+    }
 
+    // 2. Nếu là Bảng giá tùy chỉnh (Giá đêm, giá VIP...)
+    const latestPBs = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    const pb = latestPBs.find(x => String(x.id) === String(priceBookId));
+
+    if (pb && pb.prices) {
+        // Ưu tiên 1: Tìm giá được thiết lập RIÊNG cho đơn vị tính này (VD: SP01_1)
+        const exactKey = `${productObj.id}_${unitIdx}`;
+        if (pb.prices[exactKey] !== undefined) return pb.prices[exactKey];
+
+        // Ưu tiên 2: Không có giá riêng thì tìm giá cơ bản (SP01_0) rồi nhân tỷ lệ quy đổi
+        let basePrice = pb.prices[`${productObj.id}_0`];
+        if (basePrice === undefined) basePrice = pb.prices[productObj.id]; // Hỗ trợ dữ liệu cũ
+
+        if (basePrice !== undefined) {
+            const rate = (productObj.units && productObj.units[unitIdx]) ? (productObj.units[unitIdx].rate || 1) : 1;
+            return basePrice * rate;
+        }
+    }
+
+    // 3. Fallback: Nếu bảng giá không có thiết lập cho món này, lấy giá gốc
+    if (productObj.units && productObj.units[unitIdx]) return productObj.units[unitIdx].price;
+    return productObj.price || 0;
+};
 let currentFocus = -1; // Biến theo dõi vị trí đang chọn trong dropdown
 
 window.searchPOSProduct = function(keyword) {
@@ -3443,25 +3489,22 @@ window.updatePOSQty = function(index, val, isRealTime = false) {
         renderPOSCart();
     }
 };
-function updatePOSUnit(index, unitIdx) {
-    const item = posTabs[activeTabIndex].items[index];
-    item.selectedUnitIdx = parseInt(unitIdx);
-    
+window.updatePOSUnit = function(index, unitIdx) {
     const tab = posTabs[activeTabIndex];
-    const selectedUnit = item.units[item.selectedUnitIdx];
+    const item = tab.items[index];
+    item.selectedUnitIdx = parseInt(unitIdx);
 
-    // FIX LỖI: Ưu tiên lấy giá bán đã thiết lập riêng cho đơn vị quy đổi
-    if (tab.priceBook === 'default') {
-        // Nếu có giá riêng (selectedUnit.price) thì lấy, không có mới nhân theo tỷ lệ
-        item.price = selectedUnit.price || (item.basePrice * selectedUnit.rate);
-    } else {
-        // Nếu đang áp dụng Bảng Giá (giá sỉ, VIP...), thì nhân tỷ lệ từ giá của Bảng Giá
-        item.price = item.basePrice * selectedUnit.rate;
+    // Lấy lại sản phẩm gốc từ database để gọi hàm lấy giá
+    const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
+    const prod = allProds.find(p => p.id === item.productId);
+
+    if (prod) {
+        item.price = window.getProductPrice(prod, tab.priceBook, item.selectedUnitIdx);
     }
 
     renderPOSCart();
     savePOSState();
-}
+};
 function calcPOSTotals() {
     const tab = posTabs[activeTabIndex];
     if(!tab) return;
@@ -3487,27 +3530,20 @@ function calcPOSTotals() {
     document.getElementById('pos-must-pay').innerText = mustPay.toLocaleString('vi-VN');
 }
 
-function changePOSPriceBook(pbId) {
+window.changePOSPriceBook = function(pbId) {
     const tab = posTabs[activeTabIndex];
     tab.priceBook = pbId;
     tab.items.forEach(item => {
         const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
         const prod = allProds.find(p => p.id === item.productId);
         if (prod) {
-            item.basePrice = getProductPrice(prod, pbId);
-            const selectedUnit = item.units[item.selectedUnitIdx];
-            
-            // FIX LỖI TƯƠNG TỰ: Khi đổi lại bảng giá mặc định, phải trả lại giá gốc của đơn vị đó
-            if (pbId === 'default') {
-                item.price = selectedUnit.price || (item.basePrice * selectedUnit.rate);
-            } else {
-                item.price = item.basePrice * selectedUnit.rate;
-            }
+            item.basePrice = window.getProductPrice(prod, pbId, 0);
+            item.price = window.getProductPrice(prod, pbId, item.selectedUnitIdx);
         }
     });
     renderPOSCart();
     savePOSState();
-}
+};
 
 window.processCheckout = function() {
     const tab = posTabs[activeTabIndex];
@@ -5528,18 +5564,20 @@ window.hideQuickPriceMenu = function(inputEl) {
     }, 200);
 };
 
-window.applyQuickAdd = function(basePrice, addAmount, pbId, productId, inputId) {
+window.applyQuickAdd = function(basePrice, addAmount, pbId, productId, unitIdx, inputId) {
     const inputEl = document.getElementById(inputId);
     if (!inputEl) return;
 
-    // Tính giá mới = Giá gốc + Số tiền (k) * 1000
+    // Tính giá mới
     const newPrice = basePrice + (addAmount * 1000);
     
-    // Đẩy số vào ô input và format lại
+    // Đẩy số vào ô input, format lại và BẬT MÀU HỒNG NGAY LẬP TỨC
     inputEl.value = newPrice.toLocaleString('vi-VN');
+    inputEl.style.color = 'var(--kv-pink)';
+    inputEl.style.fontWeight = 'bold';
 
-    // Lưu thẳng vào cơ sở dữ liệu
-    updatePriceBookValue(pbId, productId, newPrice);
+    // Lưu vào database
+    updatePriceBookValue(pbId, productId, unitIdx, newPrice);
 
     // Ẩn menu đi
     const dropdown = inputEl.nextElementSibling;
@@ -6010,3 +6048,17 @@ setTimeout(() => {
         items[currentFocusManage].scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
 }, 1000);
+// HÀM TÔ MÀU NỀN CHO DÒNG ĐANG THIẾT LẬP GIÁ
+window.highlightRow = function(element, isFocused) {
+    const tr = element.closest('tr');
+    if (tr) {
+        if (isFocused) {
+            // Lưu lại màu cũ (nếu có) và đổi sang màu xanh dương nhạt cho dịu mắt
+            if (!tr.dataset.oldBg) tr.dataset.oldBg = tr.style.backgroundColor || '';
+            tr.style.backgroundColor = '#e3f2fd'; // Màu xanh nhạt (giúp nổi bật nhưng không chói)
+        } else {
+            // Trả lại màu bình thường khi click ra chỗ khác
+            tr.style.backgroundColor = tr.dataset.oldBg || '';
+        }
+    }
+};
