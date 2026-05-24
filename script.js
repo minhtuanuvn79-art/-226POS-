@@ -4297,7 +4297,7 @@ window.printReceipt = function(invoice) {
         document.body.appendChild(printSection);
     }
 
-    // 1. Tạo danh sách hàng hóa trong hóa đơn[cite: 3]
+    // 1. Tạo danh sách hàng hóa trong hóa đơn
     let itemsHtml = '';
     invoice.items.forEach(item => {
         // Thêm biểu tượng bông tuyết nếu món hàng đó có tính tiền lạnh
@@ -4322,12 +4322,11 @@ window.printReceipt = function(invoice) {
         `;
     }
 
-    // 3. Xây dựng mẫu hóa đơn in[cite: 3]
+    // 3. Xây dựng mẫu hóa đơn in
     printSection.innerHTML = `
         <div style="width: 100%; font-family: 'Segoe UI', Arial, sans-serif; color: #000; padding: 10px;">
             <div style="text-align: center; margin-bottom: 20px;">
                 <h2 style="margin: 0; font-size: 24px; font-weight: bold; text-transform: uppercase;">Hóa Đơn Bán Hàng</h2>
-                <p style="margin: 5px 0; font-size: 14px;">Địa chỉ: 648 Quốc lộ 20, Xã Đức Trọng, Tỉnh Lâm Đồng</p>
                 <div style="border-top: 2px dashed #000; margin: 15px 0;"></div>
             </div>
 
@@ -4336,7 +4335,6 @@ window.printReceipt = function(invoice) {
                     <span>Mã HĐ: <strong>${invoice.id}</strong></span>
                 </div>
                 <div>Thời gian: ${invoice.createdAt}</div>
-                <div>Thu ngân: ${invoice.creator}</div>
             </div>
 
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
@@ -4360,7 +4358,6 @@ window.printReceipt = function(invoice) {
                     <span>${invoice.totalAmount.toLocaleString('vi-VN')}</span>
                 </div>
                 
-                <!-- Khu vực hiển thị Tiền bia lạnh -->
                 ${beerIceHtml}
 
                 <div style="display: flex; justify-content: space-between;">
@@ -4380,7 +4377,7 @@ window.printReceipt = function(invoice) {
         </div>
     `;
 
-    // 4. Lệnh in[cite: 3]
+    // 4. Lệnh in
     window.print();
 };
 // ==========================================
