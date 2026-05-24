@@ -2,7 +2,7 @@
 // 1. KHỞI TẠO DỮ LIỆU TỪ LOCALSTORAGE
 // ==========================================
 
-let accounts = JSON.parse(localStorage.getItem('kv_accounts')) || [];
+let accounts = (JSON.parse(localStorage.getItem('kv_accounts')) || []).filter(Boolean);
 if (accounts.length === 0) {
     accounts.push({ fullname: "Quản trị viên", username: "admin", password: "1", role: "manager" });
     localStorage.setItem('kv_accounts', JSON.stringify(accounts));
@@ -136,7 +136,7 @@ function handleLogin(type) {
 
     // Đọc danh sách tài khoản mới nhất từ máy (đã bao gồm thông tin branchId)
     const latestAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || accounts;
-    const user = latestAccounts.find(x => x.username === u && x.password === p);
+    const user = latestAccounts.find(x => x && x.username === u && x.password === p);
 
     if (user) {
         err.style.display = 'none';
@@ -257,7 +257,8 @@ function renderAccountList() {
     if(!tbody) return;
     tbody.innerHTML = '';
     accounts.forEach(acc => {
-        const roleText = acc.role === 'manager' ? '<span style="color:var(--kv-blue); font-weight:bold;">Quản lý</span>' : 'Thu ngân';
+    if (!acc) return; // Bổ sung cờ bảo vệ: Bỏ qua ngay nếu acc bị null
+    const roleText = acc.role === 'manager' ? '<span style="color:var(--kv-blue); font-weight:bold;">Quản lý</span>' : 'Thu ngân';
         const disableDelete = acc.username === 'admin' ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : '';
         tbody.innerHTML += `
             <tr>
@@ -383,37 +384,53 @@ window.openAccountModalWithBranch = function() {
         branchSelect.disabled = true; // Khóa lại để không chọn nhầm sang chi nhánh khác
     }
 };
-function openBranchModal(id = null) {
+window.openBranchModal = function(id = null) {
+    // Đọc dữ liệu mới nhất từ bộ nhớ máy
+    branches = JSON.parse(localStorage.getItem('kv_branches')) || branches;
+    
     if (id) {
         const br = branches.find(x => x.id === id);
+        if (!br) return alert("Không tìm thấy chi nhánh!");
         const newName = prompt("Nhập tên chi nhánh mới:", br.name);
         if (newName) {
-            br.name = newName;
-            saveAndSyncBranches();
+            br.name = newName.trim();
+            window.saveAndSyncBranches();
         }
     } else {
         const brName = prompt("Nhập tên chi nhánh mới:");
         const brId = prompt("Nhập mã chi nhánh (VD: CN002):");
         if (brName && brId) {
             if (branches.find(x => x.id === brId)) return alert("Mã chi nhánh đã tồn tại!");
-            branches.push({ id: brId, name: brName });
-            saveAndSyncBranches();
+            branches.push({ id: brId.trim(), name: brName.trim() });
+            window.saveAndSyncBranches();
         }
     }
-}
-function saveAndSyncBranches() {
+};
+
+window.saveAndSyncBranches = function() {
     localStorage.setItem('kv_branches', JSON.stringify(branches));
     if (window.uploadToCloud) window.uploadToCloud('branches', branches);
-    renderBranchList();
-    window.renderBranchSelectInAdmin(); // Cập nhật các ô chọn chi nhánh ở tab tạo/sửa nhân viên
-}
-function deleteBranch(id) {
+    
+    // Cập nhật lại giao diện ngay lập tức
+    if (typeof window.renderBranchList === 'function') window.renderBranchList();
+    if (typeof window.renderBranchSelectInAdmin === 'function') window.renderBranchSelectInAdmin();
+};
+
+window.deleteBranch = function(id) {
+    branches = JSON.parse(localStorage.getItem('kv_branches')) || branches;
     if (branches.length <= 1) return alert("Phải có ít nhất 1 chi nhánh!");
-    if (confirm("Xóa chi nhánh này?")) {
+    
+    // SỬ DỤNG showConfirm THAY VÌ if (confirm(...))
+    showConfirm("Bạn có chắc chắn muốn xóa chi nhánh này?", function() {
         branches = branches.filter(x => x.id !== id);
-        saveAndSyncBranches();
-    }
-}
+        window.saveAndSyncBranches();
+        
+        if (typeof selectedBranchId !== 'undefined' && selectedBranchId === id) {
+            window.backToBranchGrid();
+        }
+        showToast("Đã xóa chi nhánh thành công!", "success");
+    });
+};
 function createAccount() {
     // 1. Lấy dữ liệu từ các ô nhập liệu
     const fn = document.getElementById('new-fullname').value.trim();
@@ -505,7 +522,7 @@ window.deleteAccount = function(username) {
     showConfirm(`Bạn có chắc chắn muốn xóa nhân viên <b>${username}</b>? <br> Hành động này không thể hoàn tác.`, function() {
         
         // 3. Lọc bỏ tài khoản khỏi mảng
-        accounts = accounts.filter(acc => acc.username !== username);
+        accounts = accounts.filter(acc => acc && acc.username !== username);
 
         // 4. Lưu lại vào LocalStorage
         localStorage.setItem('kv_accounts', JSON.stringify(accounts));
@@ -532,7 +549,7 @@ window.deleteAccount = function(username) {
 
 let userEditing = null;
 function openEditModal(username) {
-    userEditing = accounts.find(acc => acc.username === username);
+    userEditing = accounts.find(acc => acc && acc.username === username);
     if(!userEditing) return;
 
     // Nạp danh sách chi nhánh vào ô chọn trong modal sửa
@@ -568,7 +585,7 @@ window.saveEditAccount = function() {
     }
 
     // 2. Tìm và cập nhật thông tin trong mảng accounts toàn cục
-    const index = accounts.findIndex(acc => acc.username === userEditing.username);
+    const index = accounts.findIndex(acc => acc && acc.username === userEditing.username);
     if (index !== -1) {
         accounts[index].fullname = fn;
         accounts[index].password = pw;
@@ -1661,144 +1678,6 @@ let editingICId = null;  // ID phiếu đang sửa
 
 window.currentICPage = 1;
 
-window.renderInventoryChecks = function() {
-    const tbody = document.querySelector('#ic-list-table tbody');
-    if (!tbody) return;
-
-    // 1. Lấy thông số lọc từ giao diện
-    const showTemp = document.getElementById('filter-ic-temp')?.checked;
-    const showDone = document.getElementById('filter-ic-done')?.checked;
-    const showCancel = document.getElementById('filter-ic-cancel')?.checked;
-    const searchKw = (document.getElementById('search-ic')?.value || '').toLowerCase().trim();
-    const creatorVal = (document.getElementById('filter-ic-creator')?.value || '');
-
-    // 2. Tính toán thời gian lọc
-    const dateType = document.querySelector('input[name="ic-date-type"]:checked')?.value || 'predefined';
-    const predefinedVal = document.getElementById('ic-date-predefined')?.value || 'this_month';
-    const fromDateVal = document.getElementById('ic-date-from')?.value;
-    const toDateVal = document.getElementById('ic-date-to')?.value;
-
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-
-    let fromTime = 0, toTime = Infinity;
-    if (dateType === 'predefined') {
-        if (predefinedVal === 'today') { fromTime = todayStart; toTime = todayStart + 86400000 - 1; }
-        else if (predefinedVal === 'yesterday') { fromTime = todayStart - 86400000; toTime = todayStart - 1; }
-        else if (predefinedVal === 'this_month') { fromTime = startMonth; toTime = now.getTime(); }
-    } else {
-        if (fromDateVal) fromTime = new Date(fromDateVal).getTime();
-        if (toDateVal) toTime = new Date(toDateVal).getTime() + 86400000 - 1; 
-    }
-
-    // 3. Lọc dữ liệu
-    let filtered = inventoryChecks.filter(ic => {
-        if (ic.status === 'temp' && !showTemp) return false;
-        if (ic.status === 'done' && !showDone) return false;
-        if (ic.status === 'cancel' && !showCancel) return false;
-        if (searchKw && !ic.code.toLowerCase().includes(searchKw)) return false;
-        if (creatorVal && ic.creator !== creatorVal) return false;
-        const icTime = parseInt(ic.id); 
-        return !(icTime < fromTime || icTime > toTime);
-    });
-
-    if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:40px; color:#aaa;">Không tìm thấy phiếu kiểm kho nào</td></tr>`;
-        return;
-    }
-
-    const itemsPerPage = 30;
-    const totalPages = Math.ceil(filtered.length / itemsPerPage);
-    const startIndex = (window.currentICPage - 1) * itemsPerPage;
-    const paginatedICs = filtered.sort((a, b) => b.id - a.id).slice(startIndex, startIndex + itemsPerPage);
-
-    tbody.innerHTML = paginatedICs.map(ic => {
-        const timeStr = new Date(ic.id).toLocaleString('vi-VN');
-        const isDone = ic.status === 'done';
-        const isCancel = ic.status === 'cancel';
-        const statusText = isDone ? 'Đã cân bằng kho' : (isCancel ? 'Đã hủy' : 'Phiếu tạm');
-        const badgeClass = isDone ? 'badge-done' : (isCancel ? 'badge-cancel' : 'badge-temp');
-        
-        let totalRealQty = ic.items.reduce((s, i) => s + (parseFloat(i.realQty) || 0), 0);
-        let totalSysStock = ic.items.reduce((a, b) => a + (parseFloat(b.sysStock) || 0), 0);
-        let totalValueDiff = ic.items.reduce((s, i) => s + ((parseFloat(i.realQty) || 0) - (parseFloat(i.sysStock) || 0)) * (parseFloat(i.cost) || 0), 0);
-
-        return `
-            <tr onclick="toggleICDetail(${ic.id})" style="cursor:pointer; border-bottom: 1px solid #eee;">
-                <td style="color:var(--kv-blue); font-weight:bold;">${ic.code}</td>
-                <td>${timeStr}</td>
-                <td>${isDone ? timeStr : '---'}</td>
-                <td style="text-align:center;">${ic.items.length}</td>
-                <td style="text-align:right;">${totalRealQty.toLocaleString()}</td>
-                <td style="text-align:right;">${(totalRealQty - totalSysStock).toLocaleString()}</td>
-                <td style="text-align:right; font-weight:bold; color: ${totalValueDiff < 0 ? 'red' : 'green'};">${totalValueDiff.toLocaleString()}</td>
-            </tr>
-            <tr id="ic-detail-${ic.id}" style="display:none;" class="io-detail-wrapper">
-                <td colspan="7" style="padding: 20px; background: #f4f6f9;">
-                    <div style="background: white; border-radius: 8px; border: 1px solid #ddd; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
-                        <div style="padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
-                            <h3 style="margin: 0; color: var(--kv-blue);">${ic.code} <span class="status-badge-new ${badgeClass}">${statusText}</span></h3>
-                            <span style="font-size: 13px; color: #888;">Chi nhánh trung tâm</span>
-                        </div>
-                        
-                        <div style="padding: 20px;">
-                            <div class="io-detail-info-grid">
-                                <div class="info-item"><span class="info-label">Người tạo:</span><span>${ic.creator}</span></div>
-                                <div class="info-item"><span class="info-label">Ngày tạo:</span><span>${timeStr}</span></div>
-                                <div class="info-item"><span class="info-label">Người cân bằng:</span><span>${isDone ? ic.creator : '---'}</span></div>
-                            </div>
-
-                            <table class="kv-table" style="width: 100%; margin-top: 15px; border: 1px solid #eee;">
-                                <thead>
-                                    <tr style="background: #f9f9f9;">
-                                        <th>Mã hàng</th><th>Tên hàng</th><th style="text-align:center;">Tồn kho</th><th style="text-align:center;">Thực tế</th><th style="text-align:center;">SL lệch</th><th style="text-align:right;">Giá trị lệch</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${ic.items.map(it => {
-                                        const diff = (parseFloat(it.realQty) || 0) - (parseFloat(it.sysStock) || 0);
-                                        return `
-                                        <tr>
-                                            <td style="color: var(--kv-blue);">${it.code}</td>
-                                            <td>${it.name}</td>
-                                            <td style="text-align:center;">${it.sysStock}</td>
-                                            <td style="text-align:center;">${it.realQty}</td>
-                                            <td style="text-align:center; color:${diff < 0 ? 'red' : (diff > 0 ? 'green' : '#333')}">${diff}</td>
-                                            <td style="text-align:right;">${(diff * (parseFloat(it.cost) || 0)).toLocaleString()}</td>
-                                        </tr>`;
-                                    }).join('')}
-                                </tbody>
-                            </table>
-
-                            <div style="display: flex; justify-content: space-between; margin-top: 20px;">
-                                <div style="width: 60%; background: #fdfdfd; padding: 15px; border: 1px solid #eee; border-radius: 4px; font-size: 13px;">
-                                    <strong>Ghi chú:</strong> ${ic.note || '---'}
-                                </div>
-                                <div class="io-detail-summary-box">
-                                    <div class="summary-row"><span class="lbl">Tổng thực tế:</span><span>${totalRealQty.toLocaleString()}</span></div>
-                                    <div class="summary-row"><span class="lbl">Tổng chênh lệch:</span><span style="font-weight:bold; color:${(totalRealQty - totalSysStock) < 0 ? 'red' : 'green'};">${(totalRealQty - totalSysStock).toLocaleString()}</span></div>
-                                    <div class="summary-row"><span class="lbl">Tổng giá trị lệch:</span><span style="font-weight:bold; color:${totalValueDiff < 0 ? 'red' : 'green'};">${totalValueDiff.toLocaleString()}</span></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style="padding: 15px 20px; background: #f9f9f9; border-top: 1px solid #eee; display: flex; justify-content: space-between;">
-                            <div class="actions-left">
-                                <button class="btn-action-outline text-danger" onclick="cancelIC(${ic.id})"><i class="fa-solid fa-trash"></i> Xóa/Hủy</button>
-                                <button class="btn-action-outline" onclick="copyIC(${ic.id})"><i class="fa-solid fa-copy"></i> Sao chép</button>
-                            </div>
-                            <div class="actions-right">
-                                ${!isDone && !isCancel ? `<button class="btn-action-primary" onclick="openCreateCheckView(${ic.id})"><i class="fa-solid fa-pen-to-square"></i> Sửa (Hoàn thiện)</button>` : ''}
-                                <button class="btn-action-outline" onclick="window.print()"><i class="fa-solid fa-print"></i> In phiếu</button>
-                            </div>
-                        </div>
-                    </div>
-                </td>
-            </tr>`;
-    }).join('');
-    window.renderPaginationControls('ic-pagination', window.currentICPage, totalPages, 'changeICPage');
-};
 
 window.changeICPage = function(newPage) {
     currentICPage = newPage;
@@ -2344,7 +2223,48 @@ window.saveUnitAttr = function() {
 // 12. QUẢN LÝ TAB HÓA ĐƠN
 // ==========================================
 let invoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
+// ==========================================
+// HÀM HỖ TRỢ BỘ LỌC THỜI GIAN CHO TRANG QUẢN LÝ
+// ==========================================
+window.getFilterTimeRange = function(prefix) {
+    const dateType = document.querySelector(`input[name="${prefix}-date-type"]:checked`)?.value || 'predefined';
+    const predefinedVal = document.getElementById(`${prefix}-date-predefined`)?.value || 'all';
+    const fromDateVal = document.getElementById(`${prefix}-date-from`)?.value;
+    const toDateVal = document.getElementById(`${prefix}-date-to`)?.value;
 
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfWeek = todayStart - (now.getDay() === 0 ? 6 : now.getDay() - 1) * 86400000;
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).getTime();
+
+    let fromTime = 0, toTime = Infinity;
+
+    if (dateType === 'predefined') {
+        if (predefinedVal === 'today') { fromTime = todayStart; toTime = todayStart + 86400000 - 1; }
+        else if (predefinedVal === 'yesterday') { fromTime = todayStart - 86400000; toTime = todayStart - 1; }
+        else if (predefinedVal === 'this_week') { fromTime = startOfWeek; toTime = now.getTime(); }
+        else if (predefinedVal === 'this_month') { fromTime = startOfMonth; toTime = now.getTime(); }
+        else if (predefinedVal === 'last_month') { fromTime = startOfLastMonth; toTime = endOfLastMonth; }
+    } else {
+        if (fromDateVal) fromTime = new Date(fromDateVal).getTime();
+        if (toDateVal) toTime = new Date(toDateVal).getTime() + 86400000 - 1; // Cuối ngày của ngày Đến
+    }
+    return { fromTime, toTime };
+};
+
+// Chuyển chuỗi "HH:MM:SS DD/MM/YYYY" sang số để so sánh
+window.parseVNTime = function(timeStr) {
+    if(!timeStr) return 0;
+    try {
+        const parts = timeStr.replace(/,/g, '').trim().split(' ');
+        let dateStr = parts.find(p => p.includes('/')); 
+        if (!dateStr) return 0;
+        const dateParts = dateStr.split('/');
+        return new Date(dateParts[2], dateParts[1] - 1, dateParts[0]).getTime();
+    } catch(e) { return 0; }
+};
 window.currentInvoicePage = 1;
 
 window.renderInvoices = function() {
@@ -2361,6 +2281,12 @@ window.renderInvoices = function() {
     const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
     const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
 
+// LẤY GIÁ TRỊ TỪ CÁC BỘ LỌC
+    const timeRange = window.getFilterTimeRange('inv');
+    const showDone = document.getElementById('filter-inv-done')?.checked;
+    const showCancel = document.getElementById('filter-inv-cancel')?.checked;
+    const creatorVal = document.getElementById('filter-inv-creator')?.value || '';
+
     // Lọc dữ liệu
     let filtered = allInvoices.filter(inv => {
         // 1. Lọc chi nhánh
@@ -2369,7 +2295,7 @@ window.renderInvoices = function() {
         // 2. Lọc theo mã hóa đơn
         if (searchInvKw && !inv.id.toLowerCase().includes(searchInvKw)) return false;
         
-        // 3. Lọc theo tên hàng trong hóa đơn (nếu có gõ tìm kiếm hàng)
+        // 3. Lọc theo tên/mã hàng trong hóa đơn
         if (productKw) {
             const hasProduct = inv.items.some(it => 
                 (it.name || '').toLowerCase().includes(productKw) || 
@@ -2377,6 +2303,18 @@ window.renderInvoices = function() {
             );
             if (!hasProduct) return false;
         }
+
+        // 4. LỌC THEO THỜI GIAN
+        const invTime = window.parseVNTime(inv.createdAt);
+        if (invTime < timeRange.fromTime || invTime > timeRange.toTime) return false;
+
+        // 5. LỌC THEO TRẠNG THÁI
+        if (inv.status === 'cancel' && !showCancel) return false;
+        if (inv.status !== 'cancel' && !showDone) return false;
+
+        // 6. LỌC THEO NGƯỜI BÁN
+        if (creatorVal && inv.creator !== creatorVal) return false;
+
         return true;
     });
 
@@ -2491,9 +2429,29 @@ window.renderImportOrders = function() {
     const allImportOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
     const searchKw = (document.getElementById('search-import')?.value || '').toLowerCase().trim();
 
+// LẤY GIÁ TRỊ TỪ CÁC BỘ LỌC
+    const timeRange = window.getFilterTimeRange('imp');
+    const showTemp = document.getElementById('filter-imp-temp')?.checked;
+    const showDone = document.getElementById('filter-imp-done')?.checked;
+    const showCancel = document.getElementById('filter-imp-cancel')?.checked;
+    const creatorVal = document.getElementById('filter-imp-creator')?.value || '';
+
     tbody.innerHTML = allImportOrders.filter(imp => {
         if ((imp.branchId || 'CN001') !== currentBranch) return false;
         if (searchKw && !imp.id.toLowerCase().includes(searchKw)) return false;
+        
+        // LỌC THỜI GIAN
+        const impTime = imp.timestamp || window.parseVNTime(imp.createdAt);
+        if (impTime < timeRange.fromTime || impTime > timeRange.toTime) return false;
+
+        // LỌC TRẠNG THÁI
+        if (imp.status === 'temp' && !showTemp) return false;
+        if (imp.status === 'done' && !showDone) return false;
+        if (imp.status === 'cancel' && !showCancel) return false;
+
+        // LỌC NGƯỜI TẠO
+        if (creatorVal && imp.creator !== creatorVal) return false;
+
         return true;
     }).map(imp => {
         const isCancel = imp.status === 'cancel';
@@ -4853,9 +4811,29 @@ window.renderInventoryChecks = function() {
     const allChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
     const searchKw = (document.getElementById('search-ic')?.value || '').toLowerCase().trim();
 
+    // LẤY CÁC BỘ LỌC
+    const timeRange = window.getFilterTimeRange('ic');
+    const showTemp = document.getElementById('filter-ic-temp')?.checked;
+    const showDone = document.getElementById('filter-ic-done')?.checked;
+    const showCancel = document.getElementById('filter-ic-cancel')?.checked;
+    const creatorVal = document.getElementById('filter-ic-creator')?.value || '';
+
     tbody.innerHTML = allChecks.filter(ic => {
         if ((ic.branchId || 'CN001') !== currentBranch) return false;
         if (searchKw && !ic.code.toLowerCase().includes(searchKw)) return false;
+        
+        // LỌC THEO THỜI GIAN (ID của phiếu kiểm kho chính là số TimeStamp)
+        const icTime = parseInt(ic.id);
+        if (icTime < timeRange.fromTime || icTime > timeRange.toTime) return false;
+
+        // LỌC TRẠNG THÁI
+        if (ic.status === 'temp' && !showTemp) return false;
+        if (ic.status === 'done' && !showDone) return false;
+        if (ic.status === 'cancel' && !showCancel) return false;
+
+        // LỌC NGƯỜI TẠO
+        if (creatorVal && ic.creator !== creatorVal) return false;
+
         return true;
     }).map(ic => {
         const isDone = ic.status === 'done';

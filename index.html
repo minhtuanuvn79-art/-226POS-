@@ -989,10 +989,10 @@
                     <div class="pos-summary-lines">
 <div class="pos-line" style="background: #f0fbfc; padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #cceef0;">
         <div style="display: flex; align-items: center; gap: 10px;">
-            <label class="beer-switch" style="position: relative; display: inline-block; width: 40px; height: 20px;">
-                <input type="checkbox" id="enable-beer-ice">
-                <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px;"></span>
-            </label>
+<label class="beer-switch" style="position: relative; display: inline-block; width: 40px; height: 20px;">
+    <input type="checkbox" id="enable-beer-ice" onchange="toggleBeerIceFeature(this.checked)">
+    <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px;"></span>
+</label>
             <span style="font-size: 13px; font-weight: bold; color: #00838f;">Tính tiền bia lạnh</span>
         </div>
         <strong id="pos-beer-ice-amount" style="color: #00838f; font-size: 16px; display: none;">0</strong>
