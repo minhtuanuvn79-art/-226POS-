@@ -626,30 +626,62 @@ window.saveEditAccount = function() {
  * @param {HTMLElement} navElement - Phần tử menu được click (không bắt buộc)
  */
 function openDashTab(tabId, navElement = null) {
+    // Lưu trạng thái tab hiện tại
     localStorage.setItem('kv_current_tab', tabId);
 
+    // Xóa class active ở tất cả menu và thêm vào menu được chọn
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-    if (navElement) navElement.classList.add('active');
+    if (navElement) {
+        navElement.classList.add('active');
+    }
 
+    // Ẩn tất cả các tab content và hiển thị tab được chọn
     document.querySelectorAll('.tab-section').forEach(el => el.classList.remove('active'));
     const targetTab = document.getElementById(tabId);
-    if (targetTab) targetTab.classList.add('active');
+    if (targetTab) {
+        targetTab.classList.add('active');
+    }
 
-    // ÉP BUỘC: Đọc lại dữ liệu từ bộ nhớ máy trước khi vẽ bảng
+    // 1. Đọc dữ liệu mới nhất từ bộ nhớ cục bộ
     window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
     window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
     window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
 
+    // 2. GỌI HÀM QUÉT DỌN DẸP HÀNG HÓA VÔ CHỦ NGAY TẠI ĐÂY (TRƯỚC KHI VẼ GIAO DIỆN)
+    if (typeof window.autoAssignUnassignedProducts === 'function') {
+        window.autoAssignUnassignedProducts();
+    }
+
+    // 3. Phân luồng vẽ giao diện tùy thuộc vào tab đang được mở
     switch (tabId) {
-        case 'tab-danh-sach-hang': renderProductList(); break;
-        case 'tab-thiet-lap-gia': 
-            renderPriceBookSidebar(); // Nạp danh sách bảng giá trước
-            renderPriceSetupTable(); 
+        case 'tab-danh-sach-hang': 
+            // Cập nhật lại cây nhóm hàng (Sidebar, Dropdown thêm/sửa)
+            if (typeof window.renderGroupData === 'function') window.renderGroupData();
+            if (typeof renderProductList === 'function') renderProductList(); 
             break;
-        case 'tab-hoa-don': renderInvoices(); break;
-        case 'tab-nhap-hang': renderImportOrders(); break;
-        case 'tab-kiem-kho': renderInventoryChecks(); break;
-        case 'tab-tong-quan': renderDashboard(); break;
+            
+        case 'tab-thiet-lap-gia': 
+            // Cập nhật lại cây nhóm hàng cho thiết lập giá
+            if (typeof window.renderGroupData === 'function') window.renderGroupData();
+            if (typeof renderPriceBookSidebar === 'function') renderPriceBookSidebar(); 
+            if (typeof renderPriceSetupTable === 'function') renderPriceSetupTable(); 
+            break;
+            
+        case 'tab-hoa-don': 
+            if (typeof renderInvoices === 'function') renderInvoices(); 
+            break;
+            
+        case 'tab-nhap-hang': 
+            if (typeof renderImportOrders === 'function') renderImportOrders(); 
+            break;
+            
+        case 'tab-kiem-kho': 
+            if (typeof renderInventoryChecks === 'function') renderInventoryChecks(); 
+            break;
+            
+        case 'tab-tong-quan': 
+            if (typeof renderDashboard === 'function') renderDashboard(); 
+            break;
     }
 }
 
@@ -674,13 +706,17 @@ document.addEventListener('keydown', function(e) {
 });
 // Đảm bảo hàm này luôn được gọi trong initApp hoặc sau khi dán Excel
 window.renderGroupData = function() {
-    // 1. Vẽ lại cây danh mục ở Sidebar hàng hóa
+    // 1. Vẽ lại cây danh mục ở Sidebar hàng hóa và Thiết lập giá
     if (typeof window.renderSidebarGroups === 'function') {
         window.renderSidebarGroups();
     }
-    // 2. Vẽ lại danh sách chọn (Select) trong Modal chi tiết
+    // 2. Vẽ lại danh sách chọn (Select) trong Group Modal
     if (typeof window.renderGroupSelects === 'function') {
         window.renderGroupSelects();
+    }
+    // 3. THÊM DÒNG NÀY: Vẽ lại cây Custom Dropdown trong Modal Thêm/Sửa hàng hóa
+    if (typeof window.renderPMGroupTree === 'function') {
+        window.renderPMGroupTree();
     }
 };
 // 1. Hàm đệ quy xây dựng HTML dạng chuỗi lồng nhau (Hỗ trợ đổ dữ liệu vào 2 tab độc lập)
@@ -688,12 +724,18 @@ window.renderSidebarGroups = function() {
     const container1 = document.getElementById('sidebar-group-list');
     const container2 = document.getElementById('sidebar-price-group-list');
 
+    // Luôn lấy dữ liệu tươi nhất
+    const currentGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+
     function buildTreeHTML(parentId, indent, prefix, cbClass) {
-        const children = productGroups.filter(g => g.parentId === parentId);
+        // Chuẩn hóa parentId để không bị dính lỗi undefined của Firebase
+        const targetParent = parentId || "";
+        const children = currentGroups.filter(g => (g.parentId || "") === targetParent);
         let html = '';
         
         children.forEach(child => {
-            const hasChildren = productGroups.some(g => g.parentId === child.id);
+            const childId = child.id || "";
+            const hasChildren = currentGroups.some(g => (g.parentId || "") === childId);
             const toggleIcon = hasChildren 
                 ? `<i class="fa-solid fa-chevron-right ${prefix}-toggle-icon" onclick="toggleGroupChildrenGeneric('${prefix}-children-${child.id}', this)" style="cursor: pointer; width: 15px; text-align: center; color: #888; transition: 0.2s;"></i>` 
                 : `<span style="width: 15px; display: inline-block;"></span>`;
@@ -721,10 +763,9 @@ window.renderSidebarGroups = function() {
         return html;
     }
     
-    // Đổ dữ liệu vào Tab Hàng Hóa
-    if (container1) container1.innerHTML = buildTreeHTML(null, 0, 'group', 'group-filter-cb');
-    // Đổ dữ liệu vào Tab Thiết Lập Giá
-    if (container2) container2.innerHTML = buildTreeHTML(null, 0, 'price-group', 'price-group-filter-cb');
+    // Khởi chạy với chuỗi rỗng thay vì null
+    if (container1) container1.innerHTML = buildTreeHTML("", 0, 'group', 'group-filter-cb');
+    if (container2) container2.innerHTML = buildTreeHTML("", 0, 'price-group', 'price-group-filter-cb');
 };
 
 // Hàm xử lý Mở/Đóng mũi tên dùng chung
@@ -749,7 +790,7 @@ window.toggleGroupChildren = function(groupId, iconEl) {
 };
 
 function renderGroupSelects() {
-    const pmGroup = document.getElementById('pm-group'); // Thanh chọn trong modal
+    const pmGroup = document.getElementById('pm-group'); 
     const parentGroup = document.getElementById('group-parent');
     
     if(!pmGroup && !parentGroup) return;
@@ -758,15 +799,18 @@ function renderGroupSelects() {
     const currentGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
     let html = '<option value="">Chọn nhóm hàng</option>';
 
-    // Hàm đệ quy để hiện nhóm đa cấp (có thụt lề cho đẹp)
     function renderSelectTree(parentId, prefix) {
-        const children = currentGroups.filter(g => g.parentId === parentId);
+        // Chuẩn hóa parentId
+        const targetParent = parentId || "";
+        const children = currentGroups.filter(g => (g.parentId || "") === targetParent);
         children.forEach(child => {
             html += `<option value="${child.id}">${prefix}${child.name}</option>`;
             renderSelectTree(child.id, prefix + '--- '); 
         });
     }
-    renderSelectTree(null, '');
+    
+    // Gọi hàm với chuỗi rỗng
+    renderSelectTree("", '');
 
     if (pmGroup) pmGroup.innerHTML = html;
     if (parentGroup) parentGroup.innerHTML = html;
@@ -777,17 +821,23 @@ function openGroupModal(id = null) {
     document.getElementById('group-modal').style.display = 'flex';
     renderGroupSelects();
 
+    // Dùng dữ liệu tươi
+    const currentGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+
     if(id) {
         document.getElementById('group-modal-title').innerText = 'Sửa nhóm hàng';
-        const g = productGroups.find(x => x.id === id);
-        document.getElementById('group-name').value = g.name;
-        document.getElementById('group-parent').value = g.parentId || '';
+        const g = currentGroups.find(x => x.id === id);
+        if(!g) return;
+        
+        document.getElementById('group-name').value = g.name || "";
+        document.getElementById('group-parent').value = g.parentId || "";
         
         const options = document.getElementById('group-parent').options;
         
         function getDescendants(parentId) {
             let desc = [];
-            const children = productGroups.filter(g => g.parentId === parentId);
+            const targetParent = parentId || "";
+            const children = currentGroups.filter(g => (g.parentId || "") === targetParent);
             children.forEach(c => {
                 desc.push(c.id);
                 desc = desc.concat(getDescendants(c.id));
@@ -799,12 +849,19 @@ function openGroupModal(id = null) {
         for(let i=0; i<options.length; i++) {
             if(invalidParents.includes(options[i].value)) {
                 options[i].disabled = true; 
+            } else {
+                options[i].disabled = false;
             }
         }
     } else {
         document.getElementById('group-modal-title').innerText = 'Tạo nhóm hàng';
         document.getElementById('group-name').value = '';
         document.getElementById('group-parent').value = '';
+        
+        const options = document.getElementById('group-parent').options;
+        for(let i=0; i<options.length; i++) {
+            options[i].disabled = false;
+        }
     }
 }
 
@@ -816,56 +873,102 @@ function saveGroup() {
     const name = document.getElementById('group-name').value.trim();
     const parentId = document.getElementById('group-parent').value;
     
-    if(!name) { alert("Vui lòng nhập tên nhóm!"); return; }
+    if(!name) { showToast("Vui lòng nhập tên nhóm!", "warning"); return; }
+
+    // Đọc dữ liệu TƯƠI từ bộ nhớ để tránh ghi đè dữ liệu cũ
+    let currentGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
 
     if(editingGroupId) {
-        const g = productGroups.find(x => x.id === editingGroupId);
-        if (g) {
-            g.name = name;
-            g.parentId = parentId || null;
+        const index = currentGroups.findIndex(x => x.id === editingGroupId);
+        if (index !== -1) {
+            currentGroups[index].name = name;
+            currentGroups[index].parentId = parentId || ""; // Đổi null thành chuỗi rỗng ""
         }
     } else {
-        // Thêm vào biến toàn cục đang sử dụng
-        productGroups.push({
+        currentGroups.push({
             id: 'g_' + Date.now(),
             name: name,
-            parentId: parentId || null
+            parentId: parentId || "" // Firebase ghét null, đổi thành chuỗi rỗng ""
         });
     }
 
-    // Cập nhật lại localStorage để đồng bộ nội bộ
-    localStorage.setItem('kv_groups', JSON.stringify(productGroups));
+    // Cập nhật lại localStorage và biến Global
+    localStorage.setItem('kv_groups', JSON.stringify(currentGroups));
+    window.productGroups = currentGroups; 
+    if (typeof productGroups !== 'undefined') productGroups = currentGroups;
 
-    // Đẩy lên Firebase
+    // Đẩy lên Firebase Cloud
     if (typeof window.uploadToCloud === 'function') {
-        window.uploadToCloud('groups', productGroups);
+        window.uploadToCloud('groups', currentGroups);
     }
 
     closeGroupModal();
-    renderGroupData(); 
-    renderProductList(); 
+    if (typeof renderGroupData === 'function') renderGroupData(); 
+    if (typeof renderProductList === 'function') renderProductList(); 
     editingGroupId = null;
+    
+    showToast("Đã lưu nhóm hàng thành công!", "success");
 }
 
 function deleteGroup(id) {
-    if(productGroups.some(g => g.parentId === id)) {
-        alert("Không thể xóa! Nhóm này đang chứa các nhóm con bên trong."); return;
+    let currentGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+    
+    // 1. Kiểm tra xem nhóm này có nhóm con nào không
+    const hasChildren = currentGroups.some(g => (g.parentId || "") === id);
+    
+    // 2. Tùy chỉnh câu thông báo xác nhận
+    let confirmMsg = "Bạn có chắc chắn muốn xóa nhóm hàng này?";
+    if (hasChildren) {
+        confirmMsg = "Nhóm này đang chứa các nhóm con. Bạn có chắc chắn muốn xóa nhóm này VÀ TOÀN BỘ các nhóm con của nó không?";
     }
-    if(showConfirm("Bạn có chắc chắn muốn xóa nhóm hàng này?")) {
-        productGroups = productGroups.filter(g => g.id !== id);
-        products.forEach(p => { if(p.group === id) p.group = ''; });
+    
+    // 3. Hiển thị hộp thoại xác nhận (Có / Bỏ qua)
+    showConfirm(confirmMsg, function() {
         
-        localStorage.setItem('kv_products', JSON.stringify(products));
-        localStorage.setItem('kv_groups', JSON.stringify(productGroups));
-        
-        // --- ĐỒNG BỘ CLOUD ---
-        if (typeof window.uploadToCloud === 'function') {
-            window.uploadToCloud('products', products);
-            window.uploadToCloud('groups', productGroups);
+        // Hàm đệ quy: Tìm ID của nhóm hiện tại và TẤT CẢ nhóm con, cháu của nó
+        function getAllDescendantIds(targetId) {
+            let ids = [targetId];
+            const children = currentGroups.filter(g => (g.parentId || "") === targetId);
+            children.forEach(c => {
+                ids = ids.concat(getAllDescendantIds(c.id));
+            });
+            return ids;
         }
         
-        renderGroupData(); renderProductList();
-    }
+        // Lấy danh sách toàn bộ ID nhóm cần xóa
+        const idsToDelete = getAllDescendantIds(id);
+        
+        // 4. XÓA NHÓM: Giữ lại những nhóm KHÔNG nằm trong danh sách cần xóa
+        currentGroups = currentGroups.filter(g => !idsToDelete.includes(g.id));
+        
+        // 5. CẬP NHẬT HÀNG HÓA: Gỡ bỏ ID nhóm đối với các mặt hàng thuộc nhóm vừa bị xóa
+        let currentProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+        currentProducts.forEach(p => { 
+            if(idsToDelete.includes(p.group)) {
+                p.group = ''; 
+            } 
+        });
+        
+        // 6. Lưu dữ liệu vào máy
+        localStorage.setItem('kv_products', JSON.stringify(currentProducts));
+        localStorage.setItem('kv_groups', JSON.stringify(currentGroups));
+        
+        window.productGroups = currentGroups;
+        if (typeof productGroups !== 'undefined') productGroups = currentGroups;
+        window.products = currentProducts;
+
+        // 7. Đồng bộ lên Firebase Cloud
+        if (typeof window.uploadToCloud === 'function') {
+            window.uploadToCloud('products', currentProducts);
+            window.uploadToCloud('groups', currentGroups);
+        }
+        
+        // 8. Tải lại giao diện
+        if (typeof renderGroupData === 'function') renderGroupData(); 
+        if (typeof renderProductList === 'function') renderProductList();
+        
+        showToast("Đã xóa nhóm hàng thành công!", "success");
+    });
 }
 
 // ==========================================
@@ -877,27 +980,37 @@ function openAddProductModal() {
     currentProductUnits = []; 
     tempPriceBookValues = {};
     
-    // Lấy nội dung đang gõ dở ở thanh tìm kiếm (nếu có) để làm mã vạch/mã hàng[cite: 2]
+    // THÊM DÒNG NÀY ĐỂ FIX LỖI: Ép hệ thống nạp lại danh sách nhóm hàng mới nhất
+    if (typeof renderGroupSelects === 'function') renderGroupSelects(); 
+    
+    // Lấy nội dung đang gõ dở ở thanh tìm kiếm (nếu có) để làm mã vạch/mã hàng
     const searchVal = document.getElementById('pos-search-input')?.value || "";
     
     document.querySelector('.product-modal-header h3').innerText = 'Thêm hàng hóa nhanh';
     
-    // Reset form[cite: 1]
+    // Reset form
     document.querySelectorAll('.product-modal-body input').forEach(input => {
         if(input.type === 'number') input.value = 0;
         else if(input.type === 'text') input.value = '';
     });
     
-    // Nếu thanh tìm kiếm có số (thường là quét mã vạch), điền nó vào ô mã vạch luôn[cite: 2]
+    // Nếu thanh tìm kiếm có số (thường là quét mã vạch), điền nó vào ô mã vạch luôn
     if (searchVal.length > 4) {
         document.getElementById('pm-barcode').value = searchVal;
     }
 
     document.getElementById('pm-group').value = '';
+ // Thêm 3 dòng này để xóa giao diện tên nhóm hiển thị về mặc định
+const pmGroupDisplay = document.getElementById('pm-group-display');
+if (pmGroupDisplay) {
+    pmGroupDisplay.innerText = 'Chọn nhóm hàng...';
+    pmGroupDisplay.style.color = '#555';
+    pmGroupDisplay.style.fontWeight = 'normal';
+}
     document.getElementById('pm-sell-direct').checked = true;
     document.getElementById('add-product-modal').style.display = 'flex';
     
-    // Tự động focus vào ô Tên hàng để gõ ngay[cite: 2]
+    // Tự động focus vào ô Tên hàng để gõ ngay
     setTimeout(() => document.getElementById('pm-name').focus(), 100);
 }
 
@@ -933,6 +1046,9 @@ function openEditProductModal(id) {
         }
     });
 
+    // THÊM DÒNG NÀY ĐỂ FIX LỖI: Nạp lại danh sách nhóm trước khi gắn dữ liệu hiện tại
+    if (typeof renderGroupSelects === 'function') renderGroupSelects();
+
     // 5. Cập nhật giao diện Modal
     document.querySelector('.product-modal-header h3').innerText = 'Sửa hàng hóa';
     
@@ -940,7 +1056,30 @@ function openEditProductModal(id) {
     document.getElementById('pm-code').value = p.code || '';
     document.getElementById('pm-barcode').value = p.barcode || '';
     document.getElementById('pm-name').value = p.name || '';
+    
+    // Ô này giờ sẽ nhận đúng dữ liệu nhóm vì danh sách đã được làm mới
     document.getElementById('pm-group').value = p.group || '';
+    // Thêm đoạn này để lấy ID nhóm quy đổi thành Tên nhóm in ra giao diện
+const pmGroupDisplay = document.getElementById('pm-group-display');
+if (pmGroupDisplay) {
+    if (p.group) {
+        const allGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+        const g = allGroups.find(x => x.id === p.group);
+        if (g) {
+            pmGroupDisplay.innerText = g.name;
+            pmGroupDisplay.style.color = 'var(--kv-blue)';
+            pmGroupDisplay.style.fontWeight = 'bold';
+        } else {
+            pmGroupDisplay.innerText = 'Chọn nhóm hàng...';
+            pmGroupDisplay.style.color = '#555';
+            pmGroupDisplay.style.fontWeight = 'normal';
+        }
+    } else {
+        pmGroupDisplay.innerText = 'Chọn nhóm hàng...';
+        pmGroupDisplay.style.color = '#555';
+        pmGroupDisplay.style.fontWeight = 'normal';
+    }
+}
     document.getElementById('pm-stock').value = p.stock || 0;
     document.getElementById('pm-sell-direct').checked = p.sellDirect;
 
@@ -985,6 +1124,7 @@ window.saveProduct = function() {
     const costEl = document.getElementById('pm-cost');
     const stockEl = document.getElementById('pm-stock');
     const codeEl = document.getElementById('pm-code');
+    const barcodeEl = document.getElementById('pm-barcode'); // 1. Bổ sung lệnh đọc mã vạch
 
     const parseNum = (val) => {
         if (!val) return 0;
@@ -995,56 +1135,84 @@ window.saveProduct = function() {
     const price = parseNum(priceEl.value);
     const cost = parseNum(costEl.value);
     const stock = parseFloat(stockEl.value) || 0;
+    const code = codeEl.value.trim();
+    const barcode = barcodeEl ? barcodeEl.value.trim() : '';
 
     if (!name) { showToast("Vui lòng nhập tên hàng hóa!", "error"); return; }
 
-    // BẬT KHÓA ĐỒNG BỘ: Ngăn Firebase ghi đè giá cũ khi đang lưu
     window.isSyncLocked = true;
-
     let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-    
+    let productIdToSave = editingProductId; // Tạo biến lưu ID để dùng chung cho Thiết lập giá
+
     if (editingProductId) {
         // --- TRƯỜNG HỢP: SỬA HÀNG HÓA CÓ SẴN ---
         const idx = allProducts.findIndex(p => p.id === editingProductId);
         if (idx !== -1) {
-            // 1. Cập nhật thông tin lớp ngoài cùng
             allProducts[idx].name = name;
             allProducts[idx].price = price;
             allProducts[idx].cost = cost;
             allProducts[idx].stock = stock;
             allProducts[idx].group = document.getElementById('pm-group').value;
-            allProducts[idx].code = codeEl.value.trim();
+            allProducts[idx].code = code;
+            allProducts[idx].barcode = barcode; // Đồng bộ mã vạch lớp ngoài
 
-            // 2. [FIX LỖI] ĐỒNG BỘ VÀO MẢNG ĐƠN VỊ TÍNH (units)
-            if (allProducts[idx].units && allProducts[idx].units.length > 0) {
-                allProducts[idx].units[0].price = price; // Bắt buộc đơn vị cơ bản phải nhảy giá theo
+            // 2. FIX LỖI TÊN ĐƠN VỊ TÍNH: Bỏ chữ 'window.' đi, dùng trực tiếp biến
+            if (currentProductUnits && currentProductUnits.length > 0) {
+                currentProductUnits[0].price = price;
+                currentProductUnits[0].code = code;
+                currentProductUnits[0].barcode = barcode;
+                allProducts[idx].units = currentProductUnits; // Đẩy toàn bộ lốc, thùng vào
+            } else if (allProducts[idx].units && allProducts[idx].units.length > 0) {
+                allProducts[idx].units[0].price = price;
+                allProducts[idx].units[0].code = code;
+                allProducts[idx].units[0].barcode = barcode;
             } else {
-                allProducts[idx].units = [{ name: 'Cái', rate: 1, price: price, isBase: true }];
-            }
-
-            // Nếu người dùng có thao tác thêm/bớt đơn vị tính trong form, gán mảng mới vào và ép giá
-            if (window.currentProductUnits && window.currentProductUnits.length > 0) {
-                window.currentProductUnits[0].price = price;
-                allProducts[idx].units = window.currentProductUnits;
+                allProducts[idx].units = [{ name: 'Cái', rate: 1, price: price, code: code, barcode: barcode, isBase: true }];
             }
         }
     } else {
         // --- TRƯỜNG HỢP: THÊM HÀNG HÓA MỚI ---
-        let newUnits = (window.currentProductUnits && window.currentProductUnits.length > 0) 
-            ? window.currentProductUnits 
-            : [{ name: 'Cái', rate: 1, price: price, isBase: true }];
+        let newUnits = (currentProductUnits && currentProductUnits.length > 0) 
+            ? currentProductUnits 
+            : [{ name: 'Cái', rate: 1, price: price, code: code, barcode: barcode, isBase: true }];
         
-        // Đảm bảo đơn vị cơ bản lấy đúng giá vừa gõ ở ngoài form
         newUnits[0].price = price;
+        newUnits[0].code = code;
+        newUnits[0].barcode = barcode;
 
+        productIdToSave = 'PROD' + Date.now();
         const newProd = { 
-            id: 'PROD' + Date.now(), 
+            id: productIdToSave, 
             name, price, cost, stock, 
-            code: codeEl.value.trim() || ('HH' + Date.now()),
+            code: code || ('HH' + Date.now()),
+            barcode: barcode,
             branchId: sessionStorage.getItem('kv_current_branch') || 'CN001',
             units: newUnits
         };
         allProducts.unshift(newProd);
+    }
+
+    // 3. FIX LỖI KHÔNG LƯU "THIẾT LẬP GIÁ GỐC" TỪ MODAL
+    if (Object.keys(tempPriceBookValues).length > 0) {
+        let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+        let isChanged = false;
+        
+        allPriceBooks.forEach(pb => {
+            if (tempPriceBookValues[pb.id] !== undefined) {
+                if (!pb.prices) pb.prices = {};
+                // Cập nhật giá gốc cho ID sản phẩm và ID đơn vị cơ bản (_0)
+                pb.prices[productIdToSave] = tempPriceBookValues[pb.id];
+                pb.prices[`${productIdToSave}_0`] = tempPriceBookValues[pb.id];
+                isChanged = true;
+            }
+        });
+
+        // Nếu có thay đổi giá gốc thì lưu lại
+        if (isChanged) {
+            localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
+            window.priceBooks = allPriceBooks;
+            if (window.uploadToCloud) window.uploadToCloud('pricebooks', allPriceBooks);
+        }
     }
 
     // Ghi đè biến và LocalStorage ngay lập tức
@@ -1057,9 +1225,8 @@ window.saveProduct = function() {
     if (typeof renderProductList === 'function') renderProductList();
     if (typeof renderPOS === 'function') renderPOS();
 
-    // Đẩy lên Cloud
+    // Đồng bộ Cloud
     if (window.uploadToCloud) window.uploadToCloud('products', allProducts);
-
     showToast("Đã cập nhật dữ liệu thành công!", "success");
 
     // Mở khóa sau 3 giây để Server ổn định
@@ -2020,6 +2187,13 @@ window.saveInventoryCheck = function(action) {
 // ==========================================
 
 function openUnitAttrModal() {
+    // 1. ĐỒNG BỘ: Kéo ngay mã vạch, mã hàng, giá từ form ngoài vào Đơn vị cơ bản trước khi mở
+    if (currentProductUnits && currentProductUnits.length > 0) {
+        currentProductUnits[0].code = document.getElementById('pm-code').value.trim();
+        currentProductUnits[0].barcode = document.getElementById('pm-barcode').value.trim();
+        currentProductUnits[0].price = window.parseCurrency(document.getElementById('pm-price').value);
+    }
+
     document.getElementById('unit-attr-modal').style.display = 'flex';
     renderUnitAttrUI();
 }
@@ -2128,17 +2302,25 @@ function saveSubUnit() {
     const isBase = editingUnitIndex === 0 || (editingUnitIndex === null && currentProductUnits.length === 0);
     const rate = isBase ? 1 : parseFloat(document.getElementById('sub-unit-rate').value) || 1;
     
-    // SỬ DỤNG parseCurrency ĐỂ LOẠI BỎ DẤU CHẤM TRƯỚC KHI LƯU[cite: 2]
     const price = window.parseCurrency(document.getElementById('sub-unit-price').value);
-    
     const sellDirect = document.getElementById('sub-unit-sell').checked;
 
-    const unitObj = { name, rate, price, sellDirect, isBase };
-
-    if(editingUnitIndex !== null) {
-        currentProductUnits[editingUnitIndex] = unitObj;
+    if (editingUnitIndex !== null) {
+        currentProductUnits[editingUnitIndex].name = name;
+        currentProductUnits[editingUnitIndex].rate = rate;
+        currentProductUnits[editingUnitIndex].price = price;
+        currentProductUnits[editingUnitIndex].sellDirect = sellDirect;
+        currentProductUnits[editingUnitIndex].isBase = isBase;
     } else {
-        currentProductUnits.push(unitObj);
+        // 2. KẾ THỪA: Khi tạo đơn vị mới, tự động lấy luôn mã vạch và mã hàng ở lớp ngoài cùng
+        const mainCode = document.getElementById('pm-code').value.trim() || 'SP';
+        const mainBarcode = document.getElementById('pm-barcode').value.trim() || ''; 
+        
+        currentProductUnits.push({ 
+            name, rate, price, sellDirect, isBase,
+            code: mainCode,
+            barcode: mainBarcode // Bơm trực tiếp mã vạch vào
+        });
     }
 
     closeAddUnitModal();
@@ -2158,13 +2340,14 @@ function generateVariants() {
     vSection.style.display = 'block';
     vBody.innerHTML = '';
     
-    // Lấy mã gốc từ form chính để gợi ý mã phụ
+    // Lấy mã gốc và mã vạch từ form chính để làm chuẩn gợi ý
     const mainCode = document.getElementById('pm-code').value.trim() || 'SP';
+    const mainBarcode = document.getElementById('pm-barcode').value.trim() || '';
     
     currentProductUnits.forEach((unit, uIdx) => {
-        // Nếu chưa có mã riêng, gợi ý theo định dạng: MãGốc-SốThứTự
-        const displayCode = unit.code || `${mainCode}-${uIdx + 1}`;
-        const displayBarcode = unit.barcode || '';
+        // 3. HIỂN THỊ: Ưu tiên mã riêng của đơn vị, nếu trống thì lấy luôn mã ngoài cùng
+        const displayCode = unit.code || mainCode;
+        const displayBarcode = unit.barcode || mainBarcode; 
         const displayPrice = (unit.price || 0).toLocaleString('vi-VN');
         
         vBody.innerHTML += `
@@ -2194,6 +2377,7 @@ function generateVariants() {
         `;
     });
 }
+
 window.saveUnitAttr = function() {
     const rows = document.querySelectorAll('#variant-tbody tr');
     
@@ -2207,12 +2391,12 @@ window.saveUnitAttr = function() {
             currentProductUnits[index].barcode = inputBarcode ? inputBarcode.value.trim() : currentProductUnits[index].barcode;
             currentProductUnits[index].price = inputPrice ? window.parseCurrency(inputPrice.value) : currentProductUnits[index].price;
 
-            // NẾU LÀ ĐƠN VỊ CƠ BẢN (Dòng đầu tiên): Cập nhật thẳng ra ngoài sản phẩm chính
-            if (index === 0) {
-                document.getElementById('pm-code').value = currentProductUnits[index].code;
-                document.getElementById('pm-barcode').value = currentProductUnits[index].barcode;
-                document.getElementById('pm-price').value = currentProductUnits[index].price.toLocaleString('vi-VN');
-            }
+// NẾU LÀ ĐƠN VỊ CƠ BẢN (Dòng đầu tiên): Cập nhật thẳng ra ngoài sản phẩm chính
+                if (index === 0) {
+                    document.getElementById('pm-code').value = currentProductUnits[index].code || '';
+                    document.getElementById('pm-barcode').value = currentProductUnits[index].barcode || '';
+                    document.getElementById('pm-price').value = currentProductUnits[index].price.toLocaleString('vi-VN');
+                }
         }
     });
 
@@ -4609,15 +4793,16 @@ window.toggleGroupChildren = function(groupId, iconEl) {
     }
 };
 
-// Nâng cấp: Tự động bung nhóm cha nếu tìm thấy nhóm con
+// Nâng cấp: Tự động bung nhóm cha nếu tìm nhóm con, và hiện nhóm con nếu tìm trúng nhóm cha
 window.filterGroupTree = function() {
-    const kw = document.getElementById('search-group-filter').value.toLowerCase().trim();
+    const rawKw = document.getElementById('search-group-filter').value.toLowerCase().trim();
+    // Khử dấu tiếng Việt để tìm cho dễ
+    const kw = typeof window.removeVietnameseTones === 'function' ? window.removeVietnameseTones(rawKw) : rawKw;
     const items = document.querySelectorAll('.group-tree-item');
     
     // 1. Tạm thời ẩn hết đi
     items.forEach(item => item.style.display = 'none');
 
-    // Nếu xóa rỗng thanh tìm kiếm, hiện lại tất cả nhưng giữ nguyên trạng thái đóng/mở
     if (kw === '') {
         items.forEach(item => item.style.display = 'flex');
         return;
@@ -4625,29 +4810,48 @@ window.filterGroupTree = function() {
 
     // 2. Tìm item khớp từ khóa
     items.forEach(item => {
-        const name = item.getAttribute('data-name');
+        const rawName = item.getAttribute('data-name') || '';
+        const name = typeof window.removeVietnameseTones === 'function' ? window.removeVietnameseTones(rawName) : rawName;
+
         if (name.includes(kw)) {
-            item.style.display = 'flex'; // Hiện chính nó lên
+            // A. Hiện chính nó
+            item.style.display = 'flex'; 
             
-            // Lần ngược lên các div chứa nó (nhóm cha) để bắt chúng mở ra
+            // B. Hiện TẤT CẢ các nhóm con của nó (Trường hợp tìm nhóm cha)
+            const cb = item.querySelector('.group-filter-cb');
+            if (cb) {
+                const childrenContainer = document.getElementById(`group-children-${cb.value}`);
+                if (childrenContainer) {
+                    childrenContainer.style.display = 'block'; // Mở div bọc nhóm con
+                    
+                    // Xoay icon mũi tên xuống
+                    const icon = item.querySelector('.group-toggle-icon');
+                    if (icon) {
+                        icon.classList.remove('fa-chevron-right');
+                        icon.classList.add('fa-chevron-down');
+                    }
+                    
+                    // Ép tất cả các thẻ nhóm con bên trong phải hiện lên
+                    const descendantItems = childrenContainer.querySelectorAll('.group-tree-item');
+                    descendantItems.forEach(desc => desc.style.display = 'flex');
+                }
+            }
+            
+            // C. Lần ngược lên các div chứa nó để bắt nhóm cha mở ra (Trường hợp tìm nhóm con)
             let parentContainer = item.closest('.group-children-container');
             while (parentContainer) {
-                parentContainer.style.display = 'block'; // Mở div bọc nhóm con
+                parentContainer.style.display = 'block'; 
                 
                 const parentId = parentContainer.id.replace('group-children-', '');
-                
-                // Bắt cái thẻ hiển thị tên nhóm cha cũng phải hiện lên
                 const parentItem = document.querySelector(`.group-tree-item input[value="${parentId}"]`)?.closest('.group-tree-item');
                 if (parentItem) parentItem.style.display = 'flex';
 
-                // Quay mũi tên của nhóm cha hướng xuống
                 const parentIcon = document.querySelector(`.group-toggle-icon[onclick*="${parentId}"]`);
                 if (parentIcon) {
                     parentIcon.classList.remove('fa-chevron-right');
                     parentIcon.classList.add('fa-chevron-down');
                 }
                 
-                // Tiếp tục leo lên ông nội, cụ cố... (nếu lồng nhiều cấp)
                 parentContainer = parentContainer.parentElement.closest('.group-children-container');
             }
         }
@@ -4707,9 +4911,12 @@ window.togglePriceGroupDropdown = function() {
     dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
 };
 
+// Nâng cấp tương tự cho Tab Thiết lập giá
 window.filterPriceGroupTree = function() {
-    const kw = document.getElementById('search-price-group-filter').value.toLowerCase().trim();
+    const rawKw = document.getElementById('search-price-group-filter').value.toLowerCase().trim();
+    const kw = typeof window.removeVietnameseTones === 'function' ? window.removeVietnameseTones(rawKw) : rawKw;
     const items = document.querySelectorAll('.price-group-tree-item');
+    
     items.forEach(item => item.style.display = 'none');
 
     if (kw === '') {
@@ -4718,15 +4925,36 @@ window.filterPriceGroupTree = function() {
     }
 
     items.forEach(item => {
-        const name = item.getAttribute('data-name');
+        const rawName = item.getAttribute('data-name') || '';
+        const name = typeof window.removeVietnameseTones === 'function' ? window.removeVietnameseTones(rawName) : rawName;
+
         if (name.includes(kw)) {
             item.style.display = 'flex'; 
+            
+            // Hiện các nhóm con
+            const cb = item.querySelector('.price-group-filter-cb');
+            if (cb) {
+                const childrenContainer = document.getElementById(`price-group-children-${cb.value}`);
+                if (childrenContainer) {
+                    childrenContainer.style.display = 'block';
+                    const icon = item.querySelector('.price-group-toggle-icon');
+                    if (icon) {
+                        icon.classList.remove('fa-chevron-right');
+                        icon.classList.add('fa-chevron-down');
+                    }
+                    const descendantItems = childrenContainer.querySelectorAll('.price-group-tree-item');
+                    descendantItems.forEach(desc => desc.style.display = 'flex');
+                }
+            }
+
+            // Hiện các nhóm cha
             let parentContainer = item.closest('.price-group-children-container');
             while (parentContainer) {
                 parentContainer.style.display = 'block';
                 const parentId = parentContainer.id.replace('price-group-children-', '');
                 const parentItem = document.querySelector(`.price-group-tree-item input[value="${parentId}"]`)?.closest('.price-group-tree-item');
                 if (parentItem) parentItem.style.display = 'flex';
+                
                 const parentIcon = document.querySelector(`.price-group-toggle-icon[onclick*="${parentId}"]`);
                 if (parentIcon) {
                     parentIcon.classList.remove('fa-chevron-right');
@@ -4950,28 +5178,28 @@ window.initApp = function() {
             window.fbOnValue(dbRef, (snapshot) => {
                 const data = snapshot.val();
                 
-                // Chuyển đổi dữ liệu Cloud sang Mảng chuẩn (loại bỏ phần tử rỗng)
+                // Chuyển đổi dữ liệu Cloud sang Mảng chuẩn (Trị lỗi lủng mảng do xóa)
                 let dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data).filter(Boolean)) : [];
                 
                 // XỬ LÝ ĐẶC BIỆT CHO TỪNG LOẠI DỮ LIỆU
-if (item.path === 'products') {
-    // CHỈ CẬP NHẬT NẾU KHÔNG TRONG TRẠNG THÁI KHÓA (isSyncLocked)
-    if (!window.isSyncLocked) { 
-        dataArray.forEach(p => { if (!p.branchId) p.branchId = 'CN001'; });
-        window.products = dataArray;
-        localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
-        if (typeof renderProductList === 'function') renderProductList();
-    }
-}
+                if (item.path === 'products') {
+                    if (!window.isSyncLocked) { 
+                        dataArray.forEach(p => { if (!p.branchId) p.branchId = 'CN001'; });
+                        window.products = dataArray;
+                        localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
+                        if (typeof renderProductList === 'function') renderProductList();
+                    }
+                }
+                
                 if (item.path === 'pricebooks') window.priceBooks = dataArray;
                 if (item.path === 'groups') window.productGroups = dataArray;
                 if (item.path === 'branches') window.branches = dataArray;
                 if (item.path === 'accounts') window.accounts = dataArray;
 
-                // Lưu vào bộ nhớ máy (LocalStorage) để chạy mượt hơn
+                // Lưu vào bộ nhớ máy (LocalStorage)
                 localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
 
-                // 2. CẬP NHẬT GIAO DIỆN SAU KHI DỮ LIỆU VỀ (CHỐNG LỖI NULL)
+                // 2. CẬP NHẬT GIAO DIỆN SAU KHI DỮ LIỆU VỀ (ĐÃ FIX TÊN TAB CHUẨN XÁC)
                 const currentView = sessionStorage.getItem('kv_current_view');
                 const currentTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
 
@@ -4980,28 +5208,24 @@ if (item.path === 'products') {
                     if (item.path === 'products' && typeof renderPOSProducts === 'function') renderPOSProducts();
                     if (typeof renderPOSCart === 'function') renderPOSCart();
                 } else if (currentView === 'dashboard-view') {
-                    // Chỉ vẽ lại Tab nếu dữ liệu tải về khớp với Tab đang mở
+                    
+                    // NẾU LÀ NHÓM HÀNG: Luôn vẽ lại thanh chọn và cây nhóm hàng ngay lập tức
+                    if (item.path === 'groups') {
+                        if (typeof window.renderGroupData === 'function') window.renderGroupData();
+                    }
+
+                    // Mapping đúng ID của các tab trong HTML
                     const tabMapping = {
-                        'products': 'tab-hang-hoa',
+                        'products': 'tab-danh-sach-hang',
                         'invoices': 'tab-hoa-don',
                         'import_orders': 'tab-nhap-hang',
                         'inventory_checks': 'tab-kiem-kho',
-                        'groups': 'tab-thiet-lap'
+                        'pricebooks': 'tab-thiet-lap-gia'
                     };
 
+                    // Kích hoạt vẽ lại Tab nếu dữ liệu tải về khớp với Tab đang mở
                     if (tabMapping[item.path] === currentTab || currentTab === 'tab-tong-quan') {
-                        // Kiểm tra an toàn trước khi gọi hàm vẽ
-                        const tbodyIdMapping = {
-                            'tab-hang-hoa': 'product-tbody',
-                            'tab-hoa-don': 'invoice-tbody',
-                            'tab-nhap-hang': 'import-tbody',
-                            'tab-kiem-kho': 'ic-list-table'
-                        };
-
-                        const targetTable = document.getElementById(tbodyIdMapping[currentTab]);
-                        if (targetTable) {
-                            openDashTab(currentTab); // Hàm này của bạn sẽ gọi lại các hàm render tương ứng
-                        }
+                        openDashTab(currentTab); 
                     }
                 }
             });
@@ -5016,12 +5240,11 @@ if (item.path === 'products') {
         try {
             currentUser = JSON.parse(savedUser);
             
-            // Đảm bảo chi nhánh luôn có trong session
             if (currentUser.branchId) {
                 sessionStorage.setItem('kv_current_branch', currentUser.branchId);
             }
 
-            hideAll(); // Ẩn tất cả views trước khi hiện view cũ
+            hideAll(); 
 
             if (savedView === 'pos-view') {
                 const posView = document.getElementById('pos-view');
@@ -5036,7 +5259,6 @@ if (item.path === 'products') {
                     if (typeof switchAdminTab === 'function') switchAdminTab('list');
                 }
             } else {
-                // Mặc định vào Dashboard
                 const dashView = document.getElementById('dashboard-view');
                 if (dashView) {
                     dashView.style.display = 'flex';
@@ -5053,13 +5275,12 @@ if (item.path === 'products') {
             location.reload();
         }
     } else {
-        // Chưa đăng nhập -> Hiện màn hình Login
         hideAll();
         const loginView = document.getElementById('login-view');
         if (loginView) loginView.style.display = 'flex';
     }
     
-    // 4. Cập nhật các bộ lọc sau 1 giây (đợi DOM ổn định)
+    // 4. Cập nhật các bộ lọc sau 1 giây
     setTimeout(() => {
         if (typeof renderICCreatorFilter === 'function') renderICCreatorFilter();
         if (typeof renderInvCreatorFilter === 'function') renderInvCreatorFilter();
@@ -5388,23 +5609,36 @@ window.saveBatchUpdates = function() {
 
     let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     
-    // Xử lý lưu dữ liệu
     updateIds.forEach(id => {
         const prodIndex = allProducts.findIndex(p => p.id === id);
         if (prodIndex !== -1) {
             if (attr === 'code_and_barcode') {
-                // Xử lý lưu song song 2 mã
                 const updates = window.pendingBatchUpdates[id];
-                if (updates.code !== undefined && updates.code.trim() !== '') allProducts[prodIndex].code = updates.code.trim();
-                if (updates.barcode !== undefined && updates.barcode.trim() !== '') allProducts[prodIndex].barcode = updates.barcode.trim();
+                if (updates.code !== undefined && updates.code.trim() !== '') {
+                    allProducts[prodIndex].code = updates.code.trim();
+                    // Đồng bộ xuống unit[0]
+                    if(allProducts[prodIndex].units && allProducts[prodIndex].units.length > 0) {
+                        allProducts[prodIndex].units[0].code = updates.code.trim();
+                    }
+                }
+                if (updates.barcode !== undefined && updates.barcode.trim() !== '') {
+                    allProducts[prodIndex].barcode = updates.barcode.trim();
+                    // Đồng bộ xuống unit[0]
+                    if(allProducts[prodIndex].units && allProducts[prodIndex].units.length > 0) {
+                        allProducts[prodIndex].units[0].barcode = updates.barcode.trim();
+                    }
+                }
             } else {
-                // Xử lý lưu các thuộc tính khác bình thường
                 allProducts[prodIndex][attr] = window.pendingBatchUpdates[id];
+                
+                // Đồng bộ giá bán xuống unit[0] nếu thuộc tính đang sửa là giá
+                if (attr === 'price' && allProducts[prodIndex].units && allProducts[prodIndex].units.length > 0) {
+                    allProducts[prodIndex].units[0].price = window.pendingBatchUpdates[id];
+                }
             }
         }
     });
 
-    // Lưu vào máy và đẩy lên Firebase
     localStorage.setItem('kv_products', JSON.stringify(allProducts));
     if (typeof window.uploadToCloud === 'function') {
         window.uploadToCloud('products', allProducts);
@@ -6037,3 +6271,194 @@ window.highlightRow = function(element, isFocused) {
         }
     }
 };
+// ==========================================
+// TÍNH NĂNG DROPDOWN TÌM KIẾM NHÓM HÀNG (MODAL THÊM/SỬA SẢN PHẨM)
+// ==========================================
+
+// 1. Hàm vẽ cấu trúc cây nhóm hàng
+window.renderPMGroupTree = function() {
+    const container = document.getElementById('pm-group-tree-list');
+    if (!container) return;
+
+    const currentGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+
+    function buildPMTree(parentId, indent) {
+        const targetParent = parentId || "";
+        const children = currentGroups.filter(g => (g.parentId || "") === targetParent);
+        let html = '';
+
+        children.forEach(child => {
+            const childId = child.id || "";
+            const hasChildren = currentGroups.some(g => (g.parentId || "") === childId);
+            const toggleIcon = hasChildren
+                ? `<i class="fa-solid fa-chevron-right pm-group-toggle" onclick="event.stopPropagation(); toggleGroupChildrenGeneric('pm-children-${child.id}', this)" style="cursor: pointer; width: 20px; text-align: center; color: #888; transition: 0.2s; font-size: 11px;"></i>`
+                : `<span style="width: 20px; display: inline-block;"></span>`;
+
+            html += `
+            <div class="pm-group-tree-item" data-id="${child.id}" data-name="${(child.name || '').toLowerCase()}" style="padding: 8px; padding-left: ${indent + 8}px; border-bottom: 1px dashed #eee; transition: 0.2s; cursor: pointer; display: flex; align-items: center;" onclick="selectPMGroup('${child.id}', '${child.name}')" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='transparent'">
+                ${toggleIcon}
+                <span style="font-size: 13px; color: #333; flex: 1; font-weight: 500;">${child.name}</span>
+            </div>`;
+
+            if (hasChildren) {
+                html += `<div id="pm-children-${child.id}" class="pm-group-children-container" style="display: none;">`;
+                html += buildPMTree(child.id, indent + 15);
+                html += `</div>`;
+            }
+        });
+        return html;
+    }
+
+    container.innerHTML = buildPMTree("", 0);
+};
+
+// 2. Hàm Đóng/Mở Dropdown
+window.togglePMGroupDropdown = function() {
+    const dropdown = document.getElementById('pm-group-dropdown');
+    if (dropdown) {
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+        if (dropdown.style.display === 'block') {
+            document.getElementById('search-pm-group').focus(); // Auto focus vào ô tìm kiếm
+        }
+    }
+};
+
+// 3. Hàm chọn Nhóm Hàng
+window.selectPMGroup = function(id, name) {
+    document.getElementById('pm-group').value = id; // Gắn ID vào thẻ ẩn (Để code lưu sản phẩm tự bắt được)
+    
+    const displayEl = document.getElementById('pm-group-display');
+    displayEl.innerText = name;
+    displayEl.style.color = id ? 'var(--kv-blue)' : '#555';
+    displayEl.style.fontWeight = id ? 'bold' : 'normal';
+    
+    document.getElementById('pm-group-dropdown').style.display = 'none';
+};
+
+// 4. Hàm Tìm kiếm thông minh (Mở cả nhóm cha và nhóm con)
+window.filterPMGroupTree = function() {
+    const rawKw = document.getElementById('search-pm-group').value.toLowerCase().trim();
+    const kw = typeof window.removeVietnameseTones === 'function' ? window.removeVietnameseTones(rawKw) : rawKw;
+    const items = document.querySelectorAll('.pm-group-tree-item');
+
+    items.forEach(item => item.style.display = 'none');
+
+    if (kw === '') {
+        items.forEach(item => item.style.display = 'flex');
+        return;
+    }
+
+    items.forEach(item => {
+        const rawName = item.getAttribute('data-name') || '';
+        const name = typeof window.removeVietnameseTones === 'function' ? window.removeVietnameseTones(rawName) : rawName;
+
+        if (name.includes(kw)) {
+            item.style.display = 'flex'; 
+            
+            const groupId = item.getAttribute('data-id');
+
+            // Mở nhóm con (Nếu có)
+            const childrenContainer = document.getElementById(`pm-children-${groupId}`);
+            if (childrenContainer) {
+                childrenContainer.style.display = 'block';
+                const icon = item.querySelector('.pm-group-toggle');
+                if (icon) {
+                    icon.classList.remove('fa-chevron-right');
+                    icon.classList.add('fa-chevron-down');
+                }
+                const descendantItems = childrenContainer.querySelectorAll('.pm-group-tree-item');
+                descendantItems.forEach(desc => desc.style.display = 'flex');
+            }
+
+            // Lần ngược mở nhóm cha
+            let parentContainer = item.closest('.pm-group-children-container');
+            while (parentContainer) {
+                parentContainer.style.display = 'block';
+                const parentId = parentContainer.id.replace('pm-children-', '');
+                const parentItem = document.querySelector(`.pm-group-tree-item[data-id="${parentId}"]`);
+                if (parentItem) parentItem.style.display = 'flex';
+                
+                const parentIcon = parentItem ? parentItem.querySelector('.pm-group-toggle') : null;
+                if (parentIcon) {
+                    parentIcon.classList.remove('fa-chevron-right');
+                    parentIcon.classList.add('fa-chevron-down');
+                }
+                parentContainer = parentContainer.parentElement.closest('.pm-group-children-container');
+            }
+        }
+    });
+};
+
+// 5. Tích hợp vẽ lại Dropdown này khi tải danh mục nhóm
+const originalRenderGroupSelects = window.renderGroupSelects;
+window.renderGroupSelects = function() {
+    if (typeof originalRenderGroupSelects === 'function') originalRenderGroupSelects();
+    if (typeof window.renderPMGroupTree === 'function') window.renderPMGroupTree();
+};
+
+// 6. Đóng Dropdown khi click chuột ra ngoài vùng khác
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('pm-group-dropdown');
+    const trigger = document.getElementById('pm-group-trigger');
+    if (dropdown && dropdown.style.display === 'block' && trigger && !dropdown.contains(e.target) && !trigger.contains(e.target)) {
+        dropdown.style.display = 'none';
+    }
+});
+// ==========================================
+// TỰ ĐỘNG CHUYỂN HÀNG HÓA CHƯA CÓ NHÓM VÀO NHÓM "KHÁC"
+// ==========================================
+// ==========================================
+// TỰ ĐỘNG CHUYỂN HÀNG HÓA CHƯA CÓ NHÓM VÀO NHÓM "KHÁC" (BẢN CHUẨN)
+// ==========================================
+window.autoAssignUnassignedProducts = function() {
+    let currentGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+    let currentProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    
+    // 1. Tìm hoặc tạo nhóm Khác
+    let nhomKhac = currentGroups.find(g => g.name && g.name.trim().toLowerCase() === 'khác');
+    let isGroupChanged = false;
+
+    if (!nhomKhac) {
+        nhomKhac = {
+            id: 'g_' + Date.now() + '_khac',
+            name: 'Khác',
+            parentId: ''
+        };
+        currentGroups.push(nhomKhac);
+        localStorage.setItem('kv_groups', JSON.stringify(currentGroups));
+        isGroupChanged = true;
+    }
+    
+    // 2. Quét quét toàn bộ sản phẩm
+    let hasChanges = false;
+    let updatedProducts = currentProducts.map(p => {
+        // Bắt chặt chẽ mọi trường hợp: rỗng, undefined, null hoặc chứa hẳn chữ "Chưa phân nhóm"
+        if (!p.group || p.group.toString().trim() === '' || p.group === 'Chưa phân nhóm' || p.group === 'null' || p.group === 'undefined') {
+            p.group = nhomKhac.id;
+            hasChanges = true;
+        }
+        return p;
+    });
+    
+    // 3. Lưu và Đồng bộ
+    if (hasChanges || isGroupChanged) {
+        localStorage.setItem('kv_products', JSON.stringify(updatedProducts));
+        
+        // CẬP NHẬT BIẾN TOÀN CỤC (Fix lỗi không hiển thị tên nhóm)
+        window.products = updatedProducts;
+        window.productGroups = currentGroups; 
+        
+        if (typeof window.uploadToCloud === 'function') {
+            window.uploadToCloud('kv_products', updatedProducts);
+            if (isGroupChanged) window.uploadToCloud('kv_groups', currentGroups);
+        }
+        console.log("✅ Đã xử lý toàn bộ hàng hóa chưa phân nhóm vào nhóm 'Khác'.");
+    }
+};
+
+// Kích hoạt chạy hàm quét tự động sau khi trang tải xong 1.5 giây (để đảm bảo dữ liệu Firebase/Local hoàn tất)
+setTimeout(() => {
+    if (typeof window.autoAssignUnassignedProducts === 'function') {
+        window.autoAssignUnassignedProducts();
+    }
+}, 1500);
