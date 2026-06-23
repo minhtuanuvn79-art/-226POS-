@@ -894,3 +894,32 @@ input#enable-beer-ice {
     height: 0;
     position: absolute;
 }
+/* 1. Ép bảng "Thêm hàng hóa" xuống lớp dưới */
+#add-product-modal {
+    z-index: 1000 !important;
+}
+
+/* 2. Đẩy các bảng Thiết lập lên lớp trên cùng */
+#quick-price-modal,
+#unit-attr-modal,
+#group-modal {
+    z-index: 9999 !important;
+}
+
+/* 3. Bảng Thêm đơn vị cơ bản (nằm trong thiết lập đơn vị) lên cao nhất */
+#add-unit-modal {
+    z-index: 10000 !important;
+}
+/* --- NÚT ĐÁNH DẤU SAO ĐỂ THEO DÕI --- */
+.star-mark {
+    cursor: pointer;
+    font-size: 16px;
+    color: #ccc; /* Màu xám khi chưa đánh dấu */
+    transition: transform 0.2s, color 0.2s;
+}
+.star-mark:hover {
+    transform: scale(1.2);
+}
+.star-mark.marked {
+    color: #ffc107; /* Màu vàng khi click vào */
+}
