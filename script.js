@@ -1031,23 +1031,34 @@ if (pmGroupDisplay) {
     pmGroupDisplay.style.color = '#555';
     pmGroupDisplay.style.fontWeight = 'normal';
 }
-    document.getElementById('pm-sell-direct').checked = true;
-    document.getElementById('add-product-modal').style.display = 'flex';
+document.getElementById('pm-sell-direct').checked = true;
+    
+    const modalProduct = document.getElementById('add-product-modal');
+    if (modalProduct) {
+        modalProduct.style.display = 'flex';
+        modalProduct.style.zIndex = '99999'; // Đẩy modal lên lớp trên cùng để không bị màn hình Nhập hàng che khuất
+    }
     
     // Tự động focus vào ô Tên hàng để gõ ngay
     setTimeout(() => document.getElementById('pm-name').focus(), 100);
 }
 
 function closeAddProductModal() {
-    document.getElementById('add-product-modal').style.display = 'none';
+    const modalProduct = document.getElementById('add-product-modal');
+    if (modalProduct) {
+        modalProduct.style.display = 'none';
+        modalProduct.style.zIndex = ''; // Reset lại z-index mặc định khi đóng
+    }
 }
 
-function openEditProductModal(id) {
+// =================================================================
+// CẬP NHẬT: Đưa hàm mở modal sửa hàng hóa lên phạm vi toàn cục và sửa lỗi che khuất
+// =================================================================
+window.openEditProductModal = function(id) {
     // 1. Gán ID đang chỉnh sửa vào biến toàn cục
     editingProductId = id;
 
-    // [SỬA LỖI TẬN GỐC] Đọc dữ liệu TƯƠI nhất trực tiếp từ bộ nhớ máy (LocalStorage)
-    // Tránh việc lấy lại dữ liệu cũ chưa F5
+    // Đọc dữ liệu tươi nhất trực tiếp từ bộ nhớ máy (LocalStorage)
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
     // 2. Tìm sản phẩm trong danh sách dựa trên mảng dữ liệu mới
@@ -1070,52 +1081,51 @@ function openEditProductModal(id) {
         }
     });
 
-    // THÊM DÒNG NÀY ĐỂ FIX LỖI: Nạp lại danh sách nhóm trước khi gắn dữ liệu hiện tại
+    // Nạp lại danh sách nhóm trước khi gắn dữ liệu hiện tại
     if (typeof renderGroupSelects === 'function') renderGroupSelects();
 
     // 5. Cập nhật giao diện Modal
     document.querySelector('.product-modal-header h3').innerText = 'Sửa hàng hóa';
     
-    // Đổ dữ liệu cơ bản vào các ô input
     document.getElementById('pm-code').value = p.code || '';
     document.getElementById('pm-barcode').value = p.barcode || '';
     document.getElementById('pm-name').value = p.name || '';
-    
-    // Ô này giờ sẽ nhận đúng dữ liệu nhóm vì danh sách đã được làm mới
     document.getElementById('pm-group').value = p.group || '';
-    // Thêm đoạn này để lấy ID nhóm quy đổi thành Tên nhóm in ra giao diện
-const pmGroupDisplay = document.getElementById('pm-group-display');
-if (pmGroupDisplay) {
-    if (p.group) {
-        const allGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
-        const g = allGroups.find(x => x.id === p.group);
-        if (g) {
-            pmGroupDisplay.innerText = g.name;
-            pmGroupDisplay.style.color = 'var(--kv-blue)';
-            pmGroupDisplay.style.fontWeight = 'bold';
+    
+    const pmGroupDisplay = document.getElementById('pm-group-display');
+    if (pmGroupDisplay) {
+        if (p.group) {
+            const allGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+            const g = allGroups.find(x => x.id === p.group);
+            if (g) {
+                pmGroupDisplay.innerText = g.name;
+                pmGroupDisplay.style.color = 'var(--kv-blue)';
+                pmGroupDisplay.style.fontWeight = 'bold';
+            } else {
+                pmGroupDisplay.innerText = 'Chọn nhóm hàng...';
+                pmGroupDisplay.style.color = '#555';
+                pmGroupDisplay.style.fontWeight = 'normal';
+            }
         } else {
             pmGroupDisplay.innerText = 'Chọn nhóm hàng...';
             pmGroupDisplay.style.color = '#555';
             pmGroupDisplay.style.fontWeight = 'normal';
         }
-    } else {
-        pmGroupDisplay.innerText = 'Chọn nhóm hàng...';
-        pmGroupDisplay.style.color = '#555';
-        pmGroupDisplay.style.fontWeight = 'normal';
     }
-}
+    
     document.getElementById('pm-stock').value = p.stock || 0;
     document.getElementById('pm-sell-direct').checked = p.sellDirect;
-
-    // --- PHẦN QUAN TRỌNG: ĐỊNH DẠNG SỐ TIỀN CÓ DẤU CHẤM ---
     document.getElementById('pm-cost').value = (p.cost || 0).toLocaleString('vi-VN');
     
-    // Ưu tiên hiển thị giá từ mảng đơn vị tính vì đây là giá chuẩn xác nhất sau khi lưu
     const displayPrice = (p.units && p.units.length > 0) ? p.units[0].price : p.price;
     document.getElementById('pm-price').value = (displayPrice || 0).toLocaleString('vi-VN');
 
-    // 6. Hiển thị modal
-    document.getElementById('add-product-modal').style.display = 'flex';
+    // 6. HIỂN THỊ MODAL & ÉP Z-INDEX CAO NHẤT ĐỂ ĐÈ LÊN MÀN HÌNH NHẬP HÀNG
+    const modalProduct = document.getElementById('add-product-modal');
+    if (modalProduct) {
+        modalProduct.style.display = 'flex';
+        modalProduct.style.zIndex = '99999'; // Đảm bảo nổi hẳn lên trên màn hình phiếu nhập hàng
+    }
     
     // Tự động focus và bôi đen ô tên hàng để tiện chỉnh sửa
     setTimeout(() => {
@@ -1125,7 +1135,7 @@ if (pmGroupDisplay) {
             nameInput.select();
         }
     }, 100);
-}
+};
 window.editProduct = function(id) {
     const p = products.find(x => x.id == id);
     if (!p) return;
@@ -1244,9 +1254,29 @@ const parseNum = (val) => {
     localStorage.setItem('kv_products', JSON.stringify(allProducts));
 
     // Cập nhật giao diện
+// Cập nhật giao diện
     closeAddProductModal();
     if (typeof renderProductList === 'function') renderProductList();
     if (typeof renderPOS === 'function') renderPOS();
+
+    // =================================================================
+    // ĐỒNG BỘ NGƯỢC LẠI PHIẾU NHẬP HÀNG ĐANG MỞ (NẾU CÓ)
+    // =================================================================
+    if (typeof currentIOItems !== 'undefined' && currentIOItems.length > 0) {
+        currentIOItems.forEach(item => {
+            if (String(item.productId) === String(productIdToSave)) {
+                // 1. Cập nhật tên mới vừa sửa
+                item.name = name; 
+                
+                // 2. Tính toán lại giá vốn dựa theo đơn vị tính đang chọn trên dòng
+                const rate = item.units && item.units[item.selectedUnitIdx] ? item.units[item.selectedUnitIdx].rate : 1;
+                item.baseCost = cost;
+                item.cost = cost * rate;
+            }
+        });
+        // Vẽ lại bảng danh sách phiếu nhập để cập nhật tên và số tiền tức thì
+        if (typeof renderIOItemsTable === 'function') renderIOItemsTable();
+    }
 
     // Đồng bộ Cloud
     if (window.uploadToCloud) window.uploadToCloud('products', allProducts);
@@ -2953,48 +2983,62 @@ window.searchIOProduct = function(keyword) {
     dropdown.style.display = 'block';
 };
 
-// Bắt sự kiện Enter cho thanh tìm kiếm Nhập hàng
+// =================================================================
+// 1. FIX: Bắt sự kiện Enter cho thanh tìm kiếm Nhập hàng (Chống quét x2)
+// =================================================================
 const ioSearchInput = document.getElementById('io-search-input');
 if (ioSearchInput) {
-    // Clone node để dọn dẹp các event listener cũ có thể gây xung đột
+    // Clone node để xóa sạch các bộ lắng nghe cũ (tránh lặp sự kiện)
     const newIoSearch = ioSearchInput.cloneNode(true);
     ioSearchInput.parentNode.replaceChild(newIoSearch, ioSearchInput);
 
     newIoSearch.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
+
+            // Lấy từ khóa hiện tại
+            const kw = this.value.trim();
+            
+            // CHẶN ĐỨNG: Nếu input rỗng (do lần quét 1 vừa xóa xong) thì ngắt ngay
+            if (!kw) return; 
+
+            // XÓA RỖNG NGAY LẬP TỨC: Giúp tia quét thứ 2 bị chặn lại ở điều kiện trên
+            this.value = '';
+
             const dropdown = document.getElementById('io-search-dropdown');
             const firstItem = dropdown ? dropdown.querySelector('.ic-dropdown-item') : null;
             
-            // Nếu danh sách đang mở, nhấn Enter sẽ thêm món đầu tiên
+            // Nếu danh sách kết quả đang mở sẵn, thực hiện click chọn món đầu tiên
             if (dropdown && dropdown.style.display === 'block' && firstItem) {
                 firstItem.click();
             } else {
-                // Nếu quét mã quá nhanh (Dropdown chưa kịp mở), ép chạy lại hàm tìm
-                const kw = this.value.trim();
-                if (kw) window.searchIOProduct(kw);
+                // Nếu quét quá nhanh dropdown chưa kịp mở, chạy hàm tìm kiếm tương đối trực tiếp
+                window.searchIOProduct(kw);
             }
         }
     });
 }
 
-// Thêm hàng hóa vào danh sách phiếu nhập
+// =================================================================
+// 2. KHÔI PHỤC: Hàm thêm hàng hóa vào danh sách phiếu nhập
+// =================================================================
 window.addIOToList = function(productId) {
     const sInput = document.getElementById('io-search-input');
     const dropdown = document.getElementById('io-search-dropdown');
     if (dropdown) dropdown.style.display = 'none';
     
-    // Luôn lấy dữ liệu tươi nhất
+    // Luôn lấy dữ liệu tươi nhất từ bộ nhớ máy
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     const p = latestProducts.find(x => String(x.id) === String(productId));
     
-    if(!p) {
-        showToast("Hàng hóa không tồn tại!", "error");
+    if (!p) {
+        if (typeof showToast === 'function') showToast("Hàng hóa không tồn tại!", "error");
         return;
     }
     
     const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1, price: p.price, isBase: true }];
 
+    // Kiểm tra xem món này đã tồn tại ở đơn vị tính cơ bản trong phiếu nhập chưa
     const existingItem = currentIOItems.find(x => String(x.productId) === String(productId) && parseInt(x.selectedUnitIdx) === 0);
     
     if (existingItem) {
@@ -3013,25 +3057,16 @@ window.addIOToList = function(productId) {
         });
     }
     
-    // Cập nhật lại giao diện bảng nhập hàng
+    // Cập nhật và tính toán lại toàn bộ bảng hiển thị của phiếu nhập hàng
     if (typeof renderIOItemsTable === 'function') renderIOItemsTable();
 
-    // Reset thanh tìm kiếm và tự động bôi đen để sẵn sàng quét mã tiếp theo
+    // Trả lại trạng thái trống và tự động trỏ chuột vào ô tìm kiếm để sẵn sàng cho lần nhập tiếp theo
     if (sInput) {
         sInput.value = '';
         sInput.focus();
         sInput.select();
     }
 };
-
-// Bắt sự kiện Enter cho Nhập hàng
-document.getElementById('io-search-input').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-        const firstItem = document.querySelector('#io-search-dropdown .ic-dropdown-item');
-        if (firstItem) firstItem.click();
-    }
-});
-
 
 window.removeIOItem = function(index) {
     // Xóa phần tử theo vị trí index
@@ -3137,9 +3172,12 @@ function renderIOItemsTable() {
                 <td style="text-align:center;">
                     <input type="number" value="${item.qty}" oninput="updateIOItemState(${index}, 'qty', this.value)" style="width: 60px; text-align: center; border: 1px solid #ccc; border-radius: 15px; padding: 4px; outline: none;">
                 </td>
-                <td style="text-align:right;">
-                    <input type="text" value="${window.formatCurrency(item.cost)}" oninput="formatCurrency(this); updateIOItemState(${index}, 'cost', window.parseCurrency(this.value))" style="width: 90px; text-align: right; border: 1px solid #ccc; border-radius: 15px; padding: 4px; outline: none;">
-                </td>
+<td style="text-align:right; white-space: nowrap;">
+    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px;">
+        <input type="text" value="${window.formatCurrency(item.cost)}" oninput="formatCurrency(this); updateIOItemState(${index}, 'cost', window.parseCurrency(this.value))" style="width: 90px; text-align: right; border: 1px solid #ccc; border-radius: 15px; padding: 4px; outline: none;">
+        <i class="fa-solid fa-pen-to-square" style="color: var(--kv-blue); cursor: pointer; font-size: 14px;" onclick="openEditProductModal('${item.productId}')" title="Sửa nhanh thông tin danh mục (Tên, Giá bán...)"></i>
+    </div>
+</td>
                 <td style="text-align:right;">
                     <input type="text" value="${window.formatCurrency(item.discount)}" oninput="formatCurrency(this); updateIOItemState(${index}, 'discount', window.parseCurrency(this.value))" style="width: 80px; text-align: right; border: 1px solid #ccc; border-radius: 15px; padding: 4px; outline: none;">
                 </td>
