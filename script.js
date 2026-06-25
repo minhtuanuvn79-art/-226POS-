@@ -2839,27 +2839,41 @@ window.toggleImportDetail = function(id) {
 };
 
 window.openCreateImportView = function(editId = null) {
-    // 1. Reset dữ liệu cũ trước khi mở màn hình, ép đồng bộ biến toàn cục
+    // 1. Reset dữ liệu cũ trước khi mở màn hình
     currentIOItems = []; 
     window.currentIOItems = currentIOItems; 
     editingIOId = editId;
 
-    // 2. Hiện màn hình tạo phiếu, ẩn danh sách
-    document.getElementById('import-order-view').style.display = 'flex';
+    // 2. Hiện màn hình tạo/sửa phiếu
+    const ioView = document.getElementById('import-order-view');
+    if (ioView) ioView.style.display = 'flex';
+    
     const creatorEl = document.getElementById('io-creator-name');
-    if(creatorEl && typeof currentUser !== 'undefined' && currentUser) {
+    if (creatorEl && typeof currentUser !== 'undefined' && currentUser) {
         creatorEl.innerText = currentUser.fullname;
     }
+    
     const timeEl = document.getElementById('io-current-time');
-    if(timeEl) timeEl.value = new Date().toLocaleString('vi-VN');
+    if (timeEl) timeEl.value = new Date().toLocaleString('vi-VN');
+
+    // TÌM ĐÚNG NÚT DỰA VÀO CHỮ 'temp' VÀ 'done' (Khớp với index.html)
+    let btnSaveDraft = null;
+    let btnComplete = null;
+    if (ioView) {
+        const buttons = ioView.querySelectorAll('button');
+        buttons.forEach(btn => {
+            const attr = btn.getAttribute('onclick') || '';
+            // Đã sửa 'draft' thành 'temp' ở dòng dưới đây
+            if (attr.includes("'temp'")) btnSaveDraft = btn; 
+            if (attr.includes("'done'")) btnComplete = btn;
+        });
+    }
 
     if (editId) {
-        // TRƯỜNG HỢP SỬA: Tìm phiếu trong kho dữ liệu
         const allImps = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
         const found = allImps.find(x => x.id === editId);
 
         if (found) {
-            // Đổ dữ liệu header
             document.getElementById('io-code').value = found.id;
             document.getElementById('io-supplier').value = found.supplierName || '';
             document.getElementById('io-note').value = found.note || '';
@@ -2867,28 +2881,50 @@ window.openCreateImportView = function(editId = null) {
             const badge = document.getElementById('io-status-badge');
             if(badge) badge.innerText = found.status === 'done' ? 'Đã nhập hàng' : 'Phiếu tạm';
 
-            // Đổ dữ liệu tiền tệ
             document.getElementById('io-discount').value = (found.ioDiscount || 0).toLocaleString('vi-VN');
             document.getElementById('io-extra-fee').value = (found.ioExtraFee || 0).toLocaleString('vi-VN');
             document.getElementById('io-paid').value = (found.paid || 0).toLocaleString('vi-VN');
 
-            // Nạp danh sách hàng hóa (Clone sâu để tránh lỗi tham chiếu)
             currentIOItems = found.items ? JSON.parse(JSON.stringify(found.items)) : [];
-            window.currentIOItems = currentIOItems; // Backup đồng bộ ra môi trường Window
+            window.currentIOItems = currentIOItems; 
+
+            // ĐIỀU KHIỂN ẨN HIỆN NÚT
+            if (found.status === 'done') {
+                if (btnSaveDraft) btnSaveDraft.style.display = 'none'; // Đảm bảo ẩn nút Lưu tạm
+                if (btnComplete) {
+                    btnComplete.style.display = 'inline-block';
+                    btnComplete.innerHTML = '<i class="fa-solid fa-save"></i> Cập nhật phiếu';
+                }
+            } else if (found.status === 'cancel') {
+                if (btnSaveDraft) btnSaveDraft.style.display = 'none';
+                if (btnComplete) btnComplete.style.display = 'none';
+            } else {
+                if (btnSaveDraft) btnSaveDraft.style.display = 'inline-block';
+                if (btnComplete) {
+                    btnComplete.style.display = 'inline-block';
+                    btnComplete.innerHTML = '<i class="fa-solid fa-check"></i> Hoàn thành';
+                }
+            }
         }
     } else {
-        // TRƯỜNG HỢP TẠO MỚI
         document.getElementById('io-code').value = 'PN' + Date.now().toString().slice(-6);
         document.getElementById('io-supplier').value = '';
         document.getElementById('io-note').value = '';
+        
         const badge = document.getElementById('io-status-badge');
         if(badge) badge.innerText = 'Phiếu tạm';
+        
         document.getElementById('io-discount').value = '0';
         document.getElementById('io-extra-fee').value = '0';
         document.getElementById('io-paid').value = '0';
+
+        if (btnSaveDraft) btnSaveDraft.style.display = 'inline-block';
+        if (btnComplete) {
+            btnComplete.style.display = 'inline-block';
+            btnComplete.innerHTML = '<i class="fa-solid fa-check"></i> Hoàn thành';
+        }
     }
 
-    // Vẽ lại bảng hàng hóa và tính toán tiền
     if (typeof renderIOItemsTable === 'function') renderIOItemsTable();
 };
 function closeCreateImportView() {
@@ -3094,7 +3130,7 @@ window.removeIOItem = function(index) {
 };
 
 // Đổi đơn vị tính theo Index
-function changeIOUnit(index, unitIdx) {
+window.changeIOUnit = function(index, unitIdx) {
     const item = currentIOItems[index];
     if(item) {
         item.selectedUnitIdx = parseInt(unitIdx);
@@ -3183,9 +3219,13 @@ window.renderIOItemsTable = function() {
                 <td style="text-align: center; color: #888; width: 50px;">${index + 1}</td>
                 <td style="color: var(--kv-blue); font-weight: 500;">${item.code || ''}</td>
                 
-                <td style="color: #333; font-weight: 500;">${item.name || ''}</td>
+<td style="color: #333; font-weight: 500;">${item.name || ''}</td>
                 
-                <td>${item.unit || 'Cái'}</td>
+                <td>
+                    <select onchange="window.changeIOUnit(${index}, this.value)" style="width: 100px; padding: 5px; border: 1px solid #ddd; border-radius: 4px; outline: none; cursor: pointer;">
+                        ${item.units.map((u, idx) => `<option value="${idx}" ${item.selectedUnitIdx === idx ? 'selected' : ''}>${u.name}</option>`).join('')}
+                    </select>
+                </td>
                 <td style="text-align: center;">
                     <input type="number" value="${qty}" min="1" onchange="updateIOItemState(${index}, 'qty', this.value)" style="width: 70px; padding: 6px; border: 1px solid #ddd; border-radius: 4px; text-align: center; outline: none;">
                 </td>
@@ -3230,78 +3270,7 @@ function calculateIOTotals() {
     document.getElementById('io-must-pay').innerText = mustPay.toLocaleString('vi-VN');
     document.getElementById('io-debt').innerText = debt.toLocaleString('vi-VN');
 }
-window.saveImportOrder = function(action) {
-    // Đảm bảo lấy đúng mảng dữ liệu đang hiện trên màn hình
-    const itemsToSave = typeof currentIOItems !== 'undefined' ? currentIOItems : (window.currentIOItems || []);
 
-    if (itemsToSave.length === 0) { 
-        if (typeof showToast === 'function') showToast("Vui lòng chọn ít nhất 1 mặt hàng!", "warning");
-        else alert("Vui lòng chọn ít nhất 1 mặt hàng!");
-        return; 
-    }
-
-    let allImportOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
-    const totalAmountEl = document.getElementById('io-total-amount');
-    const totalAmount = parseFloat(totalAmountEl ? totalAmountEl.dataset.val : 0) || 0;
-    const ioId = document.getElementById('io-code').value;
-
-    const ioData = {
-        id: ioId,
-        branchId: sessionStorage.getItem('kv_current_branch') || 'CN001',
-        timestamp: editingIOId ? (allImportOrders.find(x => x.id === editingIOId)?.timestamp || Date.now()) : Date.now(),
-        createdAt: editingIOId ? (allImportOrders.find(x => x.id === editingIOId)?.createdAt || new Date().toLocaleString('vi-VN')) : new Date().toLocaleString('vi-VN'),
-        creator: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.fullname : 'Admin',
-        supplierName: document.getElementById('io-supplier').value.trim() || 'Nhà cung cấp lẻ',
-        status: action,
-        note: document.getElementById('io-note').value.trim(),
-        items: JSON.parse(JSON.stringify(itemsToSave)),
-        totalAmount: totalAmount,
-        ioDiscount: window.parseCurrency(document.getElementById('io-discount').value) || 0,
-        ioExtraFee: window.parseCurrency(document.getElementById('io-extra-fee').value) || 0,
-        paid: window.parseCurrency(document.getElementById('io-paid').value) || 0,
-        mustPay: totalAmount - (window.parseCurrency(document.getElementById('io-discount').value) || 0) + (window.parseCurrency(document.getElementById('io-extra-fee').value) || 0)
-    };
-
-    if (editingIOId) {
-        const idx = allImportOrders.findIndex(x => x.id === editingIOId);
-        if (idx !== -1) allImportOrders[idx] = ioData;
-    } else {
-        allImportOrders.unshift(ioData);
-    }
-
-    if (action === 'done') {
-        let latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-        itemsToSave.forEach(item => {
-            const prod = latestProducts.find(p => p.id === item.productId);
-            if (prod) {
-                const rate = (item.units && item.units[item.selectedUnitIdx]) ? (item.units[item.selectedUnitIdx].rate || 1) : 1;
-                const qtyInBaseUnit = item.qty * rate;
-                
-                prod.stock = (parseFloat(prod.stock) || 0) + qtyInBaseUnit;
-                prod.cost = item.cost / rate; 
-            }
-        });
-        localStorage.setItem('kv_products', JSON.stringify(latestProducts));
-        if (window.uploadToCloud) window.uploadToCloud('products', latestProducts);
-    }
-
-    localStorage.setItem('kv_import_orders', JSON.stringify(allImportOrders));
-    if (window.uploadToCloud) window.uploadToCloud('import_orders', allImportOrders);
-
-    // DỌN DẸP TRẠNG THÁI (TRÁNH KẸT)
-    currentIOItems = []; 
-    window.currentIOItems = [];
-    editingIOId = null; 
-
-    const ioView = document.getElementById('import-order-view');
-    if (ioView) ioView.style.display = 'none';
-
-    if (typeof renderImportOrders === 'function') renderImportOrders();
-    
-    const msg = action === 'done' ? "Nhập hàng thành công!" : "Đã lưu phiếu tạm.";
-    if (typeof showToast === 'function') showToast(msg, "success");
-    else alert(msg);
-};
 window.toggleICDateFilter = function() {
     const type = document.querySelector('input[name="ic-date-type"]:checked').value;
     document.getElementById('ic-date-custom-wrapper').style.display = (type === 'custom') ? 'flex' : 'none';
@@ -6750,49 +6719,147 @@ window.restoreIOState = function() {
     }
 };
 
-// --- BỌC CÁC HÀM CŨ LẠI ĐỂ CHÈN LỆNH LƯU/XÓA TRẠNG THÁI TỰ ĐỘNG ---
 
-const _origOpenIO = window.openCreateImportView;
-window.openCreateImportView = function(editId = null) {
-    if (_origOpenIO) _origOpenIO(editId);
-    saveIOState(); // Lưu trạng thái đánh dấu là đã mở bảng
-};
 
 window.closeCreateImportView = function() {
-    // 1. Kiểm tra xem trong phiếu đang có hàng hóa nào không
+    // 1. Kiểm tra xem đây có phải là phiếu cũ đã hoàn thành không
+    if (editingIOId) {
+        const allImps = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
+        const found = allImps.find(x => x.id === editingIOId);
+        // Nếu phiếu đã hoàn thành (done) -> Thoát thẳng lập tức, không cưỡng chế lưu tạm
+        if (found && found.status === 'done') {
+            document.getElementById('import-order-view').style.display = 'none';
+            currentIOItems = []; 
+            window.currentIOItems = [];
+            editingIOId = null;
+            if (typeof clearIOState === 'function') clearIOState();
+            return; 
+        }
+    }
+
+    // 2. Logic xử lý cho phiếu mới hoặc phiếu tạm thông thường
     const items = typeof currentIOItems !== 'undefined' ? currentIOItems : (window.currentIOItems || []);
-    
     if (items.length > 0) {
-        // 2. NẾU CÓ HÀNG: Thông báo và Cưỡng chế Lưu Tạm
         if (typeof showToast === 'function') {
             showToast("Hệ thống tự động Lưu Tạm do phiếu đang nhập dở!", "info");
         } else {
             alert("Hệ thống tự động Lưu Tạm do phiếu đang nhập dở!");
         }
         
-        // Gọi hàm lưu phiếu với trạng thái 'draft' (Lưu tạm)
-        // Hàm này sẽ tự lo việc lưu dữ liệu, xóa nháp F5 và đóng màn hình.
         if (typeof window.saveImportOrder === 'function') {
             window.saveImportOrder('draft');
         }
     } else {
-        // 3. NẾU PHIẾU TRỐNG TRƠN: Đóng bình thường không cần lưu
         const ioView = document.getElementById('import-order-view');
         if (ioView) ioView.style.display = 'none';
         
         currentIOItems = []; 
         window.currentIOItems = [];
-        
-        // Xóa luôn file nháp chống F5 vì phiếu không có gì
         if (typeof clearIOState === 'function') clearIOState();
     }
 };
 
 const _origSaveIO = window.saveImportOrder;
 window.saveImportOrder = function(action) {
-    if (_origSaveIO) _origSaveIO(action);
-    // Nếu lưu thành công, mảng hàng hóa sẽ bị dọn rỗng -> xóa bản nháp đi
-    if (currentIOItems.length === 0) clearIOState();
+    const itemsToSave = typeof currentIOItems !== 'undefined' ? currentIOItems : (window.currentIOItems || []);
+
+    if (itemsToSave.length === 0) { 
+        if (typeof showToast === 'function') showToast("Vui lòng chọn ít nhất 1 mặt hàng!", "warning");
+        else alert("Vui lòng chọn ít nhất 1 mặt hàng!");
+        return; 
+    }
+
+    let allImportOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
+    
+    // LỚP BẢO VỆ MỚI: Chỉ khóa nếu phiếu đã HỦY. Phiếu 'done' vẫn cho phép chạy xuống dưới để cập nhật.
+    if (editingIOId) {
+        const existingOrder = allImportOrders.find(x => x.id === editingIOId);
+        if (existingOrder && existingOrder.status === 'cancel') {
+            if (typeof showToast === 'function') showToast("Phiếu này đã bị hủy, không thể thay đổi!", "error");
+            else alert("Phiếu này đã bị hủy, không thể thay đổi!");
+            return; 
+        }
+    }
+
+    const totalAmountEl = document.getElementById('io-total-amount');
+    const totalAmount = parseFloat(totalAmountEl ? totalAmountEl.dataset.val : 0) || 0;
+    const ioId = document.getElementById('io-code').value;
+
+    const ioData = {
+        id: ioId,
+        branchId: sessionStorage.getItem('kv_current_branch') || 'CN001',
+        timestamp: editingIOId ? (allImportOrders.find(x => x.id === editingIOId)?.timestamp || Date.now()) : Date.now(),
+        createdAt: editingIOId ? (allImportOrders.find(x => x.id === editingIOId)?.createdAt || new Date().toLocaleString('vi-VN')) : new Date().toLocaleString('vi-VN'),
+        creator: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.fullname : 'Admin',
+        supplierName: document.getElementById('io-supplier').value.trim() || 'Nhà cung cấp lẻ',
+        status: action,
+        note: document.getElementById('io-note').value.trim(),
+        items: JSON.parse(JSON.stringify(itemsToSave)),
+        totalAmount: totalAmount,
+        ioDiscount: window.parseCurrency(document.getElementById('io-discount').value) || 0,
+        ioExtraFee: window.parseCurrency(document.getElementById('io-extra-fee').value) || 0,
+        paid: window.parseCurrency(document.getElementById('io-paid').value) || 0,
+        mustPay: totalAmount - (window.parseCurrency(document.getElementById('io-discount').value) || 0) + (window.parseCurrency(document.getElementById('io-extra-fee').value) || 0)
+    };
+
+    // LOGIC CẬP NHẬT TỒN KHO THÔNG MINH
+    if (action === 'done') {
+        let latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+
+        // BƯỚC QUAN TRỌNG NHẤT: Nếu sửa một phiếu đã HOÀN THÀNH trước đó, ta phải trừ ngược kho của dữ liệu cũ ra
+        if (editingIOId) {
+            const oldOrder = allImportOrders.find(x => x.id === editingIOId);
+            if (oldOrder && oldOrder.status === 'done') {
+                oldOrder.items.forEach(oldItem => {
+                    const prod = latestProducts.find(p => p.id === oldItem.productId);
+                    if (prod) {
+                        const oldRate = (oldItem.units && oldItem.units[oldItem.selectedUnitIdx]) ? (oldItem.units[oldItem.selectedUnitIdx].rate || 1) : 1;
+                        // Trả kho về trạng thái trước khi nhập phiếu này
+                        prod.stock = (parseFloat(prod.stock) || 0) - (oldItem.qty * oldRate);
+                    }
+                });
+            }
+        }
+
+        // BƯỚC TIẾP THEO: Cộng dồn số lượng mới từ phiếu vừa chỉnh sửa vào lại kho
+        itemsToSave.forEach(item => {
+            const prod = latestProducts.find(p => p.id === item.productId);
+            if (prod) {
+                const rate = (item.units && item.units[item.selectedUnitIdx]) ? (item.units[item.selectedUnitIdx].rate || 1) : 1;
+                const qtyInBaseUnit = item.qty * rate;
+                
+                prod.stock = (parseFloat(prod.stock) || 0) + qtyInBaseUnit;
+                prod.cost = item.cost / rate; 
+            }
+        });
+        localStorage.setItem('kv_products', JSON.stringify(latestProducts));
+        if (window.uploadToCloud) window.uploadToCloud('products', latestProducts);
+    }
+
+    // Ghi đè hoặc chèn mới vào danh sách phiếu nhập
+    if (editingIOId) {
+        const idx = allImportOrders.findIndex(x => x.id === editingIOId);
+        if (idx !== -1) allImportOrders[idx] = ioData;
+    } else {
+        allImportOrders.unshift(ioData);
+    }
+
+    localStorage.setItem('kv_import_orders', JSON.stringify(allImportOrders));
+    if (window.uploadToCloud) window.uploadToCloud('import_orders', allImportOrders);
+
+    // DỌN DẸP TRẠNG THÁI GIAO DIỆN
+    currentIOItems = []; 
+    window.currentIOItems = [];
+    editingIOId = null; 
+
+    const ioView = document.getElementById('import-order-view');
+    if (ioView) ioView.style.display = 'none';
+
+    if (typeof renderImportOrders === 'function') renderImportOrders();
+    
+    const msg = action === 'done' ? "Cập nhật phiếu và tồn kho thành công!" : "Đã lưu phiếu tạm.";
+    if (typeof showToast === 'function') showToast(msg, "success");
+    else alert(msg);
 };
 
 const _origAddIO = window.addIOToList;
