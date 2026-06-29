@@ -189,14 +189,13 @@
         <div class="kv-navbar">
             <ul class="nav-links">
                 <li class="nav-item active" onclick="openDashTab('tab-tong-quan', this)">Tổng quan</li>
-                <li class="nav-item">
+ <li class="nav-item">
     Hàng hóa <i class="fa-solid fa-caret-down" style="margin-left: 5px; font-size: 12px;"></i>
     <ul class="dropdown-menu">
         <li onclick="openDashTab('tab-danh-sach-hang', this.parentElement.parentElement)">Danh sách hàng hóa</li>
         <li onclick="openDashTab('tab-thiet-lap-gia', this.parentElement.parentElement)">Thiết lập giá</li>
-        
         <li onclick="openDashTab('tab-cap-nhat-hang', this.parentElement.parentElement)">Cập nhật hàng loạt</li>
-        
+        <li onclick="openDashTab('tab-phat-hien-trung', this.parentElement.parentElement)">Phát hiện trùng tên</li>
         <li onclick="openDashTab('tab-kiem-kho', this.parentElement.parentElement)">Kiểm kho</li>
     </ul>
 </li>
@@ -436,20 +435,18 @@
         <div class="list-sidebar">
             <h3 style="font-size: 16px; margin-bottom: 15px;">Cập nhật hàng loạt</h3>
             
-            <div class="filter-block">
-                <div class="filter-title">Chọn thông tin cần sửa <span style="color:red">*</span></div>
-                <select id="batch-update-attr" class="filter-select" onchange="window.currentUpdatePage = 1; window.pendingBatchUpdates = {}; renderBatchUpdateTable()">
-    <option value="code_and_barcode">Mã hàng & Mã vạch (Sửa song song)</option>
-    
-    <option value="name">Tên hàng hóa</option>
-    <option value="code">Mã hàng hóa (Chỉ mã)</option>
-    <option value="barcode">Mã vạch (Chỉ vạch)</option>
-    <option value="group">Nhóm hàng</option>
-    <option value="cost">Giá vốn</option>
-    <option value="stock">Tồn kho</option>
-</select>
-                <p style="font-size: 12px; color: #888; margin-top: 10px;">Lưu ý: Chỉ cập nhật những dòng bạn có gõ dữ liệu mới.</p>
-            </div>
+<div class="filter-block">
+    <div class="filter-title">Chọn thông tin cần sửa <span style="color:red">*</span></div>
+    <select id="batch-update-attr" class="filter-select" onchange="window.currentUpdatePage = 1; window.pendingBatchUpdates = {}; renderBatchUpdateTable()">
+        <option value="code_and_barcode">Mã hàng & Mã vạch (Sửa song song)</option>
+        <option value="name">Tên hàng hóa</option>
+        <option value="code">Mã hàng hóa (Chỉ mã)</option>
+        <option value="barcode">Mã vạch (Chỉ vạch)</option>
+        <option value="group">Nhóm hàng</option>
+        <option value="stock">Tồn kho</option>
+    </select>
+    <p style="font-size: 12px; color: #888; margin-top: 10px;">Lưu ý: Chỉ cập nhật những dòng bạn có gõ dữ liệu mới.</p>
+</div>
         </div>
 
         <div class="list-main">
@@ -477,7 +474,49 @@
     </div>
 </div>
             </div>
-
+<div id="tab-phat-hien-trung" class="tab-section">
+    <div class="list-layout">
+        <div class="list-main">
+            <div class="list-toolbar" style="background: #fff3cd; border-bottom: 1px solid #ffeeba; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 10px; color: #856404;">
+                    <i class="fa-solid fa-triangle-exclamation" style="font-size: 20px;"></i>
+                    <div>
+                        <h3 style="font-size: 15px; margin: 0;">Phát hiện Hàng hóa Trùng tên</h3>
+                        <span style="font-size: 12px;">Hệ thống sẽ gom nhóm các mặt hàng có tên giống nhau để bạn dễ dàng xóa hoặc sửa lại.</span>
+                    </div>
+                </div>
+                <div class="action-btn-group">
+                    <button class="primary" style="background: #e0a800; border: none; color: white;" onclick="window.scanDuplicateProducts()">
+                        <i class="fa-solid fa-magnifying-glass"></i> Quét tìm trùng lặp
+                    </button>
+                </div>
+            </div>
+            
+            <div class="kv-table-wrapper">
+                <table class="kv-table" id="duplicate-products-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align: center; width: 60px;">STT</th>
+                            <th style="text-align: left;">Mã hàng</th>
+                            <th style="text-align: left;">Tên hàng</th>
+                            <th style="text-align: left;">Nhóm hàng</th>
+                            <th style="text-align: right;">Giá bán</th>
+                            <th style="text-align: center;">Thao tác</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="6" style="text-align:center; padding: 40px; color: #888;">
+                                <i class="fa-solid fa-boxes-stacked" style="font-size: 30px; color: #ddd; margin-bottom: 15px; display: block;"></i>
+                                Bấm "Quét tìm trùng lặp" để kiểm tra kho hàng của bạn
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
 <div id="tab-hoa-don" class="tab-section">
                 <div class="list-layout">
                     <div class="list-sidebar">
@@ -1449,6 +1488,49 @@
         <div class="modal-footer" style="text-align: right; margin-top: 20px;">
             <button class="btn-secondary" onclick="closeModal('product-modal')">Bỏ qua</button>
             <button class="btn-primary" onclick="saveProduct()">Lưu dữ liệu</button>
+        </div>
+    </div>
+</div>
+<div id="tab-phat-hien-trung" class="tab-section">
+    <div class="list-layout">
+        <div class="list-main">
+            <div class="list-toolbar" style="background: #fff3cd; border-bottom: 1px solid #ffeeba; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 10px; color: #856404;">
+                    <i class="fa-solid fa-triangle-exclamation" style="font-size: 20px;"></i>
+                    <div>
+                        <h3 style="font-size: 15px; margin: 0;">Phát hiện Hàng hóa Trùng tên</h3>
+                        <span style="font-size: 12px;">Hệ thống sẽ gom nhóm các mặt hàng có tên giống nhau (Không phân biệt viết hoa/thường) để bạn dễ dàng xóa hoặc sửa lại.</span>
+                    </div>
+                </div>
+                <div class="action-btn-group">
+                    <button class="primary" style="background: #e0a800; border: none;" onclick="window.scanDuplicateProducts()">
+                        <i class="fa-solid fa-magnifying-glass"></i> Quét tìm trùng lặp
+                    </button>
+                </div>
+            </div>
+            
+            <div class="kv-table-wrapper">
+                <table class="kv-table" id="duplicate-products-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align: center; width: 60px;">STT</th>
+                            <th style="text-align: left;">Mã hàng</th>
+                            <th style="text-align: left;">Tên hàng</th>
+                            <th style="text-align: left;">Nhóm hàng</th>
+                            <th style="text-align: right;">Giá bán</th>
+                            <th style="text-align: center;">Thao tác</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="6" style="text-align:center; padding: 40px; color: #888;">
+                                <i class="fa-solid fa-boxes-stacked" style="font-size: 30px; color: #ddd; margin-bottom: 15px; display: block;"></i>
+                                Bấm "Quét tìm trùng lặp" để kiểm tra kho hàng của bạn
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>

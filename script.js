@@ -666,29 +666,32 @@ function openDashTab(tabId, navElement = null) {
         targetTab.classList.add('active');
     }
 
-    // 1. Đọc dữ liệu mới nhất từ bộ nhớ cục bộ
+    // Đọc dữ liệu mới nhất từ bộ nhớ cục bộ
     window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
     window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
     window.productGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
 
-    // 2. GỌI HÀM QUÉT DỌN DẸP HÀNG HÓA VÔ CHỦ NGAY TẠI ĐÂY (TRƯỚC KHI VẼ GIAO DIỆN)
-    if (typeof window.autoAssignUnassignedProducts === 'function') {
-        window.autoAssignUnassignedProducts();
-    }
-
-    // 3. Phân luồng vẽ giao diện tùy thuộc vào tab đang được mở
+    // Phân luồng vẽ giao diện
     switch (tabId) {
         case 'tab-danh-sach-hang': 
-            // Cập nhật lại cây nhóm hàng (Sidebar, Dropdown thêm/sửa)
             if (typeof window.renderGroupData === 'function') window.renderGroupData();
             if (typeof renderProductList === 'function') renderProductList(); 
             break;
             
         case 'tab-thiet-lap-gia': 
-            // Cập nhật lại cây nhóm hàng cho thiết lập giá
             if (typeof window.renderGroupData === 'function') window.renderGroupData();
             if (typeof renderPriceBookSidebar === 'function') renderPriceBookSidebar(); 
             if (typeof renderPriceSetupTable === 'function') renderPriceSetupTable(); 
+            break;
+            
+        case 'tab-cap-nhat-hang': 
+            window.currentUpdatePage = 1;
+            window.pendingBatchUpdates = {};
+            if (typeof renderBatchUpdateTable === 'function') renderBatchUpdateTable();
+            break;
+
+        case 'tab-phat-hien-trung': // TAB MỚI ĐÃ ĐƯỢC THÊM VÀO ĐÂY
+            if (typeof window.scanDuplicateProducts === 'function') window.scanDuplicateProducts();
             break;
             
         case 'tab-hoa-don': 
@@ -1054,7 +1057,7 @@ function closeAddProductModal() {
 // =================================================================
 // CẬP NHẬT: Đưa hàm mở modal sửa hàng hóa lên phạm vi toàn cục và sửa lỗi che khuất
 // =================================================================
-window.openEditProductModal = function(id) {
+window.openEditProductModal = function(id, ioItemIndex = null) {
     // 1. Gán ID đang chỉnh sửa vào biến toàn cục
     editingProductId = id;
 
@@ -1112,10 +1115,22 @@ window.openEditProductModal = function(id) {
             pmGroupDisplay.style.fontWeight = 'normal';
         }
     }
-    
+
     document.getElementById('pm-stock').value = p.stock || 0;
     document.getElementById('pm-sell-direct').checked = p.sellDirect;
-    document.getElementById('pm-cost').value = (p.cost || 0).toLocaleString('vi-VN');
+    
+    // ==========================================
+    // TÍNH TOÁN GIÁ VỐN ƯU TIÊN LẤY TỪ PHIẾU NHẬP
+    // ==========================================
+    let finalCost = p.cost || 0;
+    // Nếu được gọi từ màn hình phiếu nhập, ưu tiên lấy giá đang chỉnh sửa trên lưới
+    if (ioItemIndex !== null && typeof currentIOItems !== 'undefined' && currentIOItems[ioItemIndex]) {
+        const ioItem = currentIOItems[ioItemIndex];
+        const rate = ioItem.units && ioItem.units[ioItem.selectedUnitIdx] ? (ioItem.units[ioItem.selectedUnitIdx].rate || 1) : 1;
+        finalCost = (ioItem.cost || 0) / rate; // Trả về giá vốn của đơn vị cơ bản
+    }
+    
+    document.getElementById('pm-cost').value = finalCost.toLocaleString('vi-VN');
     
     const displayPrice = (p.units && p.units.length > 0) ? p.units[0].price : p.price;
     document.getElementById('pm-price').value = (displayPrice || 0).toLocaleString('vi-VN');
@@ -1124,7 +1139,7 @@ window.openEditProductModal = function(id) {
     const modalProduct = document.getElementById('add-product-modal');
     if (modalProduct) {
         modalProduct.style.display = 'flex';
-        modalProduct.style.zIndex = '99999'; // Đảm bảo nổi hẳn lên trên màn hình phiếu nhập hàng
+        modalProduct.style.zIndex = '99999';
     }
     
     // Tự động focus và bôi đen ô tên hàng để tiện chỉnh sửa
@@ -3231,7 +3246,7 @@ window.renderIOItemsTable = function() {
                 </td>
                 <td style="text-align: right; white-space: nowrap;">
                     <input type="text" value="${formatVal(cost)}" oninput="formatCurrency(this); updateIOItemState(${index}, 'cost', window.parseCurrency(this.value))" style="width: 100px; padding: 6px; border: 1px solid #ddd; border-radius: 4px; text-align: right; outline: none;">
-                    <i class="fa-solid fa-pen-to-square" style="color: var(--kv-blue); cursor: pointer; margin-left: 8px;" onclick="openEditProductModal('${item.productId}')" title="Sửa chi tiết hàng hóa"></i>
+                    <i class="fa-solid fa-pen-to-square" style="color: var(--kv-blue); cursor: pointer; margin-left: 8px;" onclick="openEditProductModal('${item.productId}', ${index})" title="Sửa chi tiết hàng hóa"></i>
                 </td>
                 <td style="text-align: right;">
                     <input type="text" value="${formatVal(discount)}" oninput="formatCurrency(this); updateIOItemState(${index}, 'discount', window.parseCurrency(this.value))" style="width: 80px; padding: 6px; border: 1px solid #ddd; border-radius: 4px; text-align: right; outline: none;">
@@ -5570,15 +5585,90 @@ window.currentUpdatePage = 1;
 window.pendingBatchUpdates = {}; 
 
 const originalOpenDashTab = window.openDashTab;
+// ==========================================
+// HÀM CHUYỂN ĐỔI GIỮA CÁC TAB QUẢN LÝ
+// ==========================================
+// ==========================================
+// HÀM CHUYỂN ĐỔI GIỮA CÁC TAB QUẢN LÝ (BẢN CHUẨN - ĐÃ HỢP NHẤT)
+// ==========================================
 window.openDashTab = function(tabId, navElement = null) {
-    originalOpenDashTab(tabId, navElement);
-    if (tabId === 'tab-cap-nhat-hang') {
-        window.currentUpdatePage = 1;
-        window.pendingBatchUpdates = {}; 
-        renderBatchUpdateTable();
+    // 1. Lưu trạng thái tab hiện tại vào LocalStorage để khi F5 không bị văng ra trang chủ
+    localStorage.setItem('kv_current_tab', tabId);
+
+    // 2. Xóa class 'active' ở tất cả menu và thêm vào menu được click
+    const allNavItems = document.querySelectorAll('.nav-item');
+    allNavItems.forEach(nav => nav.classList.remove('active'));
+    if (navElement) {
+        navElement.classList.add('active');
+    }
+
+    // 3. Ẩn toàn bộ các tab đang mở
+    const allTabs = document.querySelectorAll('.tab-section');
+    allTabs.forEach(tab => {
+        tab.style.display = 'none';
+        tab.classList.remove('active');
+    });
+
+    // 4. Hiển thị tab được yêu cầu
+    const targetTab = document.getElementById(tabId);
+    if (targetTab) {
+        targetTab.style.display = 'block'; // Nếu layout bị lệch, bạn có thể đổi thành 'flex'
+        targetTab.classList.add('active');
+    }
+
+    // 5. Quét dọn hàng hóa vô chủ (Chống lỗi dữ liệu rác)
+    if (typeof window.autoAssignUnassignedProducts === 'function') {
+        window.autoAssignUnassignedProducts();
+    }
+
+    // 6. Xử lý logic tải dữ liệu cực chuẩn cho TỪNG TAB khi vừa mở lên
+    switch (tabId) {
+        case 'tab-danh-sach-hang':
+            window.currentProductPage = 1; 
+            if (typeof window.renderGroupData === 'function') window.renderGroupData();
+            if (typeof window.renderProductList === 'function') window.renderProductList();
+            break;
+            
+        case 'tab-thiet-lap-gia':
+            if (typeof window.renderGroupData === 'function') window.renderGroupData();
+            if (typeof window.renderPriceBookSidebar === 'function') window.renderPriceBookSidebar();
+            if (typeof window.renderPriceSetupTable === 'function') window.renderPriceSetupTable();
+            break;
+            
+        case 'tab-cap-nhat-hang':
+            window.currentUpdatePage = 1;
+            window.pendingBatchUpdates = {};
+            if (typeof window.renderBatchUpdateTable === 'function') window.renderBatchUpdateTable();
+            break;
+            
+        case 'tab-phat-hien-trung':
+            // [ĐÃ FIX] Sử dụng window. để đảm bảo luôn gọi được hàm quét trùng lặp
+            if (typeof window.scanDuplicateProducts === 'function') window.scanDuplicateProducts();
+            break;
+
+        case 'tab-hoa-don': 
+            if (typeof window.renderInvoices === 'function') window.renderInvoices(); 
+            break;
+
+        case 'tab-nhap-hang':
+            if (typeof window.restoreIOState === 'function') window.restoreIOState();
+            if (typeof window.renderImportOrders === 'function') window.renderImportOrders();
+            break;
+
+        case 'tab-kiem-kho':
+            // [ĐÃ FIX] Sửa lỗi sai tên hàm (Thêm chữ "s" vào hàm renderInventoryChecks)
+            if (typeof window.renderInventoryChecks === 'function') window.renderInventoryChecks();
+            break;
+            
+        case 'tab-tong-quan':
+            if (typeof window.renderDashboard === 'function') window.renderDashboard();
+            break;
+            
+        default:
+            console.log("Đã mở tab: " + tabId);
+            break;
     }
 };
-
 window.renderBatchUpdateTable = function() {
     const tbody = document.querySelector('#batch-update-table tbody');
     const thead = document.querySelector('#batch-update-table thead');
@@ -5595,8 +5685,8 @@ window.renderBatchUpdateTable = function() {
         );
     }
 
-    // 2. Phân trang
-    const itemsPerPage = 20;
+    // 2. Phân trang (100 món/trang)
+    const itemsPerPage = 100; 
     window.currentUpdatePage = window.currentUpdatePage || 1;
     let totalPages = Math.ceil(products.length / itemsPerPage) || 1;
     if (window.currentUpdatePage > totalPages) window.currentUpdatePage = totalPages;
@@ -5605,7 +5695,7 @@ window.renderBatchUpdateTable = function() {
     const end = start + itemsPerPage;
     const displayList = products.slice(start, end);
 
-    // 3. RENDER HEADER (Đã bổ sung cột Ngôi sao)
+    // 3. RENDER HEADER
     let thHtml = '';
     if (attr === 'code_and_barcode') {
         thHtml = `
@@ -5623,8 +5713,7 @@ window.renderBatchUpdateTable = function() {
         else if (attr === 'code') attrName = "Mã hàng hóa";
         else if (attr === 'barcode') attrName = "Mã vạch";
         else if (attr === 'group') attrName = "Nhóm hàng";
-        else if (attr === 'cost') attrName = "Giá vốn";
-        else if (attr === 'stock') attrName = "Tồn kho";
+        else if (attr === 'stock') attrName = "Tồn kho"; // Đã loại bỏ điều kiện của cost tại đây
 
         thHtml = `
             <tr>
@@ -5638,7 +5727,7 @@ window.renderBatchUpdateTable = function() {
     }
     thead.innerHTML = thHtml;
 
-    // 4. RENDER BODY (Đã bổ sung cột Ngôi sao)
+    // 4. RENDER BODY
     let tbHtml = '';
     if (displayList.length === 0) {
         tbHtml = `<tr><td colspan="5" style="text-align: center; padding: 30px; color: #888;">Không tìm thấy hàng hóa phù hợp.</td></tr>`;
@@ -5648,13 +5737,11 @@ window.renderBatchUpdateTable = function() {
             window.pendingBatchUpdates = window.pendingBatchUpdates || {};
             const edits = window.pendingBatchUpdates[p.id] || {};
 
-            // Ô chứa Ngôi sao và STT
             const starSttHtml = `
                 <td style="text-align: center;"><i class="fa-regular fa-star star-mark" onclick="toggleRowStar(this)"></i></td>
                 <td style="text-align: center; color: #888;">${stt}</td>
             `;
 
-            // Logic cập nhật dữ liệu tự động cực kỳ an toàn
             const updateJS = `window.pendingBatchUpdates['${p.id}'] = window.pendingBatchUpdates['${p.id}'] || {}; window.pendingBatchUpdates['${p.id}']`;
 
             if (attr === 'code_and_barcode') {
@@ -5671,9 +5758,10 @@ window.renderBatchUpdateTable = function() {
             } else if (attr === 'group') {
                 let vGroup = edits.group !== undefined ? edits.group : (p.group || '');
                 let groupOptions = `<option value="">-- Chọn nhóm --</option>`;
-                let allGrps = window.allGroups || window.groups || [];
+                
+                let allGrps = window.productGroups || JSON.parse(localStorage.getItem('kv_groups')) || [];
                 allGrps.forEach(g => {
-                    groupOptions += `<option value="${g.id}" ${vGroup === g.id ? 'selected' : ''}>${g.name}</option>`;
+                    groupOptions += `<option value="${g.id}" ${String(vGroup) === String(g.id) ? 'selected' : ''}>${g.name}</option>`;
                 });
 
                 tbHtml += `
@@ -5686,7 +5774,7 @@ window.renderBatchUpdateTable = function() {
                 `;
             } else {
                 let vAttr = edits[attr] !== undefined ? edits[attr] : (p[attr] !== undefined ? p[attr] : '');
-                let inputType = (attr === 'cost' || attr === 'stock') ? 'number' : 'text';
+                let inputType = (attr === 'stock') ? 'number' : 'text'; // Chỉ còn thuộc tính stock sử dụng kiểu number
                 
                 tbHtml += `
                     <tr style="border-bottom: 1px dashed #eee;">
@@ -5704,15 +5792,7 @@ window.renderBatchUpdateTable = function() {
     // 5. Render Phân trang
     const paginationContainer = document.getElementById('update-pagination');
     if (paginationContainer) {
-        if (typeof renderPagination === 'function') {
-            renderPagination('update-pagination', totalPages, window.currentUpdatePage, 'changeBatchUpdatePage');
-        } else {
-            let pageHtml = '';
-            for (let i = 1; i <= totalPages; i++) {
-                pageHtml += `<button onclick="window.currentUpdatePage=${i}; renderBatchUpdateTable()" style="padding: 5px 10px; margin: 0 2px; border: 1px solid #ddd; border-radius: 3px; background: ${i === window.currentUpdatePage ? 'var(--kv-blue)' : 'white'}; color: ${i === window.currentUpdatePage ? 'white' : '#333'}; cursor: pointer;">${i}</button>`;
-            }
-            paginationContainer.innerHTML = pageHtml;
-        }
+        window.renderPaginationControls('update-pagination', window.currentUpdatePage, totalPages, 'changeUpdatePage');
     }
 };
 
@@ -6916,4 +6996,83 @@ window.toggleIOStar = function(index, element) {
             window.saveIOState();
         }
     }
+};
+// ==========================================
+// TÍNH NĂNG: QUÉT PHÁT HIỆN TRÙNG TÊN SẢN PHẨM
+// ==========================================
+window.scanDuplicateProducts = function() {
+    const tbody = document.querySelector('#duplicate-products-table tbody');
+    if (!tbody) return;
+
+    const allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    
+    // Chỉ lọc các sản phẩm thuộc chi nhánh hiện tại
+    const branchProducts = allProducts.filter(p => (p.branchId || 'CN001') === currentBranch);
+    
+    const nameGroups = {};
+    branchProducts.forEach(p => {
+        let cleanName = (p.name || '').trim().toLowerCase();
+        
+        // Khử dấu tiếng Việt
+        if (typeof window.removeVietnameseTones === 'function') {
+            cleanName = window.removeVietnameseTones(cleanName);
+        }
+
+        if (!cleanName) return; 
+
+        if (!nameGroups[cleanName]) {
+            nameGroups[cleanName] = [];
+        }
+        nameGroups[cleanName].push(p);
+    });
+
+    const duplicateGroups = Object.values(nameGroups).filter(group => group.length > 1);
+
+    if (duplicateGroups.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" style="text-align:center; padding: 40px; color: #28a745;">
+                    <i class="fa-solid fa-circle-check" style="font-size: 30px; margin-bottom: 15px; display: block;"></i>
+                    Tuyệt vời! Không phát hiện mặt hàng nào bị trùng tên trong chi nhánh này.
+                </td>
+            </tr>`;
+        return;
+    }
+
+    let html = '';
+    let stt = 1;
+    const allGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+
+    duplicateGroups.forEach((group, groupIndex) => {
+        const displayOrigName = group[0].name || "Tên trống";
+        html += `
+            <tr style="background: #fff8e5;">
+                <td colspan="6" style="font-weight: bold; color: #b58900; font-size: 13px; padding-top: 15px;">
+                    <i class="fa-solid fa-link" style="margin-right: 5px;"></i> Nhóm ${groupIndex + 1}: Phát hiện ${group.length} mặt hàng giống tên "${displayOrigName}"
+                </td>
+            </tr>`;
+        
+        group.forEach(p => {
+            const groupObj = allGroups.find(g => g.id === p.group);
+            const groupName = groupObj ? groupObj.name : 'Chưa phân nhóm';
+            const price = p.units && p.units.length > 0 ? p.units[0].price : p.price;
+
+            html += `
+                <tr style="border-bottom: 1px dashed #eee;">
+                    <td style="text-align: center; color: #888;">${stt++}</td>
+                    <td style="color: var(--kv-blue); font-weight: 600;">${p.code || '---'}</td>
+                    <td style="color: #d9534f; font-weight: 500;">${p.name}</td>
+                    <td style="color: #555;">${groupName}</td>
+                    <td style="text-align: right; font-weight: bold;">${(price || 0).toLocaleString('vi-VN')}</td>
+                    <td style="text-align: center;">
+                        <button onclick="openEditProductModal('${p.id}')" style="background: white; border: 1px solid #007bff; color: #007bff; padding: 4px 8px; border-radius: 4px; cursor: pointer; margin-right: 5px;"><i class="fa-solid fa-pen"></i> Sửa</button>
+                        <button onclick="deleteProduct('${p.id}', '${p.name}'); setTimeout(window.scanDuplicateProducts, 1000);" style="background: white; border: 1px solid #d9534f; color: #d9534f; padding: 4px 8px; border-radius: 4px; cursor: pointer;"><i class="fa-solid fa-trash"></i> Xóa</button>
+                    </td>
+                </tr>
+            `;
+        });
+    });
+
+    tbody.innerHTML = html;
 };
