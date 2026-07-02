@@ -34,7 +34,15 @@
                 <button class="btn-sell" onclick="handleLogin('sell')"><i class="fa-solid fa-cart-shopping"></i> Bán hàng</button>
             </div>
         </div>
-
+<!-- HỘP THOẠI CHỌN CHI NHÁNH KHI ĐĂNG NHẬP -->
+        <div id="login-branch-select-box" class="login-box" style="display: none; padding: 30px;">
+            <h3 style="color: var(--kv-blue); margin-bottom: 20px; text-align: center;">Chọn Chi Nhánh</h3>
+            <p style="font-size: 13px; color: #555; margin-bottom: 15px; text-align: center;">Tài khoản của bạn được phép truy cập nhiều chi nhánh.</p>
+            <div id="login-branch-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 200px; overflow-y: auto; margin-bottom: 20px;">
+                <!-- Danh sách chi nhánh sẽ được render vào đây -->
+            </div>
+            <button onclick="document.getElementById('login-branch-select-box').style.display='none'; document.querySelector('.login-box').style.display='block';" style="width: 100%; padding: 10px; background: #eee; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-bottom: 10px;">Quay lại</button>
+        </div>
     </div>
 
     <div id="auth-modal" class="modal-overlay">
@@ -50,15 +58,29 @@
     </div>
 
     <div id="admin-settings-view">
-        <div class="admin-sidebar">
-            <div class="admin-logo">Admin Panel</div>
-            <ul class="admin-menu">
-                <li id="menu-tab-list" class="active" onclick="switchAdminTab('list')"><i class="fa-solid fa-users"></i> Danh sách tài khoản</li>
-                <li id="menu-tab-branches" onclick="switchAdminTab('branches')"><i class="fa-solid fa-code-branch"></i> Quản lý chi nhánh</li>
-                <li id="menu-tab-create" onclick="switchAdminTab('create')"><i class="fa-solid fa-user-plus"></i> Tạo tài khoản mới</li>
-                <li onclick="logout()"><i class="fa-solid fa-arrow-left"></i> Quay lại đăng nhập</li>
-            </ul>
-        </div>
+<div class="admin-sidebar">
+    <div class="admin-logo">Admin Panel</div>
+    <ul class="admin-menu">
+        <li id="menu-tab-list" class="active" onclick="switchAdminTab('list')"><i class="fa-solid fa-users"></i> Danh sách tài khoản</li>
+        <li id="menu-tab-branches" onclick="switchAdminTab('branches')"><i class="fa-solid fa-code-branch"></i> Quản lý chi nhánh</li>
+        <li id="menu-tab-create" onclick="switchAdminTab('create')"><i class="fa-solid fa-user-plus"></i> Tạo tài khoản mới</li>
+        
+<!-- NÚT XÓA HÀNG HÓA THEO CHI NHÁNH -->
+        <li style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 15px; padding: 15px 20px; background: rgba(255,0,0,0.05);">
+            <div style="color: #ff6b6b; font-weight: bold; margin-bottom: 8px;">
+                <i class="fa-solid fa-triangle-exclamation"></i> Xóa Hàng & Bảng giá
+            </div>
+            <select id="delete-branch-select" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; font-size: 12px; color: #333; margin-bottom: 10px;">
+                <!-- Sẽ tự động nạp danh sách chi nhánh vào đây -->
+            </select>
+            <button onclick="clearProductsAndPricesByBranch()" style="width: 100%; padding: 8px; background: #d9534f; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
+                Thực hiện xóa
+            </button>
+        </li>
+        
+        <li onclick="logout()"><i class="fa-solid fa-arrow-left"></i> Quay lại đăng nhập</li>
+    </ul>
+</div>
         <div class="admin-content">
 <div class="admin-card" id="admin-tab-create" style="display: none;">
     <h3 style="margin-bottom: 20px; text-align: center;">Tạo Tài Khoản Nhân Viên</h3>
@@ -66,10 +88,10 @@
     <label>Họ và tên</label>
     <input type="text" id="new-fullname" placeholder="Nhập họ tên...">
     
+<!-- Thay thế select thành div -->
     <label>Phân vào chi nhánh công tác</label>
-    <select id="new-branch-id" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px;">
-        <!-- Dữ liệu chi nhánh sẽ được render tự động vào đây -->
-    </select>
+    <div id="new-branch-list-container" style="border: 1px solid #ccc; padding: 10px; border-radius: 4px; margin-bottom: 15px; max-height: 150px; overflow-y: auto;">
+    </div>
 
     <label>Tên đăng nhập</label>
     <input type="text" id="new-username" placeholder="Nhập tên đăng nhập...">
@@ -104,10 +126,14 @@
             </div>
 <!-- Tab Quản lý Chi nhánh -->
 <div class="admin-card" id="admin-tab-branches" style="display: none; max-width: 1000px; background: transparent; box-shadow: none; padding: 0;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
-        <h3 style="margin: 0; color: #333;"><i class="fa-solid fa-layer-group" style="color: var(--kv-blue); margin-right: 10px;"></i>Hệ thống Chi nhánh</h3>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
+    <h3 style="margin: 0; color: #333;"><i class="fa-solid fa-layer-group" style="color: var(--kv-blue); margin-right: 10px;"></i>Hệ thống Chi nhánh</h3>
+    <div>
+        <button class="btn-manage" onclick="openCopyBranchModal()" style="background: #f0ad4e; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-right: 10px; font-weight: bold;"><i class="fa-solid fa-copy"></i> Sao chép Hàng hóa</button>
+        
         <button class="btn-confirm" onclick="openBranchModal()" style="width: auto; padding: 10px 20px; border-radius: 6px;">+ Thêm chi nhánh mới</button>
     </div>
+</div>
 
     <div id="branch-grid-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
         </div>
@@ -165,9 +191,8 @@
             </select>
             <!-- Tìm chỗ chọn Quyền hạn trong modal này và dán thêm đoạn chọn Chi nhánh vào trên hoặc dưới nó -->
 <label style="font-size: 13px;">Chi nhánh công tác</label>
-<select id="edit-branch-id" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin: 5px 0 15px 0;">
-    <!-- Sẽ render tự động bằng JS -->
-</select>
+<div id="edit-branch-list-container" style="border: 1px solid #ccc; padding: 10px; border-radius: 4px; margin-bottom: 15px; max-height: 150px; overflow-y: auto;">
+</div>
             <div class="modal-btns">
                 <button class="btn-cancel" onclick="closeEditModal()">Hủy</button>
                 <button class="btn-confirm" style="background: #f0ad4e;" onclick="saveEditAccount()">Lưu thay đổi</button>
@@ -1572,6 +1597,34 @@
         
         <div style="padding: 15px; text-align: center; font-size: 14px; color: #555; background: #fafafa;">
             Hệ thống sẽ tự động quét và thêm vào giỏ hàng
+        </div>
+    </div>
+</div>
+<!-- Modal Sao Chép Hàng Hóa Giữa Các Chi Nhánh -->
+<div id="copy-branch-modal" class="modal-overlay" style="z-index: 10000; display: none;">
+    <div class="modal-box" style="width: 450px;">
+        <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee;">
+            <h3 style="margin: 0; color: #333; font-size: 16px;"><i class="fa-solid fa-copy" style="color: var(--kv-blue);"></i> Sao chép Dữ liệu</h3>
+            <i class="fa-solid fa-xmark" style="cursor: pointer; font-size: 18px; color: #888;" onclick="closeCopyBranchModal()"></i>
+        </div>
+        <div style="padding: 20px;">
+            <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Tính năng này sẽ nhân bản danh sách hàng hóa (kèm Đơn vị tính, Giá vốn, Giá bán và Bảng giá đa cột) sang chi nhánh mới.</p>
+            
+            <label style="font-size: 13px; font-weight: bold; margin-bottom: 5px; display: block;">Từ chi nhánh (Nguồn):</label>
+            <select id="copy-source-branch" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; outline: none;"></select>
+            
+            <label style="font-size: 13px; font-weight: bold; margin-bottom: 5px; display: block;">Đến chi nhánh (Đích):</label>
+            <select id="copy-target-branch" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; outline: none;"></select>
+            
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 25px; cursor: pointer; color: #d9534f;">
+                <input type="checkbox" id="copy-keep-stock" style="width: 16px; height: 16px; cursor: pointer;">
+                Giữ nguyên số lượng Tồn kho (Mặc định: Đưa tồn kho về 0)
+            </label>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn-cancel" onclick="closeCopyBranchModal()" style="padding: 10px 15px; border: 1px solid #ddd; background: #f9f9f9; border-radius: 4px; cursor: pointer;">Hủy</button>
+                <button class="btn-confirm" onclick="processCopyBranch()" style="padding: 10px 15px; border: none; background: #f0ad4e; color: white; border-radius: 4px; font-weight: bold; cursor: pointer;">Bắt đầu sao chép</button>
+            </div>
         </div>
     </div>
 </div>

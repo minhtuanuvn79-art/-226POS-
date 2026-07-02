@@ -147,6 +147,9 @@ function togglePassword() {
     p.type = p.type === 'password' ? 'text' : 'password';
 }
 
+// Biến tạm lưu thông tin đăng nhập trước khi chọn chi nhánh
+let tempLoginData = null;
+
 function handleLogin(type) {
     const u = document.getElementById('login-user').value.trim();
     const p = document.getElementById('login-pass').value.trim();
@@ -158,46 +161,90 @@ function handleLogin(type) {
         return; 
     }
 
-    // Đọc danh sách tài khoản mới nhất từ máy (đã bao gồm thông tin branchId)
     const latestAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || accounts;
     const user = latestAccounts.find(x => x && x.username === u && x.password === p);
 
     if (user) {
         err.style.display = 'none';
-        currentUser = user;
         
-        // LƯU TRẠNG THÁI ĐĂNG NHẬP VÀ CHI NHÁNH
-        localStorage.setItem('kv_current_user', JSON.stringify(currentUser));
-        // Lưu mã chi nhánh vào sessionStorage để dùng cho các bộ lọc dữ liệu
-        sessionStorage.setItem('kv_current_branch', user.branchId || 'CN001');
-        
-        if (type === 'manage') {
-            if (user.role === 'cashier') {
-                alert("Nhân viên Thu ngân không có quyền vào trang Quản lý."); 
-                return;
-            }
-            sessionStorage.setItem('kv_current_view', 'dashboard-view');
-            hideAll();
-            document.getElementById('dashboard-view').style.display = 'flex';
-            document.getElementById('dash-user-name').innerText = user.fullname;
-            
-            const savedTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
-            openDashTab(savedTab);
+        // Hỗ trợ cả dữ liệu cũ (branchId chuỗi) và mới (branchIds mảng)
+        let userBranches = user.branchIds || (user.branchId ? [user.branchId] : ['CN001']);
+
+        // Lưu thông tin tạm để dùng sau khi chọn chi nhánh
+        tempLoginData = { user, type, branches: userBranches };
+
+        if (userBranches.length > 1) {
+            // Hiển thị giao diện chọn chi nhánh
+            document.querySelector('.login-box').style.display = 'none';
+            document.getElementById('login-branch-select-box').style.display = 'block';
+            renderLoginBranchSelect(userBranches);
         } else {
-            sessionStorage.setItem('kv_current_view', 'pos-view');
-            hideAll();
-            document.getElementById('pos-view').style.display = 'flex';
-            const posSellerName = document.getElementById('pos-seller-name');
-            if (posSellerName) posSellerName.innerText = user.fullname;
-            
-            initPOSData(); // Khởi tạo dữ liệu bán hàng
+            // Đăng nhập luôn nếu chỉ có 1 chi nhánh
+            completeLogin(userBranches[0]);
         }
-        
-        showToast(`Chào mừng ${user.fullname} đã đăng nhập thành công!`, "success");
     } else {
         err.style.display = 'block';
         err.innerText = "Tên đăng nhập hoặc mật khẩu không đúng!";
     }
+}
+
+// Render danh sách nút bấm chi nhánh
+function renderLoginBranchSelect(allowedBranches) {
+    const listContainer = document.getElementById('login-branch-list');
+    const allBranches = JSON.parse(localStorage.getItem('kv_branches')) || [{ id: 'CN001', name: 'Chi nhánh 1' }];
+    
+    let html = '';
+    allowedBranches.forEach(bId => {
+        const b = allBranches.find(x => x.id === bId);
+        if (b) {
+            html += `<button onclick="completeLogin('${b.id}')" style="padding: 12px; background: white; border: 1px solid var(--kv-blue); color: var(--kv-blue); border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s;" onmouseover="this.style.background='var(--kv-blue)'; this.style.color='white'" onmouseout="this.style.background='white'; this.style.color='var(--kv-blue)'">
+                        ${b.name}
+                    </button>`;
+        }
+    });
+    listContainer.innerHTML = html;
+}
+
+// Hoàn tất quá trình đăng nhập sau khi đã xác định được chi nhánh
+function completeLogin(selectedBranchId) {
+    if (!tempLoginData) return;
+
+    const { user, type } = tempLoginData;
+    currentUser = user;
+    
+    localStorage.setItem('kv_current_user', JSON.stringify(currentUser));
+    sessionStorage.setItem('kv_current_branch', selectedBranchId); // Lưu chi nhánh đã chọn
+    
+    // Ẩn hộp thoại chọn chi nhánh (nếu có mở)
+    const selectBox = document.getElementById('login-branch-select-box');
+    if(selectBox) selectBox.style.display = 'none';
+    
+    // Đảm bảo hộp thoại login chính hiển thị lại cho lần sau
+    const loginBox = document.querySelector('.login-box');
+    if(loginBox) loginBox.style.display = 'block';
+
+    if (type === 'manage') {
+        if (user.role === 'cashier') {
+            alert("Nhân viên Thu ngân không có quyền vào trang Quản lý."); 
+            return;
+        }
+        sessionStorage.setItem('kv_current_view', 'dashboard-view');
+        hideAll();
+        document.getElementById('dashboard-view').style.display = 'flex';
+        document.getElementById('dash-user-name').innerText = user.fullname;
+        
+        const savedTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
+        openDashTab(savedTab);
+    } else {
+        sessionStorage.setItem('kv_current_view', 'pos-view');
+        hideAll();
+        document.getElementById('pos-view').style.display = 'flex';
+        
+        initPOSData(); 
+    }
+    
+    showToast(`Chào mừng ${user.fullname} đã đăng nhập!`, "success");
+    tempLoginData = null; // Xóa dữ liệu tạm
 }
 function logout() {
     currentUser = null;
@@ -320,9 +367,13 @@ window.renderBranchList = function() {
     const allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
     container.innerHTML = allBranches.map(br => {
-        // Đếm số nhân viên và số mặt hàng thuộc chi nhánh này
-        const staffCount = allAccounts.filter(acc => acc.branchId === br.id).length;
-        const productCount = allProducts.filter(p => p.branchId === br.id).length;
+        // [ĐÃ SỬA LỖI TẠI ĐÂY] Đếm số nhân viên có chứa mã chi nhánh này trong mảng branchIds
+        const staffCount = allAccounts.filter(acc => {
+            return (acc.branchIds && acc.branchIds.includes(br.id)) || (acc.branchId === br.id);
+        }).length;
+
+        // Đếm hàng hóa
+        const productCount = allProducts.filter(p => (p.branchId || 'CN001') === br.id).length;
 
         return `
             <div class="branch-item-card" onclick="viewBranchDetail('${br.id}', '${br.name}')">
@@ -386,8 +437,10 @@ window.renderBranchStaff = function(branchId) {
     const tbody = document.getElementById('branch-staff-table-body');
     const allAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || [];
     
-    // Lọc nhân viên thuộc chi nhánh này
-    const staff = allAccounts.filter(acc => acc.branchId === branchId);
+    // [ĐÃ SỬA LỖI TẠI ĐÂY] Lọc nhân viên có chứa mã chi nhánh trong mảng branchIds
+    const staff = allAccounts.filter(acc => {
+        return (acc.branchIds && acc.branchIds.includes(branchId)) || (acc.branchId === branchId);
+    });
 
     if (staff.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: #888;">Chưa có nhân viên nào tại chi nhánh này</td></tr>';
@@ -467,45 +520,46 @@ window.deleteBranch = function(id) {
     });
 };
 function createAccount() {
-    // 1. Lấy dữ liệu từ các ô nhập liệu
+    // 1. Lấy dữ liệu từ các ô nhập liệu cơ bản
     const fn = document.getElementById('new-fullname').value.trim();
     const un = document.getElementById('new-username').value.trim();
     const pw = document.getElementById('new-password').value.trim();
     const ro = document.getElementById('new-role').value;
-    const brId = document.getElementById('new-branch-id').value; // Lấy ID chi nhánh được chọn
 
-    // 2. Kiểm tra tính hợp lệ của dữ liệu
+    // 2. Lấy danh sách các chi nhánh được tích chọn (từ Checkbox)
+    const branchCbs = document.querySelectorAll('.new-branch-cb:checked');
+    const selectedBranches = Array.from(branchCbs).map(cb => cb.value);
+
+    // 3. Kiểm tra tính hợp lệ của dữ liệu
     if (!fn || !un || !pw) { 
         showToast("Vui lòng điền đầy đủ họ tên, tên đăng nhập và mật khẩu!", "warning"); 
         return; 
     }
     
-    if (!brId) {
-        showToast("Vui lòng chọn chi nhánh cho nhân viên này!", "warning");
+    if (selectedBranches.length === 0) {
+        showToast("Vui lòng chọn ít nhất 1 chi nhánh cho nhân viên này!", "warning");
         return;
     }
 
-    // Kiểm tra xem tên đăng nhập đã bị trùng chưa
+    // 4. Kiểm tra xem tên đăng nhập đã bị trùng chưa
     const existingAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || accounts;
-    if (existingAccounts.find(x => x.username === un)) { 
+    if (existingAccounts.find(x => x && x.username === un)) { 
         showToast("Tên đăng nhập này đã tồn tại trên hệ thống!", "error"); 
         return; 
     }
 
-    // 3. Tạo đối tượng tài khoản mới kèm theo mã chi nhánh
+    // 5. Tạo đối tượng tài khoản mới (Lưu chi nhánh dưới dạng mảng branchIds)
     const newAcc = { 
         fullname: fn, 
         username: un, 
         password: pw, 
         role: ro,
-        branchId: brId, // Gắn nhân viên vào chi nhánh đã chọn
+        branchIds: selectedBranches, // Lưu dạng mảng chứa nhiều mã: ['CN001', 'CN002']
         createdAt: new Date().toLocaleString('vi-VN')
     };
 
-    // 4. Lưu dữ liệu
+    // 6. Lưu dữ liệu vào biến và LocalStorage
     accounts.push(newAcc);
-    
-    // Lưu vào bộ nhớ máy (LocalStorage)
     localStorage.setItem('kv_accounts', JSON.stringify(accounts));
     
     // Đồng bộ lên hệ thống Cloud Firebase ngay lập tức
@@ -513,29 +567,38 @@ function createAccount() {
         window.uploadToCloud('accounts', accounts);
     }
 
-    // 5. Thông báo và làm sạch Form
-    showToast(`Đã tạo tài khoản cho ${fn} thuộc chi nhánh ${brId} thành công!`, "success");
+    // 7. Thông báo và làm sạch Form
+    showToast(`Đã tạo tài khoản cho ${fn} thành công!`, "success");
     
     document.getElementById('new-fullname').value = '';
     document.getElementById('new-username').value = '';
     document.getElementById('new-password').value = '';
     
-    // Quay lại danh sách để xem kết quả
+    // Reset lại toàn bộ checkbox chi nhánh
+    document.querySelectorAll('.new-branch-cb').forEach(cb => cb.checked = false);
+    
+    // 8. Quay lại tab danh sách tài khoản để xem kết quả
     switchAdminTab('list');
 }
-window.renderBranchSelectInAdmin = function() {
-    const select = document.getElementById('new-branch-id');
-    if (!select) return;
 
-    // Lấy danh sách chi nhánh mới nhất
+// Bổ sung để đảm bảo hàm có thể được gọi từ file HTML bằng onClick
+window.createAccount = createAccount;
+window.renderBranchSelectInAdmin = function() {
+    const container = document.getElementById('new-branch-list-container');
+    if (!container) return;
+
     const currentBranches = JSON.parse(localStorage.getItem('kv_branches')) || [];
     
-    let html = '<option value="">-- Chọn chi nhánh công tác --</option>';
+    let html = '';
     currentBranches.forEach(br => {
-        html += `<option value="${br.id}">${br.name} (${br.id})</option>`;
+        // [ĐÃ SỬA LỖI UI]: Thêm display:flex cho label và ép width/margin cho input
+        html += `<label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer; font-size: 14px; color: #333;">
+                    <input type="checkbox" class="new-branch-cb" value="${br.id}" style="width: 16px; height: 16px; margin: 0; margin-right: 10px; padding: 0;"> 
+                    ${br.name}
+                 </label>`;
     });
     
-    select.innerHTML = html;
+    container.innerHTML = html;
 };
 
 // Cập nhật hàm switchAdminTab để mỗi khi bấm sang tab "Tạo tài khoản" thì nạp lại chi nhánh mới nhất
@@ -583,22 +646,36 @@ window.deleteAccount = function(username) {
 };
 
 let userEditing = null;
-function openEditModal(username) {
+window.openEditModal = function(username) {
     userEditing = accounts.find(acc => acc && acc.username === username);
     if(!userEditing) return;
 
-    // Nạp danh sách chi nhánh vào ô chọn trong modal sửa
-    const brSelect = document.getElementById('edit-branch-id');
-    brSelect.innerHTML = branches.map(br => `<option value="${br.id}">${br.name}</option>`).join('');
+    // 1. Nạp danh sách chi nhánh vào dạng Checkbox
+    const container = document.getElementById('edit-branch-list-container');
+    const currentBranches = JSON.parse(localStorage.getItem('kv_branches')) || [];
+    
+    // Lấy mảng chi nhánh hiện tại của User
+    let userBranches = userEditing.branchIds || (userEditing.branchId ? [userEditing.branchId] : []);
+    
+    let html = '';
+    currentBranches.forEach(br => {
+        const isChecked = userBranches.includes(br.id) ? 'checked' : '';
+        // [ĐÃ SỬA LỖI UI]: Thêm display:flex cho label và ép width/margin cho input
+        html += `<label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer; font-size: 14px; color: #333;">
+                    <input type="checkbox" class="edit-branch-cb" value="${br.id}" ${isChecked} style="width: 16px; height: 16px; margin: 0; margin-right: 10px; padding: 0;"> 
+                    ${br.name}
+                 </label>`;
+    });
+    container.innerHTML = html;
 
+    // 2. Đổ dữ liệu vào các ô Text
     document.getElementById('edit-username-display').innerText = userEditing.username;
     document.getElementById('edit-fullname').value = userEditing.fullname;
     document.getElementById('edit-password').value = userEditing.password;
     document.getElementById('edit-role').value = userEditing.role;
-    document.getElementById('edit-branch-id').value = userEditing.branchId || 'CN001';
     
     document.getElementById('edit-account-modal').style.display = 'flex';
-}
+};
 
 function closeEditModal() {
     document.getElementById('edit-account-modal').style.display = 'none';
@@ -612,36 +689,50 @@ window.saveEditAccount = function() {
     const fn = document.getElementById('edit-fullname').value.trim();
     const pw = document.getElementById('edit-password').value.trim();
     const ro = document.getElementById('edit-role').value;
-    const br = document.getElementById('edit-branch-id').value;
+    
+    // Lấy danh sách các chi nhánh được tích chọn
+    const branchCbs = document.querySelectorAll('.edit-branch-cb:checked');
+    const selectedBranches = Array.from(branchCbs).map(cb => cb.value);
 
+    // 2. Kiểm tra tính hợp lệ
     if (!fn || !pw) {
         showToast("Họ tên và mật khẩu không được để trống!", "warning");
         return;
     }
+    
+    if (selectedBranches.length === 0) {
+        showToast("Vui lòng chọn ít nhất 1 chi nhánh công tác!", "warning");
+        return;
+    }
 
-    // 2. Tìm và cập nhật thông tin trong mảng accounts toàn cục
+    // 3. Tìm và cập nhật thông tin trong mảng accounts toàn cục
     const index = accounts.findIndex(acc => acc && acc.username === userEditing.username);
     if (index !== -1) {
         accounts[index].fullname = fn;
         accounts[index].password = pw;
         accounts[index].role = ro;
-        accounts[index].branchId = br; // Cập nhật mã chi nhánh mới
+        accounts[index].branchIds = selectedBranches; // Cập nhật mảng branchIds
+        
+        // Xóa trường branchId cũ (nếu có) để chuẩn hóa dữ liệu
+        if (accounts[index].branchId) {
+            delete accounts[index].branchId;
+        }
     }
 
-    // 3. Lưu vào bộ nhớ máy (LocalStorage)
+    // 4. Lưu vào bộ nhớ máy (LocalStorage)
     localStorage.setItem('kv_accounts', JSON.stringify(accounts));
 
-    // 4. Đồng bộ lên hệ thống Cloud Firebase
+    // 5. Đồng bộ lên hệ thống Cloud Firebase
     if (typeof window.uploadToCloud === 'function') {
         window.uploadToCloud('accounts', accounts);
     }
 
-    // 5. Cập nhật lại giao diện ngay lập tức
+    // 6. Cập nhật lại giao diện ngay lập tức
     closeEditModal();
     renderAccountList(); // Cập nhật tab danh sách tài khoản chung
 
     // Nếu đang ở trong màn hình chi tiết chi nhánh, vẽ lại bảng nhân viên tại đó
-    if (selectedBranchId) {
+    if (typeof selectedBranchId !== 'undefined' && selectedBranchId) {
         renderBranchStaff(selectedBranchId);
     }
     
@@ -5401,10 +5492,38 @@ window.initApp = function() {
                     }
                 }
                 
-                if (item.path === 'pricebooks') window.priceBooks = dataArray;
+if (item.path === 'pricebooks') window.priceBooks = dataArray;
                 if (item.path === 'groups') window.productGroups = dataArray;
                 if (item.path === 'branches') window.branches = dataArray;
-                if (item.path === 'accounts') window.accounts = dataArray;
+                
+                // ===============================================
+                // LOGIC BẢO MẬT: XỬ LÝ TÀI KHOẢN (ĐỔI MK / BỊ XÓA)
+                // ===============================================
+                if (item.path === 'accounts') {
+                    window.accounts = dataArray;
+                    
+                    // Nếu máy đang có người đăng nhập, tiến hành kiểm tra bảo mật
+                    if (typeof currentUser !== 'undefined' && currentUser) {
+                        // Tìm tài khoản này trong danh sách mới nhất từ Server
+                        const updatedMe = dataArray.find(acc => acc.username === currentUser.username);
+                        
+                        if (!updatedMe) {
+                            // Trường hợp 1: Tài khoản đã bị Admin xóa
+                            alert("Tài khoản của bạn đã bị xóa khỏi hệ thống. Vui lòng liên hệ Quản lý!");
+                            if (typeof logout === 'function') logout();
+                        } 
+                        else if (updatedMe.password !== currentUser.password) {
+                            // Trường hợp 2: Mật khẩu đã bị Admin (hoặc người khác) thay đổi
+                            alert("Mật khẩu của bạn vừa được thay đổi. Vui lòng đăng nhập lại bằng mật khẩu mới!");
+                            if (typeof logout === 'function') logout();
+                        } 
+                        else {
+                            // Trường hợp 3: Bình thường (Cập nhật ngầm thông tin quyền/chi nhánh mới nhất vào phiên làm việc)
+                            currentUser = updatedMe;
+                            localStorage.setItem('kv_current_user', JSON.stringify(currentUser));
+                        }
+                    }
+                }
 
                 // Lưu vào bộ nhớ máy (LocalStorage)
                 localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
@@ -5708,8 +5827,18 @@ window.renderBatchUpdateTable = function() {
     const attr = document.getElementById('batch-update-attr').value;
     const searchVal = document.getElementById('search-batch-update').value.toLowerCase().trim();
 
+    // =====================================
+    // ĐOẠN CODE MỚI ĐƯỢC THÊM ĐỂ LỌC CHI NHÁNH
+    // Lấy chi nhánh hiện tại đang đăng nhập
+    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+
     // 1. Lấy dữ liệu và lọc
-    let products = window.allProducts || window.products || [];
+    let allProducts = window.allProducts || window.products || [];
+    
+    // LỌC: Chỉ giữ lại hàng hóa của chi nhánh hiện tại
+    let products = allProducts.filter(p => (p.branchId || 'CN001') === currentBranch);
+    // =====================================
+
     if (searchVal) {
         products = products.filter(p => 
             (p.name && p.name.toLowerCase().includes(searchVal)) || 
@@ -7333,3 +7462,208 @@ function playBeepSound() {
         console.log("Trình duyệt không hỗ trợ âm thanh ảo.");
     }
 }
+// ==========================================
+// TÍNH NĂNG ADMIN: DỌN DẸP HÀNG HÓA & BẢNG GIÁ THEO CHI NHÁNH
+// ==========================================
+
+// 1. Hàm nạp danh sách chi nhánh vào ô Select của mục Xóa
+window.renderDeleteBranchSelect = function() {
+    const select = document.getElementById('delete-branch-select');
+    if (!select) return;
+    
+    const branches = JSON.parse(localStorage.getItem('kv_branches')) || [{ id: 'CN001', name: 'Chi nhánh 1' }];
+    let html = '';
+    branches.forEach(b => {
+        html += `<option value="${b.id}">${b.name} (${b.id})</option>`;
+    });
+    select.innerHTML = html;
+};
+
+// Gọi hàm nạp danh sách chi nhánh mỗi khi vào giao diện Admin
+const originalSwitchAdminTabForDelete = window.switchAdminTab;
+window.switchAdminTab = function(tabName) {
+    if (typeof originalSwitchAdminTabForDelete === 'function') {
+        originalSwitchAdminTabForDelete(tabName);
+    }
+    // Cập nhật lại dropdown mỗi khi chuyển tab
+    if (typeof window.renderDeleteBranchSelect === 'function') {
+        window.renderDeleteBranchSelect();
+    }
+};
+
+// 2. Hàm Xóa dữ liệu theo chi nhánh được chọn
+window.clearProductsAndPricesByBranch = function() {
+    const select = document.getElementById('delete-branch-select');
+    if (!select) return;
+
+    const branchIdToDelete = select.value;
+    const branchName = select.options[select.selectedIndex].text;
+
+    showConfirm(
+        `<div style="text-align:center;">
+            <h3 style="color:#d9534f; margin-bottom:10px;">⚠️ CẢNH BÁO NGUY HIỂM ⚠️</h3>
+            <p>Hệ thống sẽ <b>xóa sạch toàn bộ Mặt hàng</b> của <b style="color:var(--kv-blue);">${branchName}</b>.</p>
+            <p style="font-size:12px; color:#666; margin-top:10px;"><i>(Hóa đơn, Nhập hàng, Kiểm kho của chi nhánh này vẫn được giữ nguyên)</i></p>
+            <p style="margin-top:15px; font-weight:bold;">Bạn có chắc chắn muốn xóa không?</p>
+        </div>`, 
+        function() {
+            // 1. Lấy dữ liệu hiện tại
+            let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+            let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+            
+            // Tìm các sản phẩm thuộc chi nhánh này
+            const productsToDelete = allProducts.filter(p => (p.branchId || 'CN001') === branchIdToDelete);
+            
+            if (productsToDelete.length === 0) {
+                showToast(`Chi nhánh ${branchIdToDelete} hiện đang trống, không có hàng hóa để xóa.`, "info");
+                return;
+            }
+
+            // Tạo danh sách ID sản phẩm cần xóa để làm sạch Bảng giá
+            const productIdsToDelete = productsToDelete.map(p => p.id);
+
+            // 2. LỌC: Chỉ giữ lại các sản phẩm KHÔNG thuộc chi nhánh đang muốn xóa
+            const keptProducts = allProducts.filter(p => (p.branchId || 'CN001') !== branchIdToDelete);
+            
+            // 3. DỌN BẢNG GIÁ: Xóa các mức giá liên quan đến ID sản phẩm vừa bị xóa
+            allPriceBooks.forEach(pb => {
+                if (pb.prices) {
+                    Object.keys(pb.prices).forEach(key => {
+                        // Key có dạng "PROD123" hoặc "PROD123_0"
+                        const baseId = key.split('_')[0]; 
+                        if (productIdsToDelete.includes(baseId)) {
+                            delete pb.prices[key]; // Xóa giá của mặt hàng này khỏi Bảng giá
+                        }
+                    });
+                }
+            });
+
+            // 4. Lưu lại vào bộ nhớ
+            window.products = keptProducts;
+            window.priceBooks = allPriceBooks;
+            localStorage.setItem('kv_products', JSON.stringify(keptProducts));
+            localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
+            
+            // 5. Đồng bộ lên Cloud
+            if (typeof window.uploadToCloud === 'function') {
+                window.uploadToCloud('products', keptProducts);
+                window.uploadToCloud('pricebooks', allPriceBooks);
+            }
+            
+            showToast(`Đã xóa ${productsToDelete.length} mặt hàng khỏi ${branchName}!`, "success");
+            
+            // Nếu đang xem tab Danh sách chi nhánh thì vẽ lại bảng để hiện Tồn kho = 0
+            if (typeof renderBranchList === 'function') renderBranchList();
+        }
+    );
+};
+// ==========================================
+// TÍNH NĂNG ADMIN: SAO CHÉP HÀNG HÓA GIỮA CÁC CHI NHÁNH
+// ==========================================
+window.openCopyBranchModal = function() {
+    const branches = JSON.parse(localStorage.getItem('kv_branches')) || [{ id: 'CN001', name: 'Chi nhánh 1' }];
+    const sourceSelect = document.getElementById('copy-source-branch');
+    const targetSelect = document.getElementById('copy-target-branch');
+    
+    let optionsHtml = '';
+    branches.forEach(b => {
+        optionsHtml += `<option value="${b.id}">${b.name} (${b.id})</option>`;
+    });
+    
+    if (sourceSelect) sourceSelect.innerHTML = optionsHtml;
+    if (targetSelect) targetSelect.innerHTML = optionsHtml;
+    
+    const modal = document.getElementById('copy-branch-modal');
+    if (modal) modal.style.display = 'flex';
+};
+
+window.closeCopyBranchModal = function() {
+    const modal = document.getElementById('copy-branch-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.processCopyBranch = function() {
+    const sourceId = document.getElementById('copy-source-branch').value;
+    const targetId = document.getElementById('copy-target-branch').value;
+    const keepStock = document.getElementById('copy-keep-stock').checked;
+    
+    if (sourceId === targetId) {
+        showToast("Chi nhánh nguồn và đích không được giống nhau!", "warning");
+        return;
+    }
+    
+    showConfirm(`Bạn có chắc muốn nhân bản toàn bộ danh mục từ <b>${sourceId}</b> sang <b>${targetId}</b>?<br><br>Hệ thống sẽ sao chép: <b>Tên hàng, Đơn vị tính, Giá bán, Giá vốn và các Bảng giá đa cột</b>.`, function() {
+        
+        let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+        let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+        
+        // 1. Lọc ra các sản phẩm thuộc chi nhánh nguồn
+        const sourceProducts = allProducts.filter(p => (p.branchId || 'CN001') === sourceId);
+        
+        if (sourceProducts.length === 0) {
+            showToast("Chi nhánh nguồn không có mặt hàng nào để sao chép!", "warning");
+            return;
+        }
+        
+        let newProducts = [];
+        let idMapping = {}; // Biến này dùng để đối chiếu ID cũ và ID mới (Phục vụ cho Bảng giá)
+        
+        // 2. Chép Hàng hóa và Đơn vị tính
+        sourceProducts.forEach((p, index) => {
+            // Tạo một bản sao hoàn toàn tách biệt khỏi bản cũ (Deep Copy)
+            let newP = JSON.parse(JSON.stringify(p));
+            
+            // Tạo ID mới độc lập
+            const newId = 'PROD' + Date.now() + '_' + index;
+            idMapping[p.id] = newId; 
+            
+            newP.id = newId;
+            newP.branchId = targetId; // Chuyển quyền sở hữu sang chi nhánh đích
+            
+            // Xử lý tồn kho
+            if (!keepStock) {
+                newP.stock = 0; 
+            }
+            
+            newProducts.push(newP);
+        });
+        
+        // 3. Xử lý "Bảng giá đa cột": Chép giá của ID cũ sang ID mới
+        allPriceBooks.forEach(pb => {
+            if (!pb.prices) return;
+            
+            // Lặp qua tất cả giá cũ của bảng giá này
+            Object.keys(pb.prices).forEach(oldKey => {
+                // Key của bảng giá có dạng: "PROD123" hoặc "PROD123_0" (Đơn vị tính)
+                for (let oldId in idMapping) {
+                    if (oldKey === oldId || oldKey.startsWith(oldId + '_')) {
+                        const newKey = oldKey.replace(oldId, idMapping[oldId]);
+                        pb.prices[newKey] = pb.prices[oldKey]; // Gán mức giá tương tự cho mã hàng mới
+                    }
+                }
+            });
+        });
+        
+        // 4. Gộp hàng cũ và hàng mới vào hệ thống
+        allProducts = [...allProducts, ...newProducts];
+        
+        // 5. Lưu dữ liệu
+        localStorage.setItem('kv_products', JSON.stringify(allProducts));
+        localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
+        
+        window.products = allProducts;
+        window.priceBooks = allPriceBooks;
+        
+        // 6. Đồng bộ lên Firebase Cloud
+        if (typeof window.uploadToCloud === 'function') {
+            window.uploadToCloud('products', allProducts);
+            window.uploadToCloud('pricebooks', allPriceBooks);
+        }
+        
+        closeCopyBranchModal();
+        showToast(`Đã sao chép thành công ${newProducts.length} mặt hàng sang chi nhánh đích!`, "success");
+        
+        // Cập nhật lại màn hình Admin để thấy số đếm tăng lên
+        if (typeof renderBranchList === 'function') renderBranchList();
+    });
+};
