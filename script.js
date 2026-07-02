@@ -7379,7 +7379,7 @@ window.startBarcodeScanner = function(target = 'pos') {
     // Khởi tạo bộ quét
     html5QrcodeScanner = new Html5Qrcode("reader");
     
-    // Cấu hình quét: Quét 10 khung hình/giây, vùng focus hình chữ nhật
+    // Cấu hình quét: Quét 10 khung hình/giây
     const config = { 
         fps: 10, 
         qrbox: { width: 250, height: 150 },
@@ -7393,7 +7393,22 @@ window.startBarcodeScanner = function(target = 'pos') {
         onScanSuccess, 
         onScanFailure
     ).catch(err => {
-        alert("Lỗi: Không thể mở Camera. Vui lòng kiểm tra quyền truy cập camera trên trình duyệt của bạn!");
+        // [ĐÃ SỬA TẠI ĐÂY]: In ra lỗi chi tiết để bắt bệnh iOS
+        let errorMsg = "Không thể mở Camera.";
+        
+        if (err.name === 'NotAllowedError') {
+            errorMsg = "Trình duyệt (Safari/Chrome) đã chặn quyền sử dụng Camera. Vui lòng vào Cài đặt để cấp quyền.";
+        } else if (err.name === 'NotFoundError') {
+            errorMsg = "Không tìm thấy Camera trên thiết bị này.";
+        } else if (err.name === 'NotSupportedError') {
+            errorMsg = "LỖI BẢO MẬT: iOS yêu cầu trang web phải chạy trên nền HTTPS (ổ khóa xanh) mới cho phép mở Camera.";
+        } else if (err.name === 'NotReadableError') {
+            errorMsg = "Camera đang bị một ứng dụng khác chiếm dụng. Vui lòng đóng các app khác và thử lại.";
+        } else {
+            errorMsg = `Lỗi hệ thống (${err.name}): ${err.message}`;
+        }
+
+        alert("⚠️ " + errorMsg);
         stopBarcodeScanner();
     });
 };
