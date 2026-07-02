@@ -280,15 +280,26 @@ function renderAccountList() {
     const tbody = document.getElementById('account-list-body');
     if(!tbody) return;
     tbody.innerHTML = '';
+    
+    // Lấy danh sách chi nhánh mới nhất để đối soát
+    const currentBranches = JSON.parse(localStorage.getItem('kv_branches')) || [{ id: 'CN001', name: 'Chi nhánh 1' }];
+
     accounts.forEach(acc => {
-    if (!acc) return; // Bổ sung cờ bảo vệ: Bỏ qua ngay nếu acc bị null
-    const roleText = acc.role === 'manager' ? '<span style="color:var(--kv-blue); font-weight:bold;">Quản lý</span>' : 'Thu ngân';
+        if (!acc) return;
+        
+        // Tìm tên chi nhánh dựa vào branchId của tài khoản
+        const branchObj = currentBranches.find(b => b.id === acc.branchId);
+        const branchDisplayName = branchObj ? branchObj.name : acc.branchId; // Hiển thị tên, nếu không tìm thấy thì hiện mã
+
+        const roleText = acc.role === 'manager' ? '<span style="color:var(--kv-blue); font-weight:bold;">Quản lý</span>' : 'Thu ngân';
         const disableDelete = acc.username === 'admin' ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : '';
+        
         tbody.innerHTML += `
             <tr>
                 <td>${acc.fullname}</td>
                 <td><strong>${acc.username}</strong></td>
                 <td>${roleText}</td>
+                <td style="font-size: 12px; color: var(--kv-pink); font-weight: 600;">${branchDisplayName}</td>
                 <td style="text-align: center;">
                     <button class="action-btn btn-edit" onclick="openEditModal('${acc.username}')"><i class="fa-solid fa-pen"></i></button>
                     <button class="action-btn btn-delete" onclick="deleteAccount('${acc.username}')" ${disableDelete}><i class="fa-solid fa-trash"></i></button>
@@ -843,13 +854,15 @@ function renderGroupSelects() {
     if (parentGroup) parentGroup.innerHTML = html;
 }
 
-function openGroupModal(id = null) {
+window.openGroupModal = function(id = null) {
     editingGroupId = id;
     document.getElementById('group-modal').style.display = 'flex';
-    renderGroupSelects();
+    
+    // Nạp lại danh sách cho các dropdown khác
+    if (typeof renderGroupSelects === 'function') renderGroupSelects();
 
-    // Dùng dữ liệu tươi
     const currentGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+    let invalidParents = [];
 
     if(id) {
         document.getElementById('group-modal-title').innerText = 'Sửa nhóm hàng';
@@ -857,14 +870,12 @@ function openGroupModal(id = null) {
         if(!g) return;
         
         document.getElementById('group-name').value = g.name || "";
-        document.getElementById('group-parent').value = g.parentId || "";
         
-        const options = document.getElementById('group-parent').options;
-        
+        // Tìm tất cả nhóm con/cháu để chặn không cho chọn làm cha
         function getDescendants(parentId) {
             let desc = [];
             const targetParent = parentId || "";
-            const children = currentGroups.filter(g => (g.parentId || "") === targetParent);
+            const children = currentGroups.filter(gr => (gr.parentId || "") === targetParent);
             children.forEach(c => {
                 desc.push(c.id);
                 desc = desc.concat(getDescendants(c.id));
@@ -872,25 +883,30 @@ function openGroupModal(id = null) {
             return desc;
         }
         
-        const invalidParents = [id, ...getDescendants(id)];
-        for(let i=0; i<options.length; i++) {
-            if(invalidParents.includes(options[i].value)) {
-                options[i].disabled = true; 
-            } else {
-                options[i].disabled = false;
-            }
+        invalidParents = [id, ...getDescendants(id)];
+        
+        // Vẽ danh sách có làm mờ nhánh con để không cho bấm nhầm
+        if (typeof window.renderParentGroupTree === 'function') {
+            window.renderParentGroupTree(invalidParents);
         }
+
+        // Gán dữ liệu hiển thị tên nhóm hiện tại lên UI
+        const parentObj = currentGroups.find(x => x.id === g.parentId);
+        if (parentObj) {
+            if (typeof window.selectParentGroup === 'function') window.selectParentGroup(parentObj.id, parentObj.name);
+        } else {
+            if (typeof window.selectParentGroup === 'function') window.selectParentGroup('', 'Chọn nhóm cha (để trống nếu là gốc)...');
+        }
+
     } else {
         document.getElementById('group-modal-title').innerText = 'Tạo nhóm hàng';
         document.getElementById('group-name').value = '';
-        document.getElementById('group-parent').value = '';
         
-        const options = document.getElementById('group-parent').options;
-        for(let i=0; i<options.length; i++) {
-            options[i].disabled = false;
-        }
+        // Vẽ danh sách trắng và reset UI
+        if (typeof window.renderParentGroupTree === 'function') window.renderParentGroupTree([]);
+        if (typeof window.selectParentGroup === 'function') window.selectParentGroup('', 'Chọn nhóm cha (để trống nếu là gốc)...');
     }
-}
+};
 
 function closeGroupModal() {
     document.getElementById('group-modal').style.display = 'none';
@@ -2516,11 +2532,12 @@ window.getFilterTimeRange = function(prefix) {
     return { fromTime, toTime };
 };
 
-// Chuyển chuỗi "HH:MM:SS DD/MM/YYYY" sang số để so sánh
 window.parseVNTime = function(timeStr) {
     if(!timeStr) return 0;
     try {
-        const parts = timeStr.replace(/,/g, '').trim().split(' ');
+        // Dọn dẹp ký tự ẩn của Apple và cắt bằng biểu thức \s+ (mọi loại khoảng trắng)
+        const cleanStr = timeStr.replace(/[\u200E\u200F\u202F\u00A0]/g, ' ');
+        const parts = cleanStr.replace(/,/g, '').trim().split(/\s+/);
         let dateStr = parts.find(p => p.includes('/')); 
         if (!dateStr) return 0;
         const dateParts = dateStr.split('/');
@@ -3314,18 +3331,25 @@ window.savePOSState = function() {
 };
 
 function initPOSData() {
-    // 1. Hiển thị thông tin nhân viên đang đăng nhập và khởi động đồng hồ hệ thống
+    // 1. Hiển thị thông tin nhân viên và khởi động đồng hồ hệ thống
     if (currentUser) {
+        // Lấy tên chi nhánh hiện tại từ sessionStorage và danh sách chi nhánh
+        const currentBranchId = sessionStorage.getItem('kv_current_branch') || 'CN001'; //
+        const allBranches = JSON.parse(localStorage.getItem('kv_branches')) || []; //
+        const currentBranchObj = allBranches.find(b => b.id === currentBranchId); //[cite: 2]
+        const branchName = currentBranchObj ? currentBranchObj.name : currentBranchId; //[cite: 2]
+
         const sellerNameEl = document.getElementById('pos-seller-name');
         if (sellerNameEl) {
-            sellerNameEl.innerHTML = `<i class="fa-solid fa-user-tie" style="color: #888; margin-right:5px;"></i> ${currentUser.fullname} <i class="fa-solid fa-caret-down" style="font-size: 11px; margin-left: 5px; color:#888;"></i>`;
+            // Hiển thị cả Tên nhân viên và Tên chi nhánh ngay phía dưới
+            sellerNameEl.innerHTML = `<i class="fa-solid fa-user-tie" style="color: #888; margin-right:5px;"></i> ${currentUser.fullname} <br><span style="font-size: 11px; color: var(--kv-pink);">📍 ${branchName}</span>`; //[cite: 2]
         }
         const userNameEl = document.getElementById('pos-user-name');
-        if (userNameEl) userNameEl.innerText = currentUser.username;
+        if (userNameEl) userNameEl.innerText = currentUser.username; //[cite: 2]
     }
-    
+
     // Cập nhật thời gian thực mỗi giây
-    if (clockInterval) clearInterval(clockInterval);
+    if (typeof clockInterval !== 'undefined' && clockInterval) clearInterval(clockInterval);
     clockInterval = setInterval(() => {
         const timeEl = document.getElementById('pos-current-time');
         if (timeEl) timeEl.innerText = new Date().toLocaleString('vi-VN', { 
@@ -3334,7 +3358,7 @@ function initPOSData() {
     }, 1000);
 
     // 2. Nạp danh sách Bảng giá từ bộ nhớ vào thanh chọn POS
-    priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || []; //[cite: 2]
     const pbSelect = document.getElementById('pos-pricebook-select');
     if (pbSelect) {
         let pbHtml = `<option value="default">Bảng giá chung</option>`;
@@ -4607,13 +4631,22 @@ window.renderActivityFeed = function() {
     const allInventoryChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
 
     let activities = [];
-    const parseVNTime = (timeStr) => {
-        if(!timeStr) return 0;
-        const parts = timeStr.replace(',', '').split(' ');
-        const timeParts = parts[0].split(':');
-        const dateParts = parts[1].split('/');
-        return new Date(dateParts[2], dateParts[1]-1, dateParts[0], timeParts[0], timeParts[1], timeParts[2]||0).getTime();
-    };
+const parseVNTime = (timeStr) => {
+    if(!timeStr) return 0;
+    
+    // Dọn dẹp ký tự ẩn
+    const cleanStr = timeStr.replace(/[\u200E\u200F\u202F\u00A0]/g, ' ');
+    const parts = cleanStr.replace(/,/g, '').trim().split(/\s+/);
+    
+    // Tìm kiếm cụm giờ và cụm ngày bất chấp thứ tự do Safari đảo lộn
+    const timeStrPart = parts.find(p => p.includes(':')) || '00:00:00';
+    const dateStrPart = parts.find(p => p.includes('/')) || '01/01/2000';
+    
+    const timeParts = timeStrPart.split(':');
+    const dateParts = dateStrPart.split('/');
+    
+    return new Date(dateParts[2], dateParts[1]-1, dateParts[0], timeParts[0], timeParts[1], timeParts[2]||0).getTime();
+};
 
     // Lọc Hóa đơn
     allInvoices.filter(inv => (inv.branchId || 'CN001') === currentBranch).forEach(inv => {
@@ -5827,50 +5860,54 @@ window.saveBatchUpdates = function() {
         return;
     }
 
-    if (!confirm(`Bạn sắp cập nhật dữ liệu cho ${updateIds.length} mặt hàng. Bạn có chắc chắn?`)) return;
-
-    let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-    
-    updateIds.forEach(id => {
-        const prodIndex = allProducts.findIndex(p => p.id === id);
-        if (prodIndex !== -1) {
-            if (attr === 'code_and_barcode') {
-                const updates = window.pendingBatchUpdates[id];
-                if (updates.code !== undefined && updates.code.trim() !== '') {
-                    allProducts[prodIndex].code = updates.code.trim();
-                    // Đồng bộ xuống unit[0]
-                    if(allProducts[prodIndex].units && allProducts[prodIndex].units.length > 0) {
-                        allProducts[prodIndex].units[0].code = updates.code.trim();
+    showConfirm(`Bạn sắp cập nhật dữ liệu cho ${updateIds.length} mặt hàng. Bạn có chắc chắn?`, function() {
+        let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+        
+        updateIds.forEach(id => {
+            const prodIndex = allProducts.findIndex(p => p.id === id);
+            if (prodIndex !== -1) {
+                if (attr === 'code_and_barcode') {
+                    const updates = window.pendingBatchUpdates[id];
+                    if (updates.code !== undefined && updates.code.trim() !== '') {
+                        allProducts[prodIndex].code = updates.code.trim();
+                        // Đồng bộ xuống unit[0]
+                        if(allProducts[prodIndex].units && allProducts[prodIndex].units.length > 0) {
+                            allProducts[prodIndex].units[0].code = updates.code.trim();
+                        }
                     }
-                }
-                if (updates.barcode !== undefined && updates.barcode.trim() !== '') {
-                    allProducts[prodIndex].barcode = updates.barcode.trim();
-                    // Đồng bộ xuống unit[0]
-                    if(allProducts[prodIndex].units && allProducts[prodIndex].units.length > 0) {
-                        allProducts[prodIndex].units[0].barcode = updates.barcode.trim();
+                    if (updates.barcode !== undefined && updates.barcode.trim() !== '') {
+                        allProducts[prodIndex].barcode = updates.barcode.trim();
+                        // Đồng bộ xuống unit[0]
+                        if(allProducts[prodIndex].units && allProducts[prodIndex].units.length > 0) {
+                            allProducts[prodIndex].units[0].barcode = updates.barcode.trim();
+                        }
                     }
-                }
-            } else {
-                allProducts[prodIndex][attr] = window.pendingBatchUpdates[id];
-                
-                // Đồng bộ giá bán xuống unit[0] nếu thuộc tính đang sửa là giá
-                if (attr === 'price' && allProducts[prodIndex].units && allProducts[prodIndex].units.length > 0) {
-                    allProducts[prodIndex].units[0].price = window.pendingBatchUpdates[id];
+                } else {
+                    // SỬA LỖI Ở ĐÂY: Thêm [attr] để trích xuất đúng giá trị chữ/số bên trong, 
+                    // thay vì lấy cả cục Object gây lỗi [object Object]
+                    const newValue = window.pendingBatchUpdates[id][attr];
+                    
+                    allProducts[prodIndex][attr] = newValue;
+                    
+                    // Đồng bộ giá bán xuống unit[0] nếu thuộc tính đang sửa là giá
+                    if (attr === 'price' && allProducts[prodIndex].units && allProducts[prodIndex].units.length > 0) {
+                        allProducts[prodIndex].units[0].price = newValue;
+                    }
                 }
             }
-        }
-    });
+        });
 
-    localStorage.setItem('kv_products', JSON.stringify(allProducts));
-    if (typeof window.uploadToCloud === 'function') {
-        window.uploadToCloud('products', allProducts);
-    }
-    
-    window.products = allProducts;
-    window.pendingBatchUpdates = {};
-    
-    alert("Cập nhật hàng loạt thành công!");
-    renderBatchUpdateTable();
+        localStorage.setItem('kv_products', JSON.stringify(allProducts));
+        if (typeof window.uploadToCloud === 'function') {
+            window.uploadToCloud('products', allProducts);
+        }
+        
+        window.products = allProducts;
+        window.pendingBatchUpdates = {};
+        
+        alert("Cập nhật hàng loạt thành công!");
+        renderBatchUpdateTable();
+    });
 };
 // Hàm hỗ trợ copy chéo dữ liệu hàng loạt (Từ Mã vạch -> Mã hàng và ngược lại)
 // Hàm hỗ trợ copy chéo dữ liệu hàng loạt (Từ Mã vạch -> Mã hàng và ngược lại)
@@ -7076,3 +7113,223 @@ window.scanDuplicateProducts = function() {
 
     tbody.innerHTML = html;
 };
+// ==========================================
+// TÍNH NĂNG DROPDOWN TÌM KIẾM NHÓM CHA (MODAL TẠO NHÓM)
+// ==========================================
+
+window.renderParentGroupTree = function(invalidParents = []) {
+    const container = document.getElementById('parent-group-tree-list');
+    if (!container) return;
+
+    const currentGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
+
+    function buildTree(parentId, indent) {
+        const targetParent = parentId || "";
+        const children = currentGroups.filter(g => (g.parentId || "") === targetParent);
+        let html = '';
+
+        children.forEach(child => {
+            const childId = child.id || "";
+            const hasChildren = currentGroups.some(g => (g.parentId || "") === childId);
+            const toggleIcon = hasChildren
+                ? `<i class="fa-solid fa-chevron-right parent-group-toggle" onclick="event.stopPropagation(); toggleGroupChildrenGeneric('parent-children-${child.id}', this)" style="cursor: pointer; width: 20px; text-align: center; color: #888; transition: 0.2s; font-size: 11px;"></i>`
+                : `<span style="width: 20px; display: inline-block;"></span>`;
+
+            // Làm mờ và khóa click với các nhóm nằm trong danh sách không hợp lệ
+            const isDisabled = invalidParents.includes(childId);
+            const styleDisabled = isDisabled ? 'opacity: 0.4; cursor: not-allowed; pointer-events: none;' : 'cursor: pointer;';
+            const hoverAction = isDisabled ? '' : `onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='transparent'"`;
+            const clickAction = isDisabled ? '' : `onclick="selectParentGroup('${child.id}', '${child.name}')"`;
+
+            html += `
+            <div class="parent-group-tree-item" data-id="${child.id}" data-name="${(child.name || '').toLowerCase()}" style="padding: 8px; padding-left: ${indent + 8}px; border-bottom: 1px dashed #eee; transition: 0.2s; display: flex; align-items: center; ${styleDisabled}" ${clickAction} ${hoverAction}>
+                ${toggleIcon}
+                <span style="font-size: 13px; color: #333; flex: 1; font-weight: 500;">${child.name}</span>
+            </div>`;
+
+            if (hasChildren) {
+                html += `<div id="parent-children-${child.id}" class="parent-group-children-container" style="display: none;">`;
+                html += buildTree(child.id, indent + 15);
+                html += `</div>`;
+            }
+        });
+        return html;
+    }
+    container.innerHTML = buildTree("", 0);
+};
+
+
+// Đóng/Mở thanh Dropdown
+window.toggleParentGroupDropdown = function() {
+    const dropdown = document.getElementById('group-parent-dropdown');
+    if (dropdown) {
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+        if (dropdown.style.display === 'block') {
+            const searchInput = document.getElementById('search-parent-group');
+            if (searchInput) searchInput.focus();
+        }
+    }
+};
+
+// Chọn nhóm cha
+window.selectParentGroup = function(id, name) {
+    document.getElementById('group-parent').value = id;
+    const displayEl = document.getElementById('group-parent-display');
+    displayEl.innerText = name;
+    displayEl.style.color = id ? 'var(--kv-blue)' : '#555';
+    displayEl.style.fontWeight = id ? 'bold' : 'normal';
+    document.getElementById('group-parent-dropdown').style.display = 'none';
+};
+
+// Tìm kiếm lọc thông minh
+window.filterParentGroupTree = function() {
+    const rawKw = document.getElementById('search-parent-group').value.toLowerCase().trim();
+    const kw = typeof window.removeVietnameseTones === 'function' ? window.removeVietnameseTones(rawKw) : rawKw;
+    const items = document.querySelectorAll('.parent-group-tree-item');
+
+    items.forEach(item => item.style.display = 'none');
+    if (kw === '') { items.forEach(item => item.style.display = 'flex'); return; }
+
+    items.forEach(item => {
+        const rawName = item.getAttribute('data-name') || '';
+        const name = typeof window.removeVietnameseTones === 'function' ? window.removeVietnameseTones(rawName) : rawName;
+
+        if (name.includes(kw)) {
+            item.style.display = 'flex'; 
+            const groupId = item.getAttribute('data-id');
+
+            // Hiển thị nhóm con
+            const childrenContainer = document.getElementById(`parent-children-${groupId}`);
+            if (childrenContainer) {
+                childrenContainer.style.display = 'block';
+                const icon = item.querySelector('.parent-group-toggle');
+                if (icon) { icon.classList.remove('fa-chevron-right'); icon.classList.add('fa-chevron-down'); }
+                childrenContainer.querySelectorAll('.parent-group-tree-item').forEach(desc => desc.style.display = 'flex');
+            }
+
+            // Mở nhóm cha phía trên
+            let parentContainer = item.closest('.parent-group-children-container');
+            while (parentContainer) {
+                parentContainer.style.display = 'block';
+                const parentId = parentContainer.id.replace('parent-children-', '');
+                const parentItem = document.querySelector(`.parent-group-tree-item[data-id="${parentId}"]`);
+                if (parentItem) parentItem.style.display = 'flex';
+                
+                const parentIcon = parentItem ? parentItem.querySelector('.parent-group-toggle') : null;
+                if (parentIcon) { parentIcon.classList.remove('fa-chevron-right'); parentIcon.classList.add('fa-chevron-down'); }
+                parentContainer = parentContainer.parentElement.closest('.parent-group-children-container');
+            }
+        }
+    });
+};
+
+// Đóng Menu khi click chuột ra ngoài vùng khác
+document.addEventListener('click', function(e) {
+    const parentDropdown = document.getElementById('group-parent-dropdown');
+    const parentTrigger = document.getElementById('group-parent-trigger');
+    if (parentDropdown && parentDropdown.style.display === 'block' && parentTrigger && !parentDropdown.contains(e.target) && !parentTrigger.contains(e.target)) {
+        parentDropdown.style.display = 'none';
+    }
+});
+// ==========================================
+// TÍNH NĂNG QUÉT MÃ VẠCH BẰNG CAMERA ĐIỆN THOẠI
+// ==========================================
+let html5QrcodeScanner = null;
+let currentScanTarget = 'pos'; // Biến lưu vị trí đang yêu cầu quét (pos, import, check)
+
+window.startBarcodeScanner = function(target = 'pos') {
+    currentScanTarget = target;
+    const scannerModal = document.getElementById('scanner-modal');
+    if (scannerModal) scannerModal.style.display = 'flex';
+    
+    // Nếu đã có phiên camera trước đó thì dọn dẹp để tránh lỗi đụng độ
+    if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear().catch(err => console.log(err));
+    }
+
+    // Khởi tạo bộ quét
+    html5QrcodeScanner = new Html5Qrcode("reader");
+    
+    // Cấu hình quét: Quét 10 khung hình/giây, vùng focus hình chữ nhật
+    const config = { 
+        fps: 10, 
+        qrbox: { width: 250, height: 150 },
+        aspectRatio: 1.0
+    };
+    
+    // Bật camera sau (environment)
+    html5QrcodeScanner.start(
+        { facingMode: "environment" }, 
+        config, 
+        onScanSuccess, 
+        onScanFailure
+    ).catch(err => {
+        alert("Lỗi: Không thể mở Camera. Vui lòng kiểm tra quyền truy cập camera trên trình duyệt của bạn!");
+        stopBarcodeScanner();
+    });
+};
+
+// Hàm chạy khi Camera đọc được mã
+function onScanSuccess(decodedText, decodedResult) {
+    // 1. Dừng camera ngay lập tức để tiết kiệm pin
+    stopBarcodeScanner();
+    
+    // 2. Phát ra âm thanh "Bíp" như máy quét thật
+    playBeepSound();
+    
+    const scannedCode = decodedText.trim();
+
+    // 3. Tự động xử lý tùy theo nơi gọi Camera
+    if (currentScanTarget === 'pos') {
+        const input = document.getElementById('pos-search-input');
+        if (input) input.value = scannedCode;
+        
+        // Gọi hàm enter để tự động bắn hàng vào giỏ (Hàm này bạn đã có ở trên)
+        if (typeof handleDirectEnter === 'function') {
+            handleDirectEnter(scannedCode.toLowerCase());
+        }
+    } 
+    // Mở rộng: Nếu quét ở Nhập hàng
+    else if (currentScanTarget === 'import') {
+        const input = document.getElementById('io-search-input');
+        if (input) {
+            input.value = scannedCode;
+            window.searchIOProduct(scannedCode);
+        }
+    }
+}
+
+// Bỏ qua các lỗi đọc không rõ trong lúc camera đang tìm nét
+function onScanFailure(error) {
+    // Không làm gì cả để camera tiếp tục dò
+}
+
+// Tắt Camera và ẩn hộp thoại
+window.stopBarcodeScanner = function() {
+    const scannerModal = document.getElementById('scanner-modal');
+    if (scannerModal) scannerModal.style.display = 'none';
+    
+    if (html5QrcodeScanner) {
+        html5QrcodeScanner.stop().then((ignore) => {
+            html5QrcodeScanner.clear();
+            html5QrcodeScanner = null;
+        }).catch((err) => console.log("Lỗi khi tắt camera: ", err));
+    }
+};
+
+// Hiệu ứng âm thanh Bíp đơn giản
+function playBeepSound() {
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        osc.type = 'sine'; // Kiểu âm thanh
+        osc.frequency.setValueAtTime(800, ctx.currentTime); // Tần số bíp
+        osc.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.1); // Ngân trong 0.1 giây
+    } catch(e) {
+        console.log("Trình duyệt không hỗ trợ âm thanh ảo.");
+    }
+}

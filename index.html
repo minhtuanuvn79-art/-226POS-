@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>226 POS - Hệ Thống Quản Lý & Bán Hàng</title>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css?v=1.1">
@@ -968,12 +969,14 @@
 <div id="pos-view">
         <div class="pos-header">
             <div class="pos-header-left">
-                <div class="pos-search-area">
-                    <i class="fa-solid fa-magnifying-glass"></i>
-                    <input type="text" id="pos-search-input" placeholder="Tìm hàng hóa (F3)" oninput="searchPOSProduct(this.value)">
-                    <div class="barcode-btn" title="Quét mã vạch"><i class="fa-solid fa-barcode"></i></div>
-                    <div id="pos-search-dropdown" class="pos-dropdown" style="display: none;"></div>
-                </div>
+<div class="pos-search-area">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <input type="text" id="pos-search-input" placeholder="Tìm hàng hóa (F3)" oninput="searchPOSProduct(this.value)">
+    <div class="barcode-btn" title="Quét mã vạch" onclick="startBarcodeScanner('pos')">
+        <i class="fa-solid fa-barcode"></i>
+    </div>
+    <div id="pos-search-dropdown" class="pos-dropdown" style="display: none;"></div>
+</div>
                 
                 <div id="pos-tabs-container" class="pos-tabs">
                     </div>
@@ -1196,12 +1199,6 @@
     </div>
 </div>
                     </div>
-                    <div class="pm-image-right">
-                        <div class="pm-image-upload">
-                            <i class="fa-solid fa-camera" style="font-size: 24px; color: #ccc;"></i>
-                            <strong>Thêm ảnh</strong>
-                        </div>
-                    </div>
                 </div>
 
                 <div class="pm-collapsible">
@@ -1311,20 +1308,25 @@
             <div style="padding: 20px;">
                 <p id="add-unit-desc" style="font-size: 12px; color: #888; margin-bottom: 15px;">Đơn vị cơ bản là đơn vị bán phổ biến nhất hoặc đơn vị chính dùng để quản lý tồn kho.</p>
                 
-                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
-                    <div style="flex: 1;">
-                        <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Tên đơn vị</label>
-                        <input type="text" id="sub-unit-name" placeholder="VD: Chai, Lốc..." style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; outline: none;">
-                    </div>
-                    <div id="sub-unit-rate-group" style="flex: 1; display: none;">
-                        <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Giá trị quy đổi</label>
-                        <div style="display: flex; align-items: center; border: 1px solid #ccc; border-radius: 4px; padding: 0 10px; background: white;">
-                            <span style="color: #888; font-size: 14px;"><i class="fa-solid fa-xmark"></i></span>
-                            <input type="number" id="sub-unit-rate" value="1" style="width: 100%; padding: 8px; border: none; outline: none; text-align: right;">
-                            <span id="sub-unit-base-lbl" style="color: #888; font-size: 12px; margin-left: 5px;">Gói</span>
-                        </div>
-                    </div>
-                </div>
+<!-- Đã khôi phục align-items: flex-end; để luôn căn bằng đáy -->
+<div style="display: flex; gap: 15px; margin-bottom: 15px; align-items: flex-end;">
+    
+    <div style="flex: 1;">
+        <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Tên đơn vị</label>
+        <!-- ĐIỂM QUAN TRỌNG: Đã thêm margin: 0; để triệt tiêu lỗi phình to từ CSS tổng -->
+        <input type="text" id="sub-unit-name" placeholder="VD: Chai, Lốc..." style="width: 100%; padding: 0 10px; border: 1px solid #ccc; border-radius: 4px; outline: none; height: 36px; box-sizing: border-box; margin: 0;">
+    </div>
+    
+    <div id="sub-unit-rate-group" style="flex: 1; display: none;">
+        <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Giá trị quy đổi</label>
+        <div style="display: flex; align-items: center; border: 1px solid #ccc; border-radius: 4px; padding: 0 10px; background: white; height: 36px; box-sizing: border-box; margin: 0;">
+            <span style="color: #888; font-size: 14px;"><i class="fa-solid fa-xmark"></i></span>
+            <input type="number" id="sub-unit-rate" value="1" style="width: 100%; padding: 0 8px; border: none; outline: none; text-align: right; background: transparent; height: 100%; box-sizing: border-box; margin: 0;">
+            <span id="sub-unit-base-lbl" style="color: #888; font-size: 12px; margin-left: 5px;">Gói</span>
+        </div>
+    </div>
+    
+</div>
 
                 <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Giá bán</label>
                 <input type="text" id="sub-unit-price" placeholder="Giá bán quy đổi" oninput="formatCurrency(this)">
@@ -1342,27 +1344,50 @@
         </div>
     </div>
 
-    <div id="group-modal" class="modal-overlay" style="z-index: 300;">
-        <div class="modal-box" style="width: 400px; padding: 0; overflow: hidden;">
-            <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee;">
-                <h3 id="group-modal-title" style="font-size: 16px;">Tạo nhóm hàng</h3>
-                <i class="fa-solid fa-xmark" onclick="closeGroupModal()" style="cursor: pointer; color: #888;"></i>
-            </div>
-            <div style="padding: 20px;">
-                <label style="font-size: 12px; font-weight: bold; color: #555; display: block; margin-bottom: 5px;">Tên nhóm</label>
-                <input type="text" id="group-name" style="width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; outline: none;">
+<div id="group-modal" class="modal-overlay" style="z-index: 100000;">
+    <div class="modal-box" style="width: 400px; padding: 0; overflow: visible;"> <!-- Sửa overflow: hidden thành overflow: visible -->
+        <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee;">
+            <h3 id="group-modal-title" style="font-size: 16px;">Tạo nhóm hàng</h3>
+            <i class="fa-solid fa-xmark" onclick="closeGroupModal()" style="cursor: pointer; color: #888;"></i>
+        </div>
+        <div style="padding: 20px;">
+            <label style="font-size: 12px; font-weight: bold; color: #555; display: block; margin-bottom: 5px;">Tên nhóm</label>
+            <input type="text" id="group-name" style="width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; outline: none;">
+            
+            <label style="font-size: 12px; font-weight: bold; color: #555; display: block; margin-bottom: 5px;">Nhóm cha</label>
+            <div style="position: relative; margin-bottom: 20px;">
+                <!-- Khung chứa ID ngầm định để lưu dữ liệu -->
+                <input type="hidden" id="group-parent">
                 
-                <label style="font-size: 12px; font-weight: bold; color: #555; display: block; margin-bottom: 5px;">Nhóm cha</label>
-                <select id="group-parent" style="width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 20px; outline: none;">
-                    </select>
-                
-                <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                    <button onclick="closeGroupModal()" style="padding: 8px 15px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer;">Bỏ qua</button>
-                    <button onclick="saveGroup()" style="padding: 8px 15px; border: none; background: var(--kv-pink); color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">Lưu</button>
+                <!-- Thanh bấm mở Menu -->
+                <div id="group-parent-trigger" onclick="toggleParentGroupDropdown()" style="display: flex; justify-content: space-between; align-items: center; border: 1px solid #ccc; padding: 8px 10px; border-radius: 4px; cursor: pointer; background: white; font-size: 13px;">
+                    <span id="group-parent-display" style="color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px;">Chọn nhóm cha (để trống nếu là gốc)...</span>
+                    <i class="fa-solid fa-chevron-down" style="color: #888;"></i>
                 </div>
+
+                <!-- Hộp thoại danh sách và Tìm kiếm -->
+                <div id="group-parent-dropdown" style="display: none; position: absolute; top: 100%; left: 0; width: 100%; background: white; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); z-index: 100001; margin-top: 5px;">
+                    <div style="padding: 10px; border-bottom: 1px solid #eee; background: #fafafa;">
+                        <div style="position: relative;">
+                            <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #888; font-size: 12px;"></i>
+                            <input type="text" id="search-parent-group" placeholder="Tìm tên nhóm..." oninput="filterParentGroupTree()" style="width: 100%; padding: 7px 10px 7px 28px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; outline: none; background: white;">
+                        </div>
+                    </div>
+                    <!-- Vùng hiển thị dạng cây -->
+                    <div id="parent-group-tree-list" style="max-height: 200px; overflow-y: auto; padding: 5px;"></div>
+                    <div style="padding: 10px; border-top: 1px solid #eee; text-align: right; background: #fff;">
+                        <span onclick="selectParentGroup('', 'Chọn nhóm cha (để trống nếu là gốc)...')" style="color: #d9534f; font-size: 13px; cursor: pointer; font-weight: 500;"><i class="fa-solid fa-eraser"></i> Bỏ chọn nhóm</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button onclick="closeGroupModal()" style="padding: 8px 15px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer;">Bỏ qua</button>
+                <button onclick="saveGroup()" style="padding: 8px 15px; border: none; background: var(--kv-pink); color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">Lưu</button>
             </div>
         </div>
     </div>
+</div>
 
     <div id="pricebook-modal" class="modal-overlay" style="z-index: 300;">
         <div class="modal-box" style="width: 400px; padding: 0; overflow: hidden;">
@@ -1534,6 +1559,22 @@
         </div>
     </div>
 </div>
+<!-- Modal Camera Quét Mã Vạch -->
+<div id="scanner-modal" class="modal-overlay" style="z-index: 100000; display: none; background: rgba(0,0,0,0.8);">
+    <div class="modal-box" style="width: 100%; max-width: 400px; padding: 0; overflow: hidden; background: white; border-radius: 12px; display: flex; flex-direction: column;">
+        <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; background: var(--kv-pink); color: white;">
+            <h3 style="font-size: 16px; margin: 0;"><i class="fa-solid fa-camera"></i> Đưa mã vạch vào khung</h3>
+            <i class="fa-solid fa-xmark" onclick="stopBarcodeScanner()" style="cursor: pointer; font-size: 20px; padding: 5px;"></i>
+        </div>
+        
+        <!-- Vùng hiển thị camera -->
+        <div id="reader" style="width: 100%; background: #000;"></div>
+        
+        <div style="padding: 15px; text-align: center; font-size: 14px; color: #555; background: #fafafa;">
+            Hệ thống sẽ tự động quét và thêm vào giỏ hàng
+        </div>
+    </div>
+</div>
 <script type="module">
     // 1. Nhập các thư viện cần thiết từ CDN của Firebase
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
@@ -1569,10 +1610,7 @@
             .catch((error) => console.error(`❌ Lỗi đồng bộ [${path}]:`, error));
     };
 
-    // 6. Xử lý logic khởi chạy ứng dụng sau khi trang nạp xong hoàn toàn
-    // Thay thế đoạn window.onload cũ trong index.html
-// Trong file index.html (đoạn thẻ script module)
-window.onload = function() {
+    // 6. Xử lý logic khởi chạy ứng dụng (ĐÃ GỠ BỎ window.onload ĐỂ FIX LỖI IOS/MAC)
     console.log("🚀 226 POS: Đang kiểm tra kết nối...");
     
     // Đảm bảo Firebase DB đã sẵn sàng trước khi nạp
@@ -1585,7 +1623,6 @@ window.onload = function() {
             }
         }
     }, 500); // Kiểm tra mỗi 0.5 giây cho đến khi kết nối Cloud sẵn sàng
-};
 </script>
 
 <script src="script.js?v=1.3"></script>
