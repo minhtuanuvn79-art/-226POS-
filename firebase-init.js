@@ -36,13 +36,18 @@ function getBranchDocName(docName) {
     return docName;
 }
 
-// Hàm LƯU dữ liệu lên mây (Đã nâng cấp cách ly)
+
+// Hàm LƯU dữ liệu lên mây (Đã thêm tính năng bắt lỗi chặn CSDL)
 window.saveToFirebase = function(docName, dataArray) {
     const finalDocName = getBranchDocName(docName);
     
     db.collection("pos_226").doc(finalDocName).set({ items: dataArray })
         .then(() => console.log(`[Firebase] Đã lưu ${finalDocName} thành công!`))
-        .catch(error => console.error(`[Firebase] Lỗi lưu ${finalDocName}:`, error));
+        .catch(error => {
+            // Ném thẳng bảng báo lỗi ra giữa màn hình điện thoại
+            alert(`LỖI KHÔNG THỂ LƯU (${finalDocName}): \n\n${error.message}\n\nVui lòng chụp màn hình này lại!`);
+            console.error(`[Firebase] Lỗi lưu ${finalDocName}:`, error);
+        });
 }
 
 // Hàm LẮNG NGHE Real-time (Đã nâng cấp cách ly)
