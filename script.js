@@ -7393,14 +7393,11 @@ window.startBarcodeScanner = function(target = 'pos') {
     currentScanTarget = target;
     const scannerModal = document.getElementById('scanner-modal');
     
-    // 1. Mở hộp thoại lên trước để trình duyệt vẽ khung
     if (scannerModal) {
         scannerModal.style.display = 'flex';
     }
     
-    // 2. Delay 300ms để chống lỗi đen màn hình (của iOS)
     setTimeout(() => {
-        // Dọn dẹp luồng camera cũ
         if (html5QrcodeScanner) {
             try { html5QrcodeScanner.clear(); } catch(e) {}
             html5QrcodeScanner = null;
@@ -7408,18 +7405,22 @@ window.startBarcodeScanner = function(target = 'pos') {
 
         html5QrcodeScanner = new Html5Qrcode("reader");
         
-        // --- 3. CẤU HÌNH ĐỘ NÉT CAO (HD) ---
+        // --- CẤU HÌNH ĐẶC TRỊ MÃ VẠCH SẢN PHẨM (SIÊU TỐC) ---
         const config = { 
-            fps: 15, 
-            qrbox: { width: 250, height: 150 },
+            fps: 15, // Giữ 15 fps để máy không bị quá nhiệt và rớt khung hình
+            qrbox: { width: 300, height: 120 }, // Nới rộng chiều ngang để ôm trọn mã vạch sản phẩm
             aspectRatio: 1.0,
-            disableFlip: false,
-            videoConstraints: {
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-                // Bơm lệnh ép ống kính liên tục lấy nét
-                advanced: [{ focusMode: "continuous" }]
-            }
+            disableFlip: true, // Tắt chế độ lật ngược giúp tốc độ phân tích tăng gấp đôi
+            
+            // Ép thuật toán CHỈ quét các loại mã vạch sọc của hàng hóa, bỏ qua QR Code
+            formatsToSupport: [ 
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.UPC_A,
+                Html5QrcodeSupportedFormats.UPC_E,
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.CODE_39
+            ]
         };
 
         const handleCameraError = (err) => {
@@ -7434,36 +7435,21 @@ window.startBarcodeScanner = function(target = 'pos') {
             stopBarcodeScanner();
         };
         
-        // Hàm kích hoạt camera có cơ chế "Lùi một bước" nếu máy bị khắt khe
         const startScan = (cameraConfig) => {
             html5QrcodeScanner.start(
                 cameraConfig, 
                 config, 
                 onScanSuccess, 
                 onScanFailure
-            ).catch(err => {
-                // Nếu điện thoại từ chối lệnh ép lấy nét (OverconstrainedError), 
-                // ta tự động gỡ lệnh đó ra và thử bật lại ngay lập tức
-                if (err.name === 'OverconstrainedError' || err.name === 'ConstraintNotSatisfiedError') {
-                    delete config.videoConstraints.advanced;
-                    html5QrcodeScanner.start(cameraConfig, config, onScanSuccess, onScanFailure).catch(handleCameraError);
-                } else {
-                    handleCameraError(err);
-                }
-            });
+            ).catch(handleCameraError);
         };
 
-        // --- 4. TRÍCH XUẤT ĐÍCH DANH CAMERA CHÍNH (LOẠI BỎ ULTRAWIDE) ---
         Html5Qrcode.getCameras().then(devices => {
             if (devices && devices.length > 0) {
-                // Chỉ lấy danh sách camera mặt sau
                 let backCameras = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('sau'));
                 
                 if (backCameras.length > 0) {
-                    // Lọc TỪ CHỐI các camera chứa chữ "ultra" hoặc "wide" (Góc siêu rộng gây mờ)
                     let mainCam = backCameras.find(c => !c.label.toLowerCase().includes('ultra') && !c.label.toLowerCase().includes('wide'));
-                    
-                    // Nếu tìm được thì truyền ID vào, không thì lấy cái mặt sau đầu tiên
                     startScan(mainCam ? mainCam.id : backCameras[0].id);
                 } else {
                     startScan({ facingMode: "environment" });
@@ -7472,7 +7458,6 @@ window.startBarcodeScanner = function(target = 'pos') {
                 startScan({ facingMode: "environment" });
             }
         }).catch(err => {
-            // Nếu bị lỗi không lấy được danh sách, xài lệnh mặc định
             startScan({ facingMode: "environment" });
         });
 
