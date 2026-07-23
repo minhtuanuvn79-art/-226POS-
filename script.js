@@ -7400,11 +7400,17 @@ window.startBarcodeScanner = function(target = 'pos') {
 
     html5QrcodeScanner = new Html5Qrcode("reader");
     
+    // --- 1. CHUYỂN ĐỘ PHÂN GIẢI VÀO BIẾN CONFIG (Đúng chuẩn thư viện) ---
     const config = { 
         fps: 30,
         qrbox: { width: 250, height: 150 },
         aspectRatio: 1.0,
         disableFlip: false, 
+        // Đặt width, height vào bên trong videoConstraints
+        videoConstraints: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+        },
         formatsToSupport: [ 
             Html5QrcodeSupportedFormats.CODE_128,
             Html5QrcodeSupportedFormats.CODE_39,
@@ -7414,10 +7420,9 @@ window.startBarcodeScanner = function(target = 'pos') {
         ]
     };
     
+    // --- 2. CAMERA CONFIG CHỈ CÒN ĐÚNG 1 KEY LÀ FACING MODE ---
     const cameraConfig = { 
-        facingMode: "environment",
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
+        facingMode: "environment"
     };
     
     html5QrcodeScanner.start(
@@ -7428,14 +7433,9 @@ window.startBarcodeScanner = function(target = 'pos') {
     ).catch(err => {
         let errorMsg = "Không thể mở Camera.";
         
-        // --- ĐIỂM CẬP NHẬT: BỘ LỌC LỖI THÔNG MINH ---
-        
-        // Trường hợp 1: Thư viện trả về nguyên một câu văn (String)
         if (typeof err === 'string') {
             errorMsg = err;
-        } 
-        // Trường hợp 2: Thư viện trả về Object Lỗi chuẩn
-        else if (err && err.name) {
+        } else if (err && err.name) {
             if (err.name === 'NotAllowedError') {
                 errorMsg = "Trình duyệt đã chặn quyền sử dụng Camera. Vui lòng vào Cài đặt để cấp quyền.";
             } else if (err.name === 'NotFoundError') {
@@ -7447,9 +7447,7 @@ window.startBarcodeScanner = function(target = 'pos') {
             } else {
                 errorMsg = `Lỗi hệ thống: ${err.message || err.name}`;
             }
-        } 
-        // Trường hợp 3: Trả về một định dạng lạ khác
-        else {
+        } else {
             errorMsg = `Lỗi không xác định: ${JSON.stringify(err)}`;
         }
 
@@ -7457,7 +7455,6 @@ window.startBarcodeScanner = function(target = 'pos') {
         stopBarcodeScanner();
     });
 };
-
 // 1. Thêm 2 biến này ở bên ngoài (gần chỗ khai báo let html5QrcodeScanner)
 let lastScannedCode = "";
 let scanCooldownTimer = null;
