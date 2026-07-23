@@ -7394,22 +7394,17 @@ window.startBarcodeScanner = function(target = 'pos') {
     const scannerModal = document.getElementById('scanner-modal');
     if (scannerModal) scannerModal.style.display = 'flex';
     
-    // Nếu đã có phiên camera trước đó thì dọn dẹp để tránh lỗi đụng độ
     if (html5QrcodeScanner) {
         html5QrcodeScanner.clear().catch(err => console.log(err));
     }
 
-    // Khởi tạo bộ quét
     html5QrcodeScanner = new Html5Qrcode("reader");
     
-    // --- 1. TỐI ƯU CẤU HÌNH QUÉT ---
     const config = { 
-        fps: 30, // Cải thiện: Tăng từ 10 lên 30 hoặc 60 để camera bắt hình mượt hơn
+        fps: 30,
         qrbox: { width: 250, height: 150 },
         aspectRatio: 1.0,
-        disableFlip: false, // Tăng tốc độ bằng cách bỏ qua việc lật ngược khung hình
-        // Cải thiện: Chỉ định đích danh các loại mã vạch sản phẩm (EAN, UPC, Code 128)
-        // Giúp thư viện không phải mất thời gian dò tìm mã QR hay các định dạng lạ
+        disableFlip: false, 
         formatsToSupport: [ 
             Html5QrcodeSupportedFormats.CODE_128,
             Html5QrcodeSupportedFormats.CODE_39,
@@ -7419,18 +7414,12 @@ window.startBarcodeScanner = function(target = 'pos') {
         ]
     };
     
-
-// --- TỐI ƯU LẠI PHẦN CỨNG ỐNG KÍNH CHO iPHONE ---
     const cameraConfig = { 
         facingMode: "environment",
-        // Ép độ phân giải cao chuẩn HD để thuật toán dễ đọc mã vạch bị mờ
         width: { ideal: 1280 },
         height: { ideal: 720 }
-        
-        // ĐÃ XÓA: advanced: [{ focusMode: "continuous" }] vì Safari hỗ trợ rất kém và hay gây lỗi ngầm
     };
     
-    // Bật camera sau với cấu hình mới
     html5QrcodeScanner.start(
         cameraConfig, 
         config, 
@@ -7439,16 +7428,29 @@ window.startBarcodeScanner = function(target = 'pos') {
     ).catch(err => {
         let errorMsg = "Không thể mở Camera.";
         
-        if (err.name === 'NotAllowedError') {
-            errorMsg = "Trình duyệt (Safari/Chrome) đã chặn quyền sử dụng Camera. Vui lòng vào Cài đặt để cấp quyền.";
-        } else if (err.name === 'NotFoundError') {
-            errorMsg = "Không tìm thấy Camera trên thiết bị này.";
-        } else if (err.name === 'NotSupportedError') {
-            errorMsg = "LỖI BẢO MẬT: iOS yêu cầu trang web phải chạy trên nền HTTPS (ổ khóa xanh) mới cho phép mở Camera.";
-        } else if (err.name === 'NotReadableError') {
-            errorMsg = "Camera đang bị một ứng dụng khác chiếm dụng. Vui lòng đóng các app khác và thử lại.";
-        } else {
-            errorMsg = `Lỗi hệ thống (${err.name}): ${err.message}`;
+        // --- ĐIỂM CẬP NHẬT: BỘ LỌC LỖI THÔNG MINH ---
+        
+        // Trường hợp 1: Thư viện trả về nguyên một câu văn (String)
+        if (typeof err === 'string') {
+            errorMsg = err;
+        } 
+        // Trường hợp 2: Thư viện trả về Object Lỗi chuẩn
+        else if (err && err.name) {
+            if (err.name === 'NotAllowedError') {
+                errorMsg = "Trình duyệt đã chặn quyền sử dụng Camera. Vui lòng vào Cài đặt để cấp quyền.";
+            } else if (err.name === 'NotFoundError') {
+                errorMsg = "Không tìm thấy Camera trên thiết bị này.";
+            } else if (err.name === 'NotSupportedError') {
+                errorMsg = "LỖI BẢO MẬT: iOS yêu cầu trang web phải chạy trên nền HTTPS mới cho phép mở Camera.";
+            } else if (err.name === 'NotReadableError') {
+                errorMsg = "Camera đang bị một ứng dụng khác chiếm dụng. Vui lòng đóng các app khác và thử lại.";
+            } else {
+                errorMsg = `Lỗi hệ thống: ${err.message || err.name}`;
+            }
+        } 
+        // Trường hợp 3: Trả về một định dạng lạ khác
+        else {
+            errorMsg = `Lỗi không xác định: ${JSON.stringify(err)}`;
         }
 
         alert("⚠️ " + errorMsg);
