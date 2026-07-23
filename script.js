@@ -7567,16 +7567,38 @@ function onScanFailure(error) {
     // Không làm gì cả để camera tiếp tục dò
 }
 
-// Tắt Camera và ẩn hộp thoại
+// Tắt Camera và ẩn hộp thoại một cách an toàn
 window.stopBarcodeScanner = function() {
     const scannerModal = document.getElementById('scanner-modal');
     if (scannerModal) scannerModal.style.display = 'none';
     
     if (html5QrcodeScanner) {
-        html5QrcodeScanner.stop().then((ignore) => {
-            html5QrcodeScanner.clear();
+        try {
+            // Lấy trạng thái hiện tại của camera 
+            // (2: Html5QrcodeScannerState.SCANNING - Đang chạy)
+            // (3: Html5QrcodeScannerState.PAUSED - Đang tạm dừng)
+            const state = (typeof html5QrcodeScanner.getState === 'function') ? html5QrcodeScanner.getState() : 0;
+            
+            if (state === 2 || state === 3) {
+                // Nếu camera ĐANG CHẠY thì mới gọi lệnh tắt
+                html5QrcodeScanner.stop().then(() => {
+                    html5QrcodeScanner.clear();
+                    html5QrcodeScanner = null;
+                }).catch((err) => {
+                    // Nuốt lỗi rác để tránh báo đỏ trên console
+                    html5QrcodeScanner.clear();
+                    html5QrcodeScanner = null;
+                });
+            } else {
+                // Nếu camera chưa chạy hoặc đã tắt, chỉ cần dọn dẹp bộ nhớ
+                html5QrcodeScanner.clear();
+                html5QrcodeScanner = null;
+            }
+        } catch (error) {
+            // Bắt mọi ngoại lệ để đảm bảo hệ thống không bao giờ bị văng
+            try { html5QrcodeScanner.clear(); } catch(e) {}
             html5QrcodeScanner = null;
-        }).catch((err) => console.log("Lỗi khi tắt camera: ", err));
+        }
     }
 };
 
