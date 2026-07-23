@@ -7393,11 +7393,13 @@ window.startBarcodeScanner = function(target = 'pos') {
     currentScanTarget = target;
     const scannerModal = document.getElementById('scanner-modal');
     
+    // Mở hộp thoại lên trước để trình duyệt vẽ khung
     if (scannerModal) {
         scannerModal.style.display = 'flex';
     }
     
     setTimeout(() => {
+        // Dọn dẹp luồng camera cũ
         if (html5QrcodeScanner) {
             try { html5QrcodeScanner.clear(); } catch(e) {}
             html5QrcodeScanner = null;
@@ -7405,14 +7407,11 @@ window.startBarcodeScanner = function(target = 'pos') {
 
         html5QrcodeScanner = new Html5Qrcode("reader");
         
-        // --- CẤU HÌNH ĐẶC TRỊ MÃ VẠCH SẢN PHẨM (SIÊU TỐC) ---
+        // --- BÍ QUYẾT TỐI THƯỢNG: BỎ KHUNG NGẮM (QRBOX) ---
         const config = { 
-            fps: 15, // Giữ 15 fps để máy không bị quá nhiệt và rớt khung hình
-            qrbox: { width: 300, height: 120 }, // Nới rộng chiều ngang để ôm trọn mã vạch sản phẩm
-            aspectRatio: 1.0,
-            disableFlip: true, // Tắt chế độ lật ngược giúp tốc độ phân tích tăng gấp đôi
-            
-            // Ép thuật toán CHỈ quét các loại mã vạch sọc của hàng hóa, bỏ qua QR Code
+            fps: 20, // Tăng nhẹ fps lên 20 để tốc độ phản hồi nhanh hơn
+            // ĐÃ XÓA dòng qrbox: { width... } để cho phép quét toàn màn hình!
+            disableFlip: true, 
             formatsToSupport: [ 
                 Html5QrcodeSupportedFormats.EAN_13,
                 Html5QrcodeSupportedFormats.EAN_8,
@@ -7444,6 +7443,7 @@ window.startBarcodeScanner = function(target = 'pos') {
             ).catch(handleCameraError);
         };
 
+        // Tìm đích danh Camera chính (Tránh ống kính góc siêu rộng)
         Html5Qrcode.getCameras().then(devices => {
             if (devices && devices.length > 0) {
                 let backCameras = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('sau'));
