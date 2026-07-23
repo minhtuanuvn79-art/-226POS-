@@ -328,7 +328,12 @@
 
         <div class="list-main">
             <div class="list-toolbar">
-                <div class="search-bar"><i class="fa-solid fa-magnifying-glass"></i><input type="text" id="search-product-manage" placeholder="Theo mã, tên hàng..." oninput="currentProductPage = 1; renderProductList()"></div>
+                <div class="search-bar">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <input type="text" id="search-product-manage" placeholder="Theo mã, tên hàng..." oninput="currentProductPage = 1; renderProductList()">
+    <!-- Nút quét mã vạch mới -->
+    <i class="fa-solid fa-barcode" style="cursor: pointer; padding: 10px; border-left: 1px solid #eee; color: var(--kv-pink);" onclick="startBarcodeScanner('manage')" title="Quét mã vạch"></i>
+</div>
                 <div class="action-btn-group">
                     <button id="btn-bulk-delete" class="primary" style="background: white; border: 1px solid #d9534f; color: #d9534f; display: none;" onclick="bulkDeleteProducts()">
                         <i class="fa-solid fa-trash-can"></i> Xóa hàng loạt (<span id="selected-count">0</span>)
@@ -434,10 +439,12 @@
             
                     <div class="list-main">
                         <div class="list-toolbar" style="justify-content: space-between;">
-                            <div class="search-bar">
-                                <i class="fa-solid fa-magnifying-glass"></i>
-                                <input type="text" id="search-price-setup" placeholder="Theo mã, mã vạch, tên hàng..." oninput="currentPricePage = 1; renderPriceSetupTable()">
-                            </div>
+<div class="search-bar">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <input type="text" id="search-price-setup" placeholder="Theo mã, mã vạch, tên hàng..." oninput="currentPricePage = 1; renderPriceSetupTable()">
+    <!-- Nút quét mã vạch mới -->
+    <i class="fa-solid fa-barcode" style="cursor: pointer; padding: 10px; border-left: 1px solid #eee; color: var(--kv-pink);" onclick="startBarcodeScanner('price')" title="Quét mã vạch"></i>
+</div>
                             <div class="action-btn-group">
     <button class="primary" style="background: white; border: 1px solid var(--kv-pink); color: var(--kv-pink);" onclick="openPriceBookModal()"><i class="fa-solid fa-plus"></i> Bảng giá</button>
 </div>
@@ -477,10 +484,12 @@
 
         <div class="list-main">
             <div class="list-toolbar" style="justify-content: space-between;">
-                <div class="search-bar">
-                    <i class="fa-solid fa-magnifying-glass"></i>
-                    <input type="text" id="search-batch-update" placeholder="Theo mã, mã vạch, tên hàng..." oninput="window.currentUpdatePage = 1; renderBatchUpdateTable()">
-                </div>
+<div class="search-bar">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <input type="text" id="search-batch-update" placeholder="Theo mã, mã vạch, tên hàng..." oninput="window.currentUpdatePage = 1; renderBatchUpdateTable()">
+    <!-- Nút quét mã vạch mới -->
+    <i class="fa-solid fa-barcode" style="cursor: pointer; padding: 10px; border-left: 1px solid #eee; color: var(--kv-pink);" onclick="startBarcodeScanner('update')" title="Quét mã vạch"></i>
+</div>
                 <div class="action-btn-group">
                     <button class="primary" onclick="saveBatchUpdates()"><i class="fa-solid fa-floppy-disk"></i> Cập nhật dữ liệu</button>
                 </div>
@@ -723,13 +732,14 @@
         </div>
         
 <div style="flex: 1; display: flex; justify-content: center;">
-    <div style="position: relative; width: 500px; display: flex; align-items: center; border: 1px solid var(--kv-blue); border-radius: 4px; background: white;">
-        <i class="fa-solid fa-magnifying-glass" style="padding: 0 10px; color: #888;"></i>
-<input type="text" id="io-search-input" placeholder="Tìm hàng hóa theo mã hoặc tên (F3)" oninput="searchIOProduct(this.value)" style="flex: 1; border: none; padding: 8px 0; outline: none; font-size: 13px;">
-<i class="fa-solid fa-plus" onclick="openAddProductModal()" title="Thêm hàng hóa mới" style="padding: 0 10px; color: #888; border-left: 1px solid #eee; cursor: pointer;"></i>
-        
-        <div id="io-search-dropdown" class="ic-dropdown" style="display: none; position: absolute; top: 100%; left: 0; width: 100%; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 10; border-radius: 4px; max-height: 300px; overflow-y: auto; color: #333;"></div>
-    </div>
+<div style="position: relative; width: 500px; display: flex; align-items: center; border: 1px solid var(--kv-blue); border-radius: 4px; background: white;">
+    <i class="fa-solid fa-magnifying-glass" style="padding: 0 10px; color: #888;"></i>
+    <input type="text" id="io-search-input" placeholder="Tìm hàng hóa theo mã hoặc tên (F3)" oninput="searchIOProduct(this.value)" style="flex: 1; border: none; padding: 8px 0; outline: none; font-size: 13px;">
+    <!-- Nút quét mã vạch mới -->
+    <i class="fa-solid fa-barcode" onclick="startBarcodeScanner('import')" style="padding: 0 10px; color: var(--kv-pink); border-left: 1px solid #eee; cursor: pointer;" title="Quét mã vạch"></i>
+    <i class="fa-solid fa-plus" onclick="openAddProductModal()" title="Thêm hàng hóa mới" style="padding: 0 10px; color: #888; border-left: 1px solid #eee; cursor: pointer;"></i>
+    <div id="io-search-dropdown" class="ic-dropdown" style="display: none; position: absolute; top: 100%; left: 0; width: 100%; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 10; border-radius: 4px; max-height: 300px; overflow-y: auto; color: #333;"></div>
+</div>
 </div>
         
         <div style="display: flex; gap: 15px; width: 250px; justify-content: flex-end; color: #555; font-size: 16px;">
@@ -921,16 +931,17 @@
         <div style="display: flex; align-items: center;">
             <i class="fa-solid fa-arrow-left" onclick="closeCreateCheckView()" style="cursor: pointer; font-size: 18px; color: #555; margin-right: 15px;"></i>
             <h2 style="font-size: 16px; color: #333;">Kiểm kho</h2>
-            <div class="ic-search-box">
-                <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" id="ic-search-input" placeholder="Tìm hàng hóa theo mã hoặc tên (F3)" oninput="searchICProduct(this.value)">
-                <div id="ic-search-dropdown" class="ic-dropdown"></div>
-            </div>
+<div class="ic-search-box">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <input type="text" id="ic-search-input" placeholder="Tìm hàng hóa theo mã hoặc tên (F3)" oninput="searchICProduct(this.value)">
+    
+    <!-- Đưa nút quét mã vạch vào sát bên phải của ô tìm kiếm -->
+    <i class="fa-solid fa-barcode" onclick="startBarcodeScanner('check')" style="padding: 0 10px; border-left: 1px solid #eee; cursor: pointer; color: var(--kv-pink);" title="Quét mã vạch"></i>
+    
+    <div id="ic-search-dropdown" class="ic-dropdown"></div>
+</div>
         </div>
-        <div style="display: flex; gap: 15px; color: #555;">
-            <i class="fa-solid fa-barcode" style="cursor: pointer;" title="Quét mã vạch"></i>
-            <i class="fa-solid fa-print" style="cursor: pointer;" title="In phiếu"></i>
-        </div>
+
     </div>
 
     <div class="ic-layout">

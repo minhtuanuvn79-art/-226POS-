@@ -1016,4 +1016,91 @@ input#enable-beer-ice {
     .pm-row-2, .pm-row-4, .io-detail-info-grid, .summary-grid { grid-template-columns: 1fr; }
     .kv-table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .kv-table { min-width: 600px; }
+    /* =========================================
+       TỐI ƯU PHIẾU NHẬP HÀNG CHO MOBILE
+       ========================================= */
+    /* Header: Xếp dọc Nút quay lại - Ô tìm kiếm - Các icon */
+    #import-order-view > div:first-child {
+        flex-direction: column;
+        height: auto !important;
+        padding: 10px !important;
+        gap: 12px;
+        align-items: stretch !important;
+    }
+    #import-order-view > div:first-child > div {
+        width: 100% !important;
+        justify-content: space-between !important;
+    }
+    /* Mở rộng thanh tìm kiếm 100% */
+    #import-order-view > div:first-child > div:nth-child(2) > div {
+        width: 100% !important;
+    }
+    
+    /* Body: Đổi Trái/Phải thành Trên/Dưới */
+    #import-order-view > div:nth-child(2) {
+        flex-direction: column !important;
+        overflow-y: auto !important;
+    }
+    /* Khung bảng hàng hóa (Phía trên) */
+    #import-order-view > div:nth-child(2) > div:first-child {
+        min-height: 350px;
+        flex: none !important;
+    }
+    /* Khung thông tin tính tiền & Nút bấm (Phía dưới) */
+    #import-order-view > div:nth-child(2) > div:last-child {
+        width: 100% !important;
+        flex: none !important;
+        margin-bottom: 20px;
+    }
+    /* Tách 2 nút Lưu tạm / Hoàn thành thành 2 dòng cho dễ bấm */
+    #io-action-buttons {
+        flex-direction: column;
+    }
+
+    /* =========================================
+       TỐI ƯU PHIẾU KIỂM KHO CHO MOBILE
+       ========================================= */
+    /* Header: Xếp dọc tiêu đề và thanh tìm kiếm */
+    .ic-header {
+        height: auto !important;
+        flex-direction: column;
+        padding: 15px 10px !important;
+        align-items: stretch !important;
+        gap: 12px;
+    }
+    .ic-header > div:first-child {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 10px;
+    }
+    .ic-search-box {
+        width: 100% !important;
+        margin-left: 0 !important;
+    }
+    
+    /* Body: Đổi Trái/Phải thành Trên/Dưới */
+    .ic-layout {
+        flex-direction: column !important;
+        overflow-y: auto !important;
+    }
+    /* Khung bảng hàng hóa */
+    .ic-left {
+        min-height: 350px;
+        flex: none !important;
+    }
+    /* Khung ghi chú và nút bấm */
+    .ic-right {
+        width: 100% !important;
+        flex: none !important;
+        margin-bottom: 20px;
+    }
+
+    /* Lưới nhập liệu thông tin hiển thị 1 cột */
+    .io-detail-info-grid {
+        grid-template-columns: 1fr !important;
+    }
+    .io-detail-summary-box {
+        max-width: 100% !important;
+        width: 100% !important;
+    }
 }

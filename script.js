@@ -2260,7 +2260,7 @@ function updateICRealQty(productId, value) {
     }
 }
 
-function renderICItemsTable() {
+window.renderICItemsTable = function() {
     const tbody = document.querySelector('#ic-items-table tbody');
     document.getElementById('ic-count-all').innerText = currentICItems.length;
 
@@ -2288,22 +2288,23 @@ function renderICItemsTable() {
                 <td style="color:var(--kv-blue); font-weight:bold;">${item.code}</td>
                 <td>${item.name}</td>
                 <td>
-                    <select onchange="changeICUnit(${item.productId}, this.value)" style="border:none; color:var(--kv-blue); outline:none; background:transparent; cursor:pointer; font-weight:500;">
+                    <select onchange="window.changeICUnit('${item.productId}', this.value)" style="border:none; color:var(--kv-blue); outline:none; background:transparent; cursor:pointer; font-weight:500;">
                         ${unitOptions}
                     </select>
                 </td>
                 <td style="text-align:center;">${item.sysStock}</td>
                 <td style="text-align:center;">
-                    <input type="number" value="${item.realQty}" onchange="updateICRealQty(${item.productId}, this.value)" style="width: 80px; text-align: center; padding: 5px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-weight: bold;">
+                    <!-- ĐIỂM SỬA LỖI QUAN TRỌNG: Thêm dấu nháy đơn vào updateICRealQty('${item.productId}') -->
+                    <input type="number" value="${item.realQty}" onchange="window.updateICRealQty('${item.productId}', this.value)" style="width: 80px; text-align: center; padding: 5px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-weight: bold;">
                 </td>
-                <td style="text-align:center; font-weight:bold; color:${diff<0?'red':'green'};">${diff}</td>
-                <td style="text-align:right; font-weight:bold; color:${valDiff<0?'red':'green'};">${valDiff.toLocaleString()}</td>
+                <td style="text-align:center; font-weight:bold; color:${diff < 0 ? 'red' : 'green'};">${diff}</td>
+                <td style="text-align:right; font-weight:bold; color:${valDiff < 0 ? 'red' : 'green'};">${valDiff.toLocaleString()}</td>
             </tr>
         `;
     });
     
     document.getElementById('ic-total-actual-qty').innerText = sumActual;
-}
+};
 
 window.saveInventoryCheck = function(action) {
     if (currentICItems.length === 0) { 
@@ -3755,17 +3756,39 @@ function switchPOSTab(index) {
     focusPOSSearch();
 }
 
-function closePOSTab(index, event) {
+window.closePOSTab = function(index, event) {
     if(event) event.stopPropagation();
-    if (posTabs.length <= 1) return;
-    posTabs.splice(index, 1);
-    if (activeTabIndex >= posTabs.length) activeTabIndex = posTabs.length - 1;
-    switchPOSTab(activeTabIndex);
-    savePOSState();
     
-    // Focus lại sau khi đóng tab
-    focusPOSSearch();
-}
+    // Nếu chỉ còn 1 tab thì không cho đóng
+    if (posTabs.length <= 1) return;
+
+    const tabToClose = posTabs[index];
+
+    // Tạo một hàm con xử lý việc đóng tab để dùng lại cho cả 2 trường hợp
+    const executeClose = () => {
+        posTabs.splice(index, 1);
+        // Cập nhật lại vị trí tab đang active nếu lỡ xóa tab ở cuối
+        if (activeTabIndex >= posTabs.length) activeTabIndex = posTabs.length - 1;
+        
+        switchPOSTab(activeTabIndex);
+        savePOSState();
+        focusPOSSearch();
+    };
+
+    // Kiểm tra xem hóa đơn này có đang chứa hàng hóa nào không
+    if (tabToClose && tabToClose.items && tabToClose.items.length > 0) {
+        // Nếu có hàng: Hiển thị cảnh báo xác nhận
+        showConfirm(
+            `Hóa đơn <b>${tabToClose.name}</b> đang có ${tabToClose.items.length} mặt hàng.<br>Bạn có chắc chắn muốn đóng và xóa hóa đơn này không?`, 
+            function() {
+                executeClose();
+            }
+        );
+    } else {
+        // Nếu hóa đơn trống: Tắt ngay lập tức không cần hỏi
+        executeClose();
+    }
+};
 
 window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) {
     const sInput = document.getElementById('pos-search-input');
@@ -7379,21 +7402,41 @@ window.startBarcodeScanner = function(target = 'pos') {
     // Khởi tạo bộ quét
     html5QrcodeScanner = new Html5Qrcode("reader");
     
-    // Cấu hình quét: Quét 10 khung hình/giây
+    // --- 1. TỐI ƯU CẤU HÌNH QUÉT ---
     const config = { 
-        fps: 10, 
+        fps: 30, // Cải thiện: Tăng từ 10 lên 30 hoặc 60 để camera bắt hình mượt hơn
         qrbox: { width: 250, height: 150 },
-        aspectRatio: 1.0
+        aspectRatio: 1.0,
+        disableFlip: false, // Tăng tốc độ bằng cách bỏ qua việc lật ngược khung hình
+        // Cải thiện: Chỉ định đích danh các loại mã vạch sản phẩm (EAN, UPC, Code 128)
+        // Giúp thư viện không phải mất thời gian dò tìm mã QR hay các định dạng lạ
+        formatsToSupport: [ 
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A
+        ]
     };
     
-    // Bật camera sau (environment)
+
+// --- TỐI ƯU LẠI PHẦN CỨNG ỐNG KÍNH CHO iPHONE ---
+    const cameraConfig = { 
+        facingMode: "environment",
+        // Ép độ phân giải cao chuẩn HD để thuật toán dễ đọc mã vạch bị mờ
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+        
+        // ĐÃ XÓA: advanced: [{ focusMode: "continuous" }] vì Safari hỗ trợ rất kém và hay gây lỗi ngầm
+    };
+    
+    // Bật camera sau với cấu hình mới
     html5QrcodeScanner.start(
-        { facingMode: "environment" }, 
+        cameraConfig, 
         config, 
         onScanSuccess, 
         onScanFailure
     ).catch(err => {
-        // [ĐÃ SỬA TẠI ĐÂY]: In ra lỗi chi tiết để bắt bệnh iOS
         let errorMsg = "Không thể mở Camera.";
         
         if (err.name === 'NotAllowedError') {
@@ -7413,32 +7456,108 @@ window.startBarcodeScanner = function(target = 'pos') {
     });
 };
 
-// Hàm chạy khi Camera đọc được mã
+// 1. Thêm 2 biến này ở bên ngoài (gần chỗ khai báo let html5QrcodeScanner)
+let lastScannedCode = "";
+let scanCooldownTimer = null;
+
 function onScanSuccess(decodedText, decodedResult) {
-    // 1. Dừng camera ngay lập tức để tiết kiệm pin
-    stopBarcodeScanner();
-    
-    // 2. Phát ra âm thanh "Bíp" như máy quét thật
-    playBeepSound();
-    
     const scannedCode = decodedText.trim();
 
-    // 3. Tự động xử lý tùy theo nơi gọi Camera
+    // --- CHỐNG QUÉT ĐÚP (DEBOUNCE) ---
+    if (scannedCode === lastScannedCode) {
+        return;
+    }
+
+    lastScannedCode = scannedCode;
+    clearTimeout(scanCooldownTimer);
+    scanCooldownTimer = setTimeout(() => {
+        lastScannedCode = ""; 
+    }, 1500);
+
+    // --- PHÁT ÂM THANH BÍP ---
+    playBeepSound();
+
+    // --- ĐIỀU PHỐI DỮ LIỆU TÙY THEO MÀN HÌNH ĐANG MỞ ---
+    
+    // 1. Nếu đang ở màn hình Bán hàng
     if (currentScanTarget === 'pos') {
         const input = document.getElementById('pos-search-input');
         if (input) input.value = scannedCode;
-        
-        // Gọi hàm enter để tự động bắn hàng vào giỏ (Hàm này bạn đã có ở trên)
-        if (typeof handleDirectEnter === 'function') {
-            handleDirectEnter(scannedCode.toLowerCase());
-        }
+        if (typeof handleDirectEnter === 'function') handleDirectEnter(scannedCode.toLowerCase());
+        showToast(`Đã thêm: ${scannedCode}`, "success");
     } 
-    // Mở rộng: Nếu quét ở Nhập hàng
+    
+    // 2. Nếu đang ở màn hình tạo Phiếu Nhập
     else if (currentScanTarget === 'import') {
         const input = document.getElementById('io-search-input');
         if (input) {
             input.value = scannedCode;
             window.searchIOProduct(scannedCode);
+        }
+        showToast(`Đã nhận mã vào phiếu nhập: ${scannedCode}`, "success");
+    }
+    
+    // 3. Nếu đang ở màn hình tạo Phiếu Kiểm Kho (Tự động cộng dồn +1)
+    else if (currentScanTarget === 'check') {
+        const input = document.getElementById('ic-search-input');
+        if (input) input.value = scannedCode;
+        
+        // Tự động đối chiếu mã và cộng thẳng số lượng thực tế
+        const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+        const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+        let exactMatch = null;
+
+        for (let p of latestProducts) {
+            if (p.branchId !== currentBranch) continue;
+            if ((p.barcode && p.barcode.toLowerCase() === scannedCode.toLowerCase()) || (p.code && p.code.toLowerCase() === scannedCode.toLowerCase())) {
+                exactMatch = p; break;
+            }
+            if (p.units) {
+                let uMatch = p.units.find(u => (u.barcode && u.barcode.toLowerCase() === scannedCode.toLowerCase()) || (u.code && u.code.toLowerCase() === scannedCode.toLowerCase()));
+                if (uMatch) { exactMatch = p; break; }
+            }
+        }
+
+        if (exactMatch) {
+            window.addICToList(exactMatch.id);
+            if (input) input.value = ''; // Quét xong xóa chữ để trống ô
+            showToast(`Đã đếm +1: ${exactMatch.name}`, "success");
+        } else {
+            window.searchICProduct(scannedCode);
+            showToast(`Mã chưa tồn tại: ${scannedCode}`, "warning");
+        }
+    }
+    
+    // 4. Nếu đang ở tab Quản lý hàng hóa
+    else if (currentScanTarget === 'manage') {
+        const input = document.getElementById('search-product-manage');
+        if (input) {
+            input.value = scannedCode;
+            window.currentProductPage = 1;
+            window.renderProductList();
+            showToast(`Đã lọc danh sách: ${scannedCode}`, "success");
+        }
+    }
+    
+    // 5. Nếu đang ở tab Thiết lập giá
+    else if (currentScanTarget === 'price') {
+        const input = document.getElementById('search-price-setup');
+        if (input) {
+            input.value = scannedCode;
+            window.currentPricePage = 1;
+            window.renderPriceSetupTable();
+            showToast(`Đã lọc bảng giá: ${scannedCode}`, "success");
+        }
+    }
+    
+    // 6. Nếu đang ở tab Cập nhật hàng loạt
+    else if (currentScanTarget === 'update') {
+        const input = document.getElementById('search-batch-update');
+        if (input) {
+            input.value = scannedCode;
+            window.currentUpdatePage = 1;
+            window.renderBatchUpdateTable();
+            showToast(`Đã lọc lưới cập nhật: ${scannedCode}`, "success");
         }
     }
 }
@@ -7682,3 +7801,151 @@ window.processCopyBranch = function() {
         if (typeof renderBranchList === 'function') renderBranchList();
     });
 };
+// ==========================================
+// LỚP BẢO VỆ 1: CẢNH BÁO CHỐNG VĂNG TRANG (F5 HOẶC KÉO TRƯỢT XUỐNG)
+// ==========================================
+window.addEventListener('beforeunload', function (e) {
+    // Kiểm tra xem giỏ hàng POS, Nhập hàng, hoặc Kiểm kho có đang chứa dữ liệu dở dang không
+    const hasIO = (typeof currentIOItems !== 'undefined' && currentIOItems.length > 0);
+    const hasIC = (typeof currentICItems !== 'undefined' && currentICItems.length > 0);
+    let hasPOS = false;
+    
+    if (typeof posTabs !== 'undefined') {
+        hasPOS = posTabs.some(tab => tab.items && tab.items.length > 0);
+    }
+
+    if (hasIO || hasIC || hasPOS) {
+        // Lệnh này ép trình duyệt (Chrome, Safari) tự động hiện hộp thoại cảnh báo: 
+        // "Bạn có chắc chắn muốn tải lại trang? Dữ liệu chưa lưu có thể bị mất."
+        // Chặn đứng thao tác vuốt tải lại trang nhầm trên điện thoại.
+        e.preventDefault();
+        e.returnValue = ''; 
+    }
+});
+
+// ==========================================
+// LỚP BẢO VỆ 2: AUTO-SAVE TRẠNG THÁI KIỂM KHO (GIỐNG NHẬP HÀNG)
+// ==========================================
+window.saveICState = function() {
+    const icView = document.getElementById('inventory-check-view');
+    // Chỉ lưu nháp khi màn hình kiểm kho đang mở
+    if (icView && icView.style.display !== 'none') {
+        const icState = {
+            isOpen: true,
+            editingId: typeof editingICId !== 'undefined' ? editingICId : null,
+            icCode: document.getElementById('ic-code')?.value || '',
+            items: typeof currentICItems !== 'undefined' ? currentICItems : [],
+            note: document.getElementById('ic-note')?.value || ''
+        };
+        localStorage.setItem('kv_ic_state', JSON.stringify(icState));
+    }
+};
+
+window.clearICState = function() {
+    localStorage.removeItem('kv_ic_state');
+};
+
+window.restoreICState = function() {
+    const savedStateStr = localStorage.getItem('kv_ic_state');
+    if (savedStateStr) {
+        try {
+            const savedState = JSON.parse(savedStateStr);
+            if (savedState && savedState.isOpen) {
+                // Mở lại màn hình
+                const icView = document.getElementById('inventory-check-view');
+                if (icView) icView.style.display = 'flex';
+                
+                // Khôi phục dữ liệu
+                editingICId = savedState.editingId;
+                currentICItems = savedState.items || [];
+                
+                if (document.getElementById('ic-code')) document.getElementById('ic-code').value = savedState.icCode;
+                if (document.getElementById('ic-note')) document.getElementById('ic-note').value = savedState.note;
+                
+                // Vẽ lại bảng danh sách
+                if (typeof renderICItemsTable === 'function') renderICItemsTable();
+            }
+        } catch (e) {
+            clearICState();
+        }
+    }
+};
+
+// --- Tự động kích hoạt Save khi có thao tác trong Kiểm kho ---
+const _origAddIC = window.addICToList;
+window.addICToList = function(productId) {
+    if (_origAddIC) _origAddIC(productId);
+    saveICState();
+};
+
+const _origRemoveIC = window.removeICItem;
+window.removeICItem = function(productId) {
+    if (_origRemoveIC) _origRemoveIC(productId);
+    saveICState();
+};
+
+const _origUpdateICRealQty = window.updateICRealQty;
+window.updateICRealQty = function(productId, value) {
+    const item = currentICItems.find(x => String(x.productId) === String(productId));
+    if (item) {
+        item.realQty = parseFloat(value) || 0;
+        renderICItemsTable(); 
+    }
+};
+
+const _origChangeICUnit = window.changeICUnit;
+window.changeICUnit = function(productId, newUnitIdx) {
+    const item = currentICItems.find(x => String(x.productId) === String(productId));
+    if (item) {
+        const oldRate = item.units[item.selectedUnitIdx].rate || 1;
+        item.selectedUnitIdx = parseInt(newUnitIdx);
+        const newRate = item.units[item.selectedUnitIdx].rate || 1;
+
+        item.sysStock = parseFloat((item.baseSysStock / newRate).toFixed(2));
+        item.realQty = parseFloat(((item.realQty * oldRate) / newRate).toFixed(2));
+        item.cost = item.baseCost * newRate; 
+
+        renderICItemsTable();
+    }
+};
+
+// Tự động lưu nháp khi gõ ghi chú
+document.addEventListener('change', function(e) {
+    if (e.target.id === 'ic-note') saveICState();
+});
+
+// Xóa bản nháp sau khi đã Lưu chính thức thành công hoặc Hủy
+const _origSaveIC = window.saveInventoryCheck;
+window.saveInventoryCheck = function(action) {
+    if (_origSaveIC) _origSaveIC(action);
+    if (typeof currentICItems !== 'undefined' && currentICItems.length === 0) {
+        clearICState();
+    }
+};
+
+const _origCloseIC = window.closeCreateCheckView;
+window.closeCreateCheckView = function() {
+    if (_origCloseIC) _origCloseIC();
+    if (typeof currentICItems !== 'undefined' && currentICItems.length === 0) {
+        clearICState();
+    }
+};
+
+// ==========================================
+// TỰ ĐỘNG PHỤC HỒI DỮ LIỆU SAU KHI F5 THÀNH CÔNG
+// ==========================================
+setTimeout(() => {
+    const currentView = sessionStorage.getItem('kv_current_view');
+    const currentTab = localStorage.getItem('kv_current_tab');
+    
+    if (currentView === 'dashboard-view') {
+        // Phục hồi Nhập hàng (nếu đang ở tab Nhập hàng)
+        if (currentTab === 'tab-nhap-hang' && typeof restoreIOState === 'function') {
+            restoreIOState();
+        }
+        // Phục hồi Kiểm kho (nếu đang ở tab Kiểm kho)
+        if (currentTab === 'tab-kiem-kho' && typeof restoreICState === 'function') {
+            restoreICState();
+        }
+    }
+}, 1200);
