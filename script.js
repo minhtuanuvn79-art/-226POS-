@@ -7392,68 +7392,56 @@ let currentScanTarget = 'pos'; // Biến lưu vị trí đang yêu cầu quét (
 window.startBarcodeScanner = function(target = 'pos') {
     currentScanTarget = target;
     const scannerModal = document.getElementById('scanner-modal');
-    if (scannerModal) scannerModal.style.display = 'flex';
     
-    if (html5QrcodeScanner) {
-        html5QrcodeScanner.clear().catch(err => console.log(err));
+    // 1. Mở hộp thoại lên trước để trình duyệt bắt đầu vẽ giao diện
+    if (scannerModal) {
+        scannerModal.style.display = 'flex';
     }
-
-    html5QrcodeScanner = new Html5Qrcode("reader");
     
-    // --- 1. CHUYỂN ĐỘ PHÂN GIẢI VÀO BIẾN CONFIG (Đúng chuẩn thư viện) ---
-    const config = { 
-        fps: 30,
-        qrbox: { width: 250, height: 150 },
-        aspectRatio: 1.0,
-        disableFlip: false, 
-        // Đặt width, height vào bên trong videoConstraints
-        videoConstraints: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-        },
-        formatsToSupport: [ 
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.CODE_39,
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.UPC_A
-        ]
-    };
-    
-    // --- 2. CAMERA CONFIG CHỈ CÒN ĐÚNG 1 KEY LÀ FACING MODE ---
-    const cameraConfig = { 
-        facingMode: "environment"
-    };
-    
-    html5QrcodeScanner.start(
-        cameraConfig, 
-        config, 
-        onScanSuccess, 
-        onScanFailure
-    ).catch(err => {
-        let errorMsg = "Không thể mở Camera.";
-        
-        if (typeof err === 'string') {
-            errorMsg = err;
-        } else if (err && err.name) {
-            if (err.name === 'NotAllowedError') {
-                errorMsg = "Trình duyệt đã chặn quyền sử dụng Camera. Vui lòng vào Cài đặt để cấp quyền.";
-            } else if (err.name === 'NotFoundError') {
-                errorMsg = "Không tìm thấy Camera trên thiết bị này.";
-            } else if (err.name === 'NotSupportedError') {
-                errorMsg = "LỖI BẢO MẬT: iOS yêu cầu trang web phải chạy trên nền HTTPS mới cho phép mở Camera.";
-            } else if (err.name === 'NotReadableError') {
-                errorMsg = "Camera đang bị một ứng dụng khác chiếm dụng. Vui lòng đóng các app khác và thử lại.";
-            } else {
-                errorMsg = `Lỗi hệ thống: ${err.message || err.name}`;
-            }
-        } else {
-            errorMsg = `Lỗi không xác định: ${JSON.stringify(err)}`;
+    // 2. CHỜ 300ms: Đây là "bảo bối" giúp iPhone có đủ thời gian vẽ xong 
+    // khung #reader với kích thước chuẩn trước khi đổ luồng Video vào.
+    setTimeout(() => {
+        // Dọn dẹp sạch sẽ luồng camera cũ đang bị treo (nếu có)
+        if (html5QrcodeScanner) {
+            try { html5QrcodeScanner.clear(); } catch(e) {}
+            html5QrcodeScanner = null;
         }
 
-        alert("⚠️ " + errorMsg);
-        stopBarcodeScanner();
-    });
+        // Khởi tạo mới
+        html5QrcodeScanner = new Html5Qrcode("reader");
+        
+        // Cấu hình mượt mà, đúng chuẩn 1 tham số
+        const config = { 
+            fps: 15, 
+            qrbox: { width: 250, height: 150 },
+            aspectRatio: 1.0,
+            disableFlip: false
+        };
+        
+        const cameraConfig = { 
+            facingMode: "environment" 
+        };
+        
+        // Kích hoạt camera
+        html5QrcodeScanner.start(
+            cameraConfig, 
+            config, 
+            onScanSuccess, 
+            onScanFailure
+        ).catch(err => {
+            let errorMsg = "Không thể mở Camera.";
+            if (typeof err === 'string') {
+                errorMsg = err;
+            } else if (err && err.name) {
+                if (err.name === 'NotAllowedError') errorMsg = "Vui lòng vào Cài đặt để cấp quyền Camera cho trang web.";
+                else if (err.name === 'NotFoundError') errorMsg = "Không tìm thấy Camera trên thiết bị này.";
+                else errorMsg = `Lỗi hệ thống: ${err.message || err.name}`;
+            }
+            
+            alert("⚠️ " + errorMsg);
+            stopBarcodeScanner();
+        });
+    }, 300); // Trì hoãn 0.3 giây
 };
 // 1. Thêm 2 biến này ở bên ngoài (gần chỗ khai báo let html5QrcodeScanner)
 let lastScannedCode = "";
