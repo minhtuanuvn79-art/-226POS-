@@ -7404,29 +7404,32 @@ window.startBarcodeScanner = function(target = 'pos') {
         html5QrcodeScanner = new Html5Qrcode("reader");
         
         const config = { 
-            fps: 15, // Tăng nhẹ lên 15 FPS để bắt khung hình nhanh hơn
+            fps: 20, // Tăng FPS lên 20 để luồng video mượt hơn, bắt chuyển động nhanh hơn
             disableFlip: false, 
+            qrbox: { width: 250, height: 120 }, // Khung chữ nhật hẹp lại để loại bỏ nhiễu xung quanh
+            // BỎ aspectRatio: 1.0 để camera lấy đúng tỷ lệ thật của điện thoại, không bị zoom vỡ hạt
             
-            // BÍ QUYẾT 1: Làm khung chữ nhật dẹt (Dài 300, Rộng 120) phù hợp với mã vạch 1D
-            qrbox: { width: 300, height: 120 }, 
+            // --- BÍ QUYẾT TỐI THƯỢNG ---
+            // Ép hệ thống dùng chip xử lý phần cứng của điện thoại để quét mã
+            experimentalFeatures: {
+                useBarCodeDetectorIfSupported: true
+            },
             
+            // Lọc bớt định dạng. Ở cửa hàng tạp hóa/siêu thị thường chỉ dùng EAN_13 (hàng VN/Quốc tế) và CODE_128 (mã nội bộ)
             formatsToSupport: [ 
                 Html5QrcodeSupportedFormats.EAN_13,
                 Html5QrcodeSupportedFormats.EAN_8,
-                Html5QrcodeSupportedFormats.UPC_A,
-                Html5QrcodeSupportedFormats.UPC_E,
                 Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.CODE_39
+                Html5QrcodeSupportedFormats.UPC_A
             ]
         };
 
         const startScan = () => {
-            // BÍ QUYẾT 2: Ép độ phân giải HD (1280x720) để hình ảnh cực nét
-            // Chú ý: Ta ép width/height nhưng không dùng focusMode để tránh treo iOS
+            // Cung cấp dải độ phân giải lý tưởng, cho phép trình duyệt tự lùi về min nếu máy yếu
             const cameraConfig = { 
                 facingMode: "environment",
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
+                width: { min: 640, ideal: 1280 },
+                height: { min: 480, ideal: 720 }
             };
             
             html5QrcodeScanner.start(
@@ -7435,9 +7438,9 @@ window.startBarcodeScanner = function(target = 'pos') {
                 onScanSuccess, 
                 onScanFailure
             ).catch(err => {
-                // Fallback (Phương án dự phòng): Nếu điện thoại đời quá cũ không hỗ trợ HD thì gọi lại camera cơ bản
+                // Dự phòng: Nếu điện thoại quá cũ không chịu thông số rườm rà, gọi camera trần trụi nhất
                 html5QrcodeScanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure).catch(err2 => {
-                    alert("⚠️ Không thể mở Camera: " + (err2.message || err2.name));
+                    alert("⚠️ Lỗi Camera: " + (err2.message || err2.name));
                     stopBarcodeScanner();
                 });
             });
