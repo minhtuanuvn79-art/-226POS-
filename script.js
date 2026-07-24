@@ -7385,7 +7385,7 @@ document.addEventListener('click', function(e) {
 });
 // Biến toàn cục giữ nguyên
 let html5QrcodeScanner = null;
-let currentScanTarget = 'pos'; // Biến lưu vị trí đang yêu cầu quét (pos, import, check)
+let currentScanTarget = 'pos'; 
 
 window.startBarcodeScanner = function(target = 'pos') {
     currentScanTarget = target;
@@ -7395,24 +7395,21 @@ window.startBarcodeScanner = function(target = 'pos') {
         scannerModal.style.display = 'flex';
     }
     
-    // Đợi 300ms để hiệu ứng UI mở Modal chạy mượt mà rồi mới bật Camera
     setTimeout(() => {
-        // Dọn dẹp phiên quét cũ (nếu có) để tránh treo bộ nhớ
         if (html5QrcodeScanner) {
             try { html5QrcodeScanner.clear(); } catch(e) {}
             html5QrcodeScanner = null;
         }
 
-        // Khởi tạo lại đối tượng quét mã vạch
         html5QrcodeScanner = new Html5Qrcode("reader");
         
-        // --- CẤU HÌNH CAMERA TỐI ƯU CHO CẢ ANDROID & IOS ---
         const config = { 
-            fps: 10, // Giảm xuống 10 để tránh quá tải RAM trên Safari iOS
-            disableFlip: false, // Để false giúp thư viện tự xử lý lật hình trên iOS
-            qrbox: { width: 250, height: 150 }, // BẮT BUỘC: Giúp iOS khoanh vùng lấy nét chính xác thay vì quét 4K
-            aspectRatio: 1.0, // Cân bằng tỷ lệ khung hình ẩn trên iOS
-            // Ép phần mềm chỉ quét các loại mã vạch sản phẩm thông dụng
+            fps: 15, // Tăng nhẹ lên 15 FPS để bắt khung hình nhanh hơn
+            disableFlip: false, 
+            
+            // BÍ QUYẾT 1: Làm khung chữ nhật dẹt (Dài 300, Rộng 120) phù hợp với mã vạch 1D
+            qrbox: { width: 300, height: 120 }, 
+            
             formatsToSupport: [ 
                 Html5QrcodeSupportedFormats.EAN_13,
                 Html5QrcodeSupportedFormats.EAN_8,
@@ -7424,8 +7421,13 @@ window.startBarcodeScanner = function(target = 'pos') {
         };
 
         const startScan = () => {
-            // Yêu cầu camera sau một cách chuẩn xác theo chuẩn WebRTC, iOS sẽ tự động lấy nét
-            const cameraConfig = { facingMode: "environment" };
+            // BÍ QUYẾT 2: Ép độ phân giải HD (1280x720) để hình ảnh cực nét
+            // Chú ý: Ta ép width/height nhưng không dùng focusMode để tránh treo iOS
+            const cameraConfig = { 
+                facingMode: "environment",
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            };
             
             html5QrcodeScanner.start(
                 cameraConfig, 
@@ -7433,19 +7435,14 @@ window.startBarcodeScanner = function(target = 'pos') {
                 onScanSuccess, 
                 onScanFailure
             ).catch(err => {
-                let errorMsg = "Không thể mở Camera.";
-                if (typeof err === 'string') errorMsg = err;
-                else if (err && err.name) {
-                    if (err.name === 'NotAllowedError') errorMsg = "Vui lòng vào Cài đặt thiết bị để cấp quyền Camera cho trang web.";
-                    else if (err.name === 'NotFoundError') errorMsg = "Không tìm thấy Camera trên thiết bị này.";
-                    else errorMsg = `Lỗi hệ thống: ${err.message || err.name}`;
-                }
-                alert("⚠️ " + errorMsg);
-                stopBarcodeScanner();
+                // Fallback (Phương án dự phòng): Nếu điện thoại đời quá cũ không hỗ trợ HD thì gọi lại camera cơ bản
+                html5QrcodeScanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure).catch(err2 => {
+                    alert("⚠️ Không thể mở Camera: " + (err2.message || err2.name));
+                    stopBarcodeScanner();
+                });
             });
         };
 
-        // Khởi chạy ngay lập tức với luồng Camera sau
         startScan();
 
     }, 300);
