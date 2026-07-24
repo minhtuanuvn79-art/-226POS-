@@ -7383,9 +7383,7 @@ document.addEventListener('click', function(e) {
         parentDropdown.style.display = 'none';
     }
 });
-// ==========================================
-// TÍNH NĂNG QUÉT MÃ VẠCH BẰNG CAMERA ĐIỆN THOẠI
-// ==========================================
+// Biến toàn cục giữ nguyên
 let html5QrcodeScanner = null;
 let currentScanTarget = 'pos'; // Biến lưu vị trí đang yêu cầu quét (pos, import, check)
 
@@ -7393,25 +7391,28 @@ window.startBarcodeScanner = function(target = 'pos') {
     currentScanTarget = target;
     const scannerModal = document.getElementById('scanner-modal');
     
-    // Mở hộp thoại lên trước để trình duyệt vẽ khung
     if (scannerModal) {
         scannerModal.style.display = 'flex';
     }
     
+    // Đợi 300ms để hiệu ứng UI mở Modal chạy mượt mà rồi mới bật Camera
     setTimeout(() => {
-        // Dọn dẹp luồng camera cũ
+        // Dọn dẹp phiên quét cũ (nếu có) để tránh treo bộ nhớ
         if (html5QrcodeScanner) {
             try { html5QrcodeScanner.clear(); } catch(e) {}
             html5QrcodeScanner = null;
         }
 
+        // Khởi tạo lại đối tượng quét mã vạch
         html5QrcodeScanner = new Html5Qrcode("reader");
         
-        // --- BÍ QUYẾT TỐI THƯỢNG: BỎ KHUNG NGẮM (QRBOX) ---
+        // --- CẤU HÌNH CAMERA TỐI ƯU CHO CẢ ANDROID & IOS ---
         const config = { 
-            fps: 20, // Tăng nhẹ fps lên 20 để tốc độ phản hồi nhanh hơn
-            // ĐÃ XÓA dòng qrbox: { width... } để cho phép quét toàn màn hình!
-            disableFlip: true, 
+            fps: 10, // Giảm xuống 10 để tránh quá tải RAM trên Safari iOS
+            disableFlip: false, // Để false giúp thư viện tự xử lý lật hình trên iOS
+            qrbox: { width: 250, height: 150 }, // BẮT BUỘC: Giúp iOS khoanh vùng lấy nét chính xác thay vì quét 4K
+            aspectRatio: 1.0, // Cân bằng tỷ lệ khung hình ẩn trên iOS
+            // Ép phần mềm chỉ quét các loại mã vạch sản phẩm thông dụng
             formatsToSupport: [ 
                 Html5QrcodeSupportedFormats.EAN_13,
                 Html5QrcodeSupportedFormats.EAN_8,
@@ -7422,44 +7423,30 @@ window.startBarcodeScanner = function(target = 'pos') {
             ]
         };
 
-        const handleCameraError = (err) => {
-            let errorMsg = "Không thể mở Camera.";
-            if (typeof err === 'string') errorMsg = err;
-            else if (err && err.name) {
-                if (err.name === 'NotAllowedError') errorMsg = "Vui lòng vào Cài đặt để cấp quyền Camera cho trang web.";
-                else if (err.name === 'NotFoundError') errorMsg = "Không tìm thấy Camera trên thiết bị này.";
-                else errorMsg = `Lỗi hệ thống: ${err.message || err.name}`;
-            }
-            alert("⚠️ " + errorMsg);
-            stopBarcodeScanner();
-        };
-        
-        const startScan = (cameraConfig) => {
+        const startScan = () => {
+            // Yêu cầu camera sau một cách chuẩn xác theo chuẩn WebRTC, iOS sẽ tự động lấy nét
+            const cameraConfig = { facingMode: "environment" };
+            
             html5QrcodeScanner.start(
                 cameraConfig, 
                 config, 
                 onScanSuccess, 
                 onScanFailure
-            ).catch(handleCameraError);
+            ).catch(err => {
+                let errorMsg = "Không thể mở Camera.";
+                if (typeof err === 'string') errorMsg = err;
+                else if (err && err.name) {
+                    if (err.name === 'NotAllowedError') errorMsg = "Vui lòng vào Cài đặt thiết bị để cấp quyền Camera cho trang web.";
+                    else if (err.name === 'NotFoundError') errorMsg = "Không tìm thấy Camera trên thiết bị này.";
+                    else errorMsg = `Lỗi hệ thống: ${err.message || err.name}`;
+                }
+                alert("⚠️ " + errorMsg);
+                stopBarcodeScanner();
+            });
         };
 
-        // Tìm đích danh Camera chính (Tránh ống kính góc siêu rộng)
-        Html5Qrcode.getCameras().then(devices => {
-            if (devices && devices.length > 0) {
-                let backCameras = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('sau'));
-                
-                if (backCameras.length > 0) {
-                    let mainCam = backCameras.find(c => !c.label.toLowerCase().includes('ultra') && !c.label.toLowerCase().includes('wide'));
-                    startScan(mainCam ? mainCam.id : backCameras[0].id);
-                } else {
-                    startScan({ facingMode: "environment" });
-                }
-            } else {
-                startScan({ facingMode: "environment" });
-            }
-        }).catch(err => {
-            startScan({ facingMode: "environment" });
-        });
+        // Khởi chạy ngay lập tức với luồng Camera sau
+        startScan();
 
     }, 300);
 };

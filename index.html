@@ -1595,18 +1595,28 @@
         </div>
     </div>
 </div>
-<!-- Modal Camera Quét Mã Vạch -->
-<div id="scanner-modal" class="modal-overlay" style="z-index: 100000; display: none; background: rgba(0,0,0,0.8);">
-    <div class="modal-box" style="width: 100%; max-width: 400px; padding: 0; overflow: hidden; background: white; border-radius: 12px; display: flex; flex-direction: column;">
-        <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; background: var(--kv-pink); color: white;">
-            <h3 style="font-size: 16px; margin: 0;"><i class="fa-solid fa-camera"></i> Đưa mã vạch vào khung</h3>
-            <i class="fa-solid fa-xmark" onclick="stopBarcodeScanner()" style="cursor: pointer; font-size: 20px; padding: 5px;"></i>
+<style>
+    #reader { width: 100%; height: 100%; position: relative; }
+    #reader video { object-fit: cover !important; width: 100% !important; height: 100% !important; }
+    #reader img { display: none !important; }
+</style>
+
+<div id="scanner-modal" class="modal-overlay" style="z-index: 100000; display: none; background: #000;">
+    <!-- Đã bỏ max-width: 400px, chỉnh width/height 100% để full màn hình -->
+    <div class="modal-box" style="width: 100%; height: 100%; max-width: none; max-height: none; padding: 0; border-radius: 0; display: flex; flex-direction: column; background: #000; position: relative;">
+        
+        <!-- Nút đóng và Tiêu đề chìm trên nền video -->
+        <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: absolute; top: 0; left: 0; width: 100%; z-index: 20; background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);">
+            <h3 style="font-size: 16px; margin: 0; color: white; text-shadow: 1px 1px 3px black;"><i class="fa-solid fa-camera"></i> Đưa mã vạch vào màn hình</h3>
+            <i class="fa-solid fa-xmark" onclick="stopBarcodeScanner()" style="cursor: pointer; font-size: 28px; padding: 5px; color: white; text-shadow: 1px 1px 3px black;"></i>
         </div>
         
         <!-- Vùng hiển thị camera -->
-<div id="reader" style="width: 100%; min-height: 250px; background: #000; display: flex; justify-content: center; align-items: center; color: white; font-size: 12px;">Đang khởi động Camera...</div>        
-        <div style="padding: 15px; text-align: center; font-size: 14px; color: #555; background: #fafafa;">
-            Hệ thống sẽ tự động quét và thêm vào giỏ hàng
+        <div id="reader" style="width: 100%; flex: 1; display: flex; justify-content: center; align-items: center; color: white; font-size: 14px; overflow: hidden;">Đang khởi động Camera...</div>
+        
+        <!-- Hướng dẫn phía dưới -->
+        <div style="padding: 25px; text-align: center; font-size: 15px; color: white; position: absolute; bottom: 0; left: 0; width: 100%; z-index: 20; background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);">
+            Giữ điện thoại cách mã vạch <b>15-20cm</b> để lấy nét
         </div>
     </div>
 </div>
