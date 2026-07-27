@@ -1104,3 +1104,69 @@ input#enable-beer-ice {
         width: 100% !important;
     }
 }
+/* =========================================
+   CSS CHUYỂN CHI NHÁNH HIỆN ĐẠI (CUSTOM DROPDOWN)
+   ========================================= */
+.kv-branch-selector {
+    position: relative;
+    margin-right: 15px;
+}
+.branch-trigger {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 15px;
+    background: #f4f6f9;
+    border: 1px solid #e0e0e0;
+    border-radius: 20px; /* Bo góc mềm mại như viên thuốc */
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--kv-blue);
+    transition: all 0.2s ease;
+}
+.branch-trigger:hover {
+    background: #fff;
+    border-color: var(--kv-blue);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.15);
+}
+.branch-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 230px;
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+    z-index: 1000;
+    overflow: hidden;
+}
+.branch-dropdown-item {
+    padding: 12px 15px;
+    font-size: 13px;
+    color: #333;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: 0.2s;
+    border-bottom: 1px dashed #f0f0f0;
+}
+.branch-dropdown-item:last-child { border-bottom: none; }
+.branch-dropdown-item:hover { background: #f0f7ff; color: var(--kv-blue); }
+.branch-dropdown-item.active { background: #e3f2fd; color: var(--kv-blue); font-weight: bold; }
+
+/* Tối ưu UI riêng cho màn hình Bán hàng (Nền hồng) */
+.pos-branch-selector .branch-trigger {
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #fff;
+}
+.pos-branch-selector .branch-trigger:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: #fff;
+    box-shadow: none;
+}
+/* Sửa Dropdown màn POS đổ sang trái một chút để không bị lẹm màn hình */
+.pos-branch-selector .branch-dropdown { left: 0; right: auto; }

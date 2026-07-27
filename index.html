@@ -203,13 +203,24 @@
     <div id="dashboard-view">
         <div class="kv-topbar">
             <div class="kv-logo-small"><i class="fa-solid fa-store"></i> 226 <span>POS</span></div>
-            <div class="topbar-right">
-                <div class="user-menu" onclick="logout()" title="Đăng xuất">
-                    <i class="fa-solid fa-user-circle" style="font-size: 18px; color: #888;"></i>
-                    <span id="dash-user-name">Tên nhân viên</span>
-                    <i class="fa-solid fa-caret-down"></i>
-                </div>
-            </div>
+<div class="topbar-right">
+    <!-- GIAO DIỆN CHỌN CHI NHÁNH HIỆN ĐẠI (DASHBOARD) -->
+    <div class="kv-branch-selector" id="dash-branch-selector" style="display: none;">
+        <div class="branch-trigger" onclick="toggleBranchDropdown('dash-branch-dropdown')">
+            <i class="fa-solid fa-location-dot" style="color: var(--kv-pink);"></i>
+            <span id="dash-branch-display">Chi nhánh</span>
+            <i class="fa-solid fa-angle-down" style="font-size: 12px; color: #888; margin-left: 5px;"></i>
+        </div>
+        <div class="branch-dropdown" id="dash-branch-dropdown" style="display: none;">
+            <!-- Danh sách render tự động -->
+        </div>
+    </div>
+
+    <div class="user-menu" title="Tài khoản">
+        <i class="fa-solid fa-user-circle" style="font-size: 18px; color: #888;"></i>
+        <span id="dash-user-name" onclick="logout()" title="Đăng xuất">Tên nhân viên</span>
+    </div>
+</div>
         </div>
         
         <div class="kv-navbar">
@@ -1018,20 +1029,32 @@
                     </div>
             </div>
             
-            <div class="pos-header-right">
-                <span id="pos-user-name" style="margin: 0 15px; font-weight: 500;"></span>
-                
-                <div style="position: relative;">
-                    <i class="fa-solid fa-bars" onclick="togglePOSMenu()" style="font-size: 20px; cursor: pointer; padding: 5px;"></i>
-                    <ul id="pos-hamburger-menu" class="dropdown-menu" style="right: 0; left: auto; top: 40px; width: 230px; z-index: 1000; box-shadow: 0 5px 20px rgba(0,0,0,0.15); border-radius: 6px; display: none;">
-                        <li onclick="openAddProductModal()"><i class="fa-solid fa-circle-plus" style="width: 25px; color: var(--kv-pink);"></i> Thêm hàng hóa nhanh</li>
-                        <li onclick="openEndOfDayReport()"><i class="fa-solid fa-chart-pie" style="width: 25px; color: #888;"></i> Xem báo cáo cuối ngày</li>
-                        <li onclick="showShortcutModal()"><i class="fa-solid fa-keyboard" style="width: 25px; color: #888;"></i> Phím tắt</li>
-                        <li onclick="switchToDashboard()"><i class="fa-solid fa-chart-simple" style="width: 25px; color: #888;"></i> Quản lý</li>
-                        <li onclick="logout()" style="border-top: 1px solid #eee; margin-top: 5px; padding-top: 10px;"><i class="fa-solid fa-arrow-right-from-bracket" style="width: 25px; color: #d9534f;"></i> Đăng xuất</li>
-                    </ul>
-                </div>
-            </div>
+<div class="pos-header-right">
+    <!-- GIAO DIỆN CHỌN CHI NHÁNH HIỆN ĐẠI (POS) -->
+    <div class="kv-branch-selector pos-branch-selector" id="pos-branch-selector" style="display: none; margin-right: 15px;">
+        <div class="branch-trigger" onclick="toggleBranchDropdown('pos-branch-dropdown')">
+            <i class="fa-solid fa-location-dot" style="color: #fff;"></i>
+            <span id="pos-branch-display">Chi nhánh</span>
+            <i class="fa-solid fa-angle-down" style="font-size: 12px; color: rgba(255,255,255,0.8); margin-left: 5px;"></i>
+        </div>
+        <div class="branch-dropdown" id="pos-branch-dropdown" style="display: none;">
+            <!-- Danh sách render tự động -->
+        </div>
+    </div>
+    
+    <span id="pos-user-name" style="margin: 0 15px; font-weight: 500;"></span>
+    
+    <div style="position: relative;">
+        <i class="fa-solid fa-bars" onclick="togglePOSMenu()" style="font-size: 20px; cursor: pointer; padding: 5px;"></i>
+        <ul id="pos-hamburger-menu" class="dropdown-menu" style="right: 0; left: auto; top: 40px; width: 230px; z-index: 1000; box-shadow: 0 5px 20px rgba(0,0,0,0.15); border-radius: 6px; display: none;">
+            <li onclick="openAddProductModal()"><i class="fa-solid fa-circle-plus" style="width: 25px; color: var(--kv-pink);"></i> Thêm hàng hóa nhanh</li>
+            <li onclick="openEndOfDayReport()"><i class="fa-solid fa-chart-pie" style="width: 25px; color: #888;"></i> Xem báo cáo cuối ngày</li>
+            <li onclick="showShortcutModal()"><i class="fa-solid fa-keyboard" style="width: 25px; color: #888;"></i> Phím tắt</li>
+            <li onclick="switchToDashboard()"><i class="fa-solid fa-chart-simple" style="width: 25px; color: #888;"></i> Quản lý</li>
+            <li onclick="logout()" style="border-top: 1px solid #eee; margin-top: 5px; padding-top: 10px;"><i class="fa-solid fa-arrow-right-from-bracket" style="width: 25px; color: #d9534f;"></i> Đăng xuất</li>
+        </ul>
+    </div>
+</div>
         </div>
         
         <div class="pos-body">
@@ -1511,6 +1534,25 @@
         <div style="display: flex; gap: 10px;">
             <button id="btn-prompt-cancel" style="flex: 1; padding: 10px; border: 1px solid #ddd; background: #f9f9f9; border-radius: 8px; cursor: pointer;">Hủy</button>
             <button id="btn-prompt-ok" style="flex: 1; padding: 10px; border: none; background: var(--kv-pink); color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">Xác nhận</button>
+        </div>
+    </div>
+</div>
+<!-- HỘP THOẠI XÁC NHẬN MẬT KHẨU KHI CHUYỂN CHI NHÁNH -->
+<div id="switch-branch-modal" class="modal-overlay" style="z-index: 10001; display: none;">
+    <div class="modal-box" style="width: 400px; padding: 25px; border-radius: 12px;">
+        <h3 style="margin-bottom: 10px; color: #333;">
+            <i class="fa-solid fa-lock" style="color: var(--kv-blue); margin-right: 8px;"></i>Xác nhận chuyển chi nhánh
+        </h3>
+        <p style="font-size: 14px; color: #666; margin-bottom: 15px; line-height: 1.5;">
+            Vui lòng nhập mật khẩu của tài khoản <strong><span id="switch-branch-username"></span></strong> để tiếp tục.
+        </p>
+        <input type="password" id="switch-branch-pass" placeholder="Nhập mật khẩu..." 
+            onkeydown="if(event.key === 'Enter') confirmSwitchBranch()" 
+            style="width: 100%; padding: 12px; border: 2px solid #eee; border-radius: 8px; margin-bottom: 20px; outline: none; font-size: 14px; transition: 0.2s;">
+        
+        <div style="display: flex; gap: 10px;">
+            <button onclick="cancelSwitchBranch()" style="flex: 1; padding: 10px; border: 1px solid #ddd; background: #f9f9f9; border-radius: 8px; cursor: pointer; color: #555; font-weight: 500;">Hủy</button>
+            <button onclick="confirmSwitchBranch()" style="flex: 1; padding: 10px; border: none; background: var(--kv-blue); color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">Xác nhận</button>
         </div>
     </div>
 </div>

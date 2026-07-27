@@ -213,7 +213,8 @@ function completeLogin(selectedBranchId) {
     currentUser = user;
     
     localStorage.setItem('kv_current_user', JSON.stringify(currentUser));
-    sessionStorage.setItem('kv_current_branch', selectedBranchId); // Lưu chi nhánh đã chọn
+    localStorage.setItem('kv_current_branch', selectedBranchId);
+    
     
     // Ẩn hộp thoại chọn chi nhánh (nếu có mở)
     const selectBox = document.getElementById('login-branch-select-box');
@@ -244,6 +245,7 @@ function completeLogin(selectedBranchId) {
     }
     
     showToast(`Chào mừng ${user.fullname} đã đăng nhập!`, "success");
+    window.renderQuickBranchSwitcher();
     tempLoginData = null; // Xóa dữ liệu tạm
 }
 function logout() {
@@ -252,6 +254,7 @@ function logout() {
     localStorage.removeItem('kv_current_user');
     sessionStorage.removeItem('kv_current_view');
     localStorage.removeItem('kv_current_tab');
+    localStorage.removeItem('kv_current_branch');
     
     hideAll();
     document.getElementById('login-view').style.display = 'flex';
@@ -283,6 +286,119 @@ function switchToDashboard() {
     openDashTab(savedTab);
 }
 
+// ==========================================
+// TÍNH NĂNG CHUYỂN CHI NHÁNH NHANH (UI HIỆN ĐẠI & XÁC THỰC MK)
+// ==========================================
+let pendingBranchId = null; 
+
+// 1. Hàm vẽ danh sách vào Custom Dropdown
+window.renderQuickBranchSwitcher = function() {
+    if (!currentUser) return;
+    
+    const userBranches = currentUser.branchIds || (currentUser.branchId ? [currentUser.branchId] : ['CN001']);
+    const allBranches = JSON.parse(localStorage.getItem('kv_branches')) || [];
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
+
+    const dashSelector = document.getElementById('dash-branch-selector');
+    const posSelector = document.getElementById('pos-branch-selector');
+    
+    // Nếu chỉ có 1 chi nhánh thì ẩn đi cho gọn
+    if (userBranches.length <= 1) {
+        if (dashSelector) dashSelector.style.display = 'none';
+        if (posSelector) posSelector.style.display = 'none';
+        return;
+    }
+
+    if (dashSelector) dashSelector.style.display = 'block';
+    if (posSelector) posSelector.style.display = 'block';
+
+    let html = '';
+    let currentBranchName = '';
+
+    userBranches.forEach(bId => {
+        const b = allBranches.find(x => x.id === bId);
+        if (b) {
+            const isActive = (b.id === currentBranch);
+            if (isActive) currentBranchName = b.name;
+            
+            const checkIcon = isActive ? '<i class="fa-solid fa-check" style="color: #28a745;"></i>' : '';
+            const activeClass = isActive ? 'active' : '';
+
+            html += `<div class="branch-dropdown-item ${activeClass}" onclick="quickSwitchBranch('${b.id}')">
+                        <span>${b.name}</span>
+                        ${checkIcon}
+                     </div>`;
+        }
+    });
+
+    // Đổ dữ liệu tên hiển thị và danh sách html
+    const dashDisplay = document.getElementById('dash-branch-display');
+    const posDisplay = document.getElementById('pos-branch-display');
+    if (dashDisplay) dashDisplay.innerText = currentBranchName;
+    if (posDisplay) posDisplay.innerText = currentBranchName;
+
+    const dashDropdown = document.getElementById('dash-branch-dropdown');
+    const posDropdown = document.getElementById('pos-branch-dropdown');
+    if (dashDropdown) dashDropdown.innerHTML = html;
+    if (posDropdown) posDropdown.innerHTML = html;
+};
+
+// 2. Mở / Đóng Menu
+window.toggleBranchDropdown = function(dropdownId) {
+    const dropdown = document.getElementById(dropdownId);
+    if (dropdown) {
+        // Đóng các dropdown khác để tránh mở chồng chéo
+        document.querySelectorAll('.branch-dropdown').forEach(el => {
+            if (el.id !== dropdownId) el.style.display = 'none';
+        });
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    }
+};
+
+// 3. Tự động đóng Menu khi click chuột ra ngoài
+document.addEventListener('click', function(e) {
+    const isClickInside = e.target.closest('.kv-branch-selector');
+    if (!isClickInside) {
+        document.querySelectorAll('.branch-dropdown').forEach(el => el.style.display = 'none');
+    }
+});
+
+// 4. Mở hộp thoại yêu cầu mật khẩu
+window.quickSwitchBranch = function(newBranchId) {
+    const currentBranch = localStorage.getItem('kv_current_branch');
+    
+    // Ẩn menu dropdown ngay lập tức
+    document.querySelectorAll('.branch-dropdown').forEach(el => el.style.display = 'none');
+    
+    if (newBranchId && newBranchId !== currentBranch) {
+        pendingBranchId = newBranchId; 
+        
+        document.getElementById('switch-branch-username').innerText = currentUser.username;
+        const passInput = document.getElementById('switch-branch-pass');
+        passInput.value = ''; 
+        
+        document.getElementById('switch-branch-modal').style.display = 'flex';
+        setTimeout(() => passInput.focus(), 100);
+    }
+};
+
+// 5. Kiểm tra mật khẩu (Giữ nguyên như lúc nãy)
+window.confirmSwitchBranch = function() {
+    const passInput = document.getElementById('switch-branch-pass').value.trim();
+    if (passInput === currentUser.password) {
+        localStorage.setItem('kv_current_branch', pendingBranchId);
+        window.location.reload();
+    } else {
+        showToast("Mật khẩu không chính xác!", "error");
+        document.getElementById('switch-branch-pass').select();
+    }
+};
+
+// 6. Cập nhật hàm Hủy bỏ
+window.cancelSwitchBranch = function() {
+    document.getElementById('switch-branch-modal').style.display = 'none';
+    pendingBranchId = null;
+};
 // ==========================================
 // 3. ADMIN PANEL (QUẢN LÝ TÀI KHOẢN)
 // ==========================================
@@ -1341,7 +1457,7 @@ const parseNum = (val) => {
             name, price, cost, stock, 
             code: code || ('HH' + Date.now()),
             barcode: barcode,
-            branchId: sessionStorage.getItem('kv_current_branch') || 'CN001',
+            branchId: localStorage.getItem('kv_current_branch') || 'CN001',
             units: newUnits
         };
         allProducts.unshift(newProd);
@@ -1456,7 +1572,7 @@ window.renderProductList = function() {
     // 1. Lấy dữ liệu và xác định chi nhánh hiện tại
     const savedProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     const savedGroups = JSON.parse(localStorage.getItem('kv_groups')) || [];
-    const currentBranch = sessionStorage.getItem('kv_current_branch');
+    const currentBranch = localStorage.getItem('kv_current_branch');
     
     tbody.innerHTML = '';
 
@@ -1782,7 +1898,7 @@ window.renderPriceSetupTable = function() {
 
     window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
     window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
 
 // 1. Tạo Header động
     let thHtml = `
@@ -2315,7 +2431,7 @@ window.saveInventoryCheck = function(action) {
     const icCode = document.getElementById('ic-code').value || ("KK" + Date.now().toString().slice(-6));
     
     const icData = {
-        branchId: sessionStorage.getItem('kv_current_branch') || 'CN001',
+        branchId: localStorage.getItem('kv_current_branch') || 'CN001',
         id: editingICId || Date.now(), // Ưu tiên dùng ID cũ nếu đang sửa
         code: icCode,
         creator: currentUser ? currentUser.fullname : 'Admin',
@@ -2649,7 +2765,7 @@ window.renderInvoices = function() {
     const productSearchInput = document.getElementById('search-product-in-invoice');
     const productKw = productSearchInput ? productSearchInput.value.toLowerCase().trim() : '';
 
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
 
 // LẤY GIÁ TRỊ TỪ CÁC BỘ LỌC
@@ -2796,7 +2912,7 @@ window.renderImportOrders = function() {
     const tbody = document.getElementById('import-tbody');
     if (!tbody) return;
 
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const allImportOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
     const searchKw = (document.getElementById('search-import')?.value || '').toLowerCase().trim();
 
@@ -3075,7 +3191,7 @@ window.searchIOProduct = function(keyword) {
     const searchTerms = cleanKw.split(/\s+/);
 
     // Luôn lấy dữ liệu tươi nhất từ bộ nhớ và lọc theo chi nhánh
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
     // 1. CHẾ ĐỘ QUÉT MÃ VẠCH (Khớp 100% mã hàng hoặc mã vạch)
@@ -3425,8 +3541,8 @@ window.savePOSState = function() {
 function initPOSData() {
     // 1. Hiển thị thông tin nhân viên và khởi động đồng hồ hệ thống
     if (currentUser) {
-        // Lấy tên chi nhánh hiện tại từ sessionStorage và danh sách chi nhánh
-        const currentBranchId = sessionStorage.getItem('kv_current_branch') || 'CN001'; //
+
+        const currentBranchId = localStorage.getItem('kv_current_branch') || 'CN001'; //
         const allBranches = JSON.parse(localStorage.getItem('kv_branches')) || []; //
         const currentBranchObj = allBranches.find(b => b.id === currentBranchId); //[cite: 2]
         const branchName = currentBranchObj ? currentBranchObj.name : currentBranchId; //[cite: 2]
@@ -3534,7 +3650,7 @@ window.searchPOSProduct = function(keyword) {
     const searchTerms = cleanKw.split(/\s+/);
     
     // 2. Lấy chi nhánh hiện tại từ phiên đăng nhập
-    const currentBranch = sessionStorage.getItem('kv_current_branch');
+    const currentBranch = localStorage.getItem('kv_current_branch');
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     let results = [];
 
@@ -3636,7 +3752,7 @@ function addActive(items) {
 }
 
 function handleDirectEnter(kw) {
-    const currentBranch = sessionStorage.getItem('kv_current_branch');
+    const currentBranch = localStorage.getItem('kv_current_branch')
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     let found = null;
 
@@ -3852,7 +3968,7 @@ window.renderPOSCart = function() {
     if (!listDiv || !tab) return;
     
     const isFeatureEnabled = document.getElementById('enable-beer-ice')?.checked;
-    const currentBranch = sessionStorage.getItem('kv_current_branch');
+    const currentBranch = localStorage.getItem('kv_current_branch');
 
     if (tab.items.length === 0) {
         listDiv.innerHTML = `<div style="text-align:center; margin-top:50px; color:#ccc;">Hóa đơn trống</div>`;
@@ -4010,7 +4126,7 @@ window.processCheckout = function() {
     }
 
     // Xác định chi nhánh hiện tại từ phiên đăng nhập
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const latestProds = JSON.parse(localStorage.getItem('kv_products')) || [];
     const totalAmount = parseFloat(document.getElementById('pos-total-goods').dataset.val) || 0;
     
@@ -4280,7 +4396,7 @@ window.closeBulkImportModal = function() {
 
 window.processBulkImport = function() {
     const rawText = document.getElementById('bulk-import-data').value;
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001'; // Lấy chi nhánh hiện tại[cite: 8]
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001'; // Lấy chi nhánh hiện tại[cite: 8]
     
     if (!rawText.trim()) { alert("Vui lòng dán dữ liệu!"); return; }
 
@@ -4591,7 +4707,7 @@ window.renderDashboard = function() {
 
 window.renderDashboardSummary = function() {
     const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
 
     const extractDate = (timeStr) => {
         if (!timeStr) return null;
@@ -4739,7 +4855,7 @@ window.renderActivityFeed = function() {
     const feedContainer = document.querySelector('.activity-feed');
     if (!feedContainer) return;
 
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
     const allImportOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
     const allInventoryChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
@@ -5356,7 +5472,7 @@ const oldRenderIC = window.renderInventoryChecks || (typeof renderInventoryCheck
 window.renderInventoryChecks = function() {
     const tbody = document.querySelector('#ic-list-table tbody');
     if (!tbody) return;
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const allChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
     const searchKw = (document.getElementById('search-ic')?.value || '').toLowerCase().trim();
 
@@ -5591,10 +5707,10 @@ if (item.path === 'pricebooks') window.priceBooks = dataArray;
     if (savedUser) {
         try {
             currentUser = JSON.parse(savedUser);
-            
-            if (currentUser.branchId) {
-                sessionStorage.setItem('kv_current_branch', currentUser.branchId);
-            }
+            window.renderQuickBranchSwitcher();
+if (currentUser.branchId && !localStorage.getItem('kv_current_branch')) {
+    localStorage.setItem('kv_current_branch', currentUser.branchId); 
+}
 
             hideAll(); 
 
@@ -5853,7 +5969,7 @@ window.renderBatchUpdateTable = function() {
     // =====================================
     // ĐOẠN CODE MỚI ĐƯỢC THÊM ĐỂ LỌC CHI NHÁNH
     // Lấy chi nhánh hiện tại đang đăng nhập
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
 
     // 1. Lấy dữ liệu và lọc
     let allProducts = window.allProducts || window.products || [];
@@ -6591,7 +6707,7 @@ setTimeout(() => {
 
         const cleanKw = window.removeVietnameseTones(keyword.toLowerCase().trim());
         const searchTerms = cleanKw.split(/\s+/);
-        const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+        const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
         const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
         
         let results = [];
@@ -7056,7 +7172,7 @@ window.saveImportOrder = function(action) {
 
     const ioData = {
         id: ioId,
-        branchId: sessionStorage.getItem('kv_current_branch') || 'CN001',
+        branchId: localStorage.getItem('kv_current_branch') || 'CN001',
         timestamp: editingIOId ? (allImportOrders.find(x => x.id === editingIOId)?.timestamp || Date.now()) : Date.now(),
         createdAt: editingIOId ? (allImportOrders.find(x => x.id === editingIOId)?.createdAt || new Date().toLocaleString('vi-VN')) : new Date().toLocaleString('vi-VN'),
         creator: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.fullname : 'Admin',
@@ -7194,7 +7310,7 @@ window.scanDuplicateProducts = function() {
     if (!tbody) return;
 
     const allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-    const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+    const currentBranch = localStorage.getItem('kv_current_branch')|| 'CN001';
     
     // Chỉ lọc các sản phẩm thuộc chi nhánh hiện tại
     const branchProducts = allProducts.filter(p => (p.branchId || 'CN001') === currentBranch);
@@ -7497,7 +7613,7 @@ function onScanSuccess(decodedText, decodedResult) {
         if (input) input.value = scannedCode;
         
         // Tự động đối chiếu mã và cộng thẳng số lượng thực tế
-        const currentBranch = sessionStorage.getItem('kv_current_branch') || 'CN001';
+        const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
         const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
         let exactMatch = null;
 
