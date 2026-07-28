@@ -1205,3 +1205,15 @@ input#enable-beer-ice {
         justify-content: center;
     }
 }
+#reader {
+    width: 100% !important;
+    min-height: 280px !important;
+    border: none !important;
+    background: #000;
+}
+/* Ẩn bớt các dòng chữ thừa mặc định của thư viện gây vỡ giao diện nếu có */
+#reader video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+}

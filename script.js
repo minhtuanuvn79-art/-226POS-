@@ -7522,27 +7522,43 @@ function startBarcodeScanner(context) {
 
 function initScanner(context) {
     html5QrCode = new Html5Qrcode("reader");
-    const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+    
+    // Lấy danh sách camera có sẵn trên thiết bị
+    Html5Qrcode.getCameras().then(devices => {
+        if (devices && devices.length) {
+            // Ưu tiên chọn camera sau (thường có chữ back, rear, environment), nếu không lấy cam đầu tiên
+            let cameraId = devices[0].id;
+            for (let device of devices) {
+                if (device.label.toLowerCase().includes('back') || 
+                    device.label.toLowerCase().includes('sau') || 
+                    device.label.toLowerCase().includes('environment')) {
+                    cameraId = device.id;
+                    break;
+                }
+            }
 
-    // Callback xử lý khi quét thành công (dùng chung)
-    const onSuccess = (decodedText, decodedResult) => {
-        html5QrCode.stop().then(() => {
+            // Bắt đầu quét bằng ID cụ thể thay vì dùng chế độ mờ ảo
+            html5QrCode.start(
+                cameraId, 
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText, decodedResult) => {
+                    html5QrCode.stop().then(() => {
+                        document.getElementById('barcode-modal').style.display = 'none';
+                        processScannedData(context, decodedText);
+                    }).catch(err => console.error("Lỗi tắt cam:", err));
+                },
+                (errorMessage) => {}
+            ).catch(err => {
+                alert("Không thể khởi động luồng video camera: " + err);
+                document.getElementById('barcode-modal').style.display = 'none';
+            });
+        } else {
+            alert("Không tìm thấy thiết bị camera nào trên máy của bạn!");
             document.getElementById('barcode-modal').style.display = 'none';
-            processScannedData(context, decodedText);
-        }).catch(err => console.error("Lỗi khi tắt cam:", err));
-    };
-
-    // 1. Thử bật camera sau (cho điện thoại/máy tính bảng)
-    html5QrCode.start({ facingMode: "environment" }, config, onSuccess, () => {})
-    .catch(err => {
-        console.log("Không mở được cam sau, đang thử cam trước...", err);
-        
-        // 2. Fallback: Nếu không có cam sau (như Laptop), tự động bật cam trước
-        html5QrCode.start({ facingMode: "user" }, config, onSuccess, () => {})
-        .catch(err2 => {
-            alert("Vẫn không bật được camera! Vui lòng cấp quyền camera cho trình duyệt.");
-            document.getElementById('barcode-modal').style.display = 'none';
-        });
+        }
+    }).catch(err => {
+        alert("Lỗi cấp quyền truy cập camera: " + err);
+        document.getElementById('barcode-modal').style.display = 'none';
     });
 }
 
