@@ -7503,48 +7503,46 @@ document.addEventListener('click', function(e) {
 let html5QrCode = null; 
 
 function startBarcodeScanner(context) {
-    // Hiện modal
     document.getElementById('barcode-modal').style.display = 'flex';
 
-    // Nếu cam đang chạy trước đó mà chưa tắt hẳn, phải stop trước khi bật lại để tránh lỗi ĐEN CAM
-    if (html5QrCode) {
-        html5QrCode.stop().then(() => {
-            html5QrCode.clear();
+    // Đợi 200ms cho HTML render xong giao diện rồi mới bật cam
+    setTimeout(() => {
+        if (html5QrCode) {
+            html5QrCode.stop().then(() => {
+                html5QrCode.clear();
+                initScanner(context);
+            }).catch(err => {
+                initScanner(context);
+            });
+        } else {
             initScanner(context);
-        }).catch(err => {
-            initScanner(context);
-        });
-    } else {
-        initScanner(context);
-    }
+        }
+    }, 200);
 }
 
 function initScanner(context) {
-    // Khởi tạo máy quét vào div có id="reader"
     html5QrCode = new Html5Qrcode("reader");
-    
-    // Cấu hình: dùng camera sau (environment), khung quét 250x250
     const config = { fps: 10, qrbox: { width: 250, height: 250 } };
 
-    html5QrCode.start({ facingMode: "environment" }, config,
-        (decodedText, decodedResult) => {
-            // KHÚC NÀY QUAN TRỌNG: Quét thành công là phải TẮT CAM NGAY
-            html5QrCode.stop().then(() => {
-                document.getElementById('barcode-modal').style.display = 'none';
-                
-                // Gọi hàm xử lý dữ liệu sau khi tắt cam thành công
-                processScannedData(context, decodedText);
-                
-            }).catch(err => {
-                console.error("Lỗi khi tắt cam:", err);
-            });
-        },
-        (errorMessage) => {
-            // Đang quét... không cần log để tránh rác console
-        }
-    ).catch(err => {
-        alert("Không thể mở camera. Vui lòng cấp quyền! Chi tiết: " + err);
-        document.getElementById('barcode-modal').style.display = 'none';
+    // Callback xử lý khi quét thành công (dùng chung)
+    const onSuccess = (decodedText, decodedResult) => {
+        html5QrCode.stop().then(() => {
+            document.getElementById('barcode-modal').style.display = 'none';
+            processScannedData(context, decodedText);
+        }).catch(err => console.error("Lỗi khi tắt cam:", err));
+    };
+
+    // 1. Thử bật camera sau (cho điện thoại/máy tính bảng)
+    html5QrCode.start({ facingMode: "environment" }, config, onSuccess, () => {})
+    .catch(err => {
+        console.log("Không mở được cam sau, đang thử cam trước...", err);
+        
+        // 2. Fallback: Nếu không có cam sau (như Laptop), tự động bật cam trước
+        html5QrCode.start({ facingMode: "user" }, config, onSuccess, () => {})
+        .catch(err2 => {
+            alert("Vẫn không bật được camera! Vui lòng cấp quyền camera cho trình duyệt.");
+            document.getElementById('barcode-modal').style.display = 'none';
+        });
     });
 }
 
