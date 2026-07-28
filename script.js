@@ -7499,59 +7499,67 @@ document.addEventListener('click', function(e) {
         parentDropdown.style.display = 'none';
     }
 });
-let html5QrCode; // Biến toàn cục để lưu instance của scanner
-let currentScanContext = ''; // Lưu lại xem đang quét ở tab nào (manage, import, price...)
+// Biến toàn cục để lưu trữ instance của máy quét
+let html5QrCode = null; 
 
 function startBarcodeScanner(context) {
-    currentScanContext = context;
-    
-    // Kiểm tra xem trình duyệt có hỗ trợ hoặc trang web có phải HTTPS không
-    if (!window.isSecureContext && location.hostname !== "localhost") {
-        alert("Lưu ý: Camera chỉ hoạt động trên môi trường bảo mật HTTPS hoặc localhost. Vui lòng kiểm tra lại đường dẫn trang web!");
+    // Hiện modal
+    document.getElementById('barcode-modal').style.display = 'flex';
+
+    // Nếu cam đang chạy trước đó mà chưa tắt hẳn, phải stop trước khi bật lại để tránh lỗi ĐEN CAM
+    if (html5QrCode) {
+        html5QrCode.stop().then(() => {
+            html5QrCode.clear();
+            initScanner(context);
+        }).catch(err => {
+            initScanner(context);
+        });
+    } else {
+        initScanner(context);
     }
+}
 
-    // Hiển thị modal
-    document.getElementById('scanner-modal').style.display = 'flex';
-
-    // Khởi tạo thư viện
+function initScanner(context) {
+    // Khởi tạo máy quét vào div có id="reader"
     html5QrCode = new Html5Qrcode("reader");
+    
+    // Cấu hình: dùng camera sau (environment), khung quét 250x250
+    const config = { fps: 10, qrbox: { width: 250, height: 250 } };
 
-    // CẤU HÌNH TỐI ƯU ĐỂ QUÉT NHẠY TRÊN MOBILE
-    const config = {
-        fps: 15, // Tăng tốc độ khung hình lên 15 (mặc định là 10) giúp nhận diện nhanh hơn
-        qrbox: function(viewfinderWidth, viewfinderHeight) {
-            // Tự động điều chỉnh khung quét chiếm 80% màn hình, dễ canh hơn rất nhiều
-            let minEdgePercentage = 0.8;
-            let minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-            let qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
-            return { width: qrboxSize, height: Math.max(qrboxSize, 150) }; 
-        },
-        aspectRatio: 1.0, // Tỉ lệ khung hình vuông
-        experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true // CỰC KỲ QUAN TRỌNG: Dùng API gốc của iOS/Android để quét siêu nhanh
-        }
-    };
-
-    // ÉP SỬ DỤNG CAMERA SAU (Môi trường)
-    const cameraConfig = { facingMode: "environment" };
-
-    html5QrCode.start(
-        cameraConfig,
-        config,
+    html5QrCode.start({ facingMode: "environment" }, config,
         (decodedText, decodedResult) => {
-            // KHI QUÉT THÀNH CÔNG
-            playBeepSound(); // Phát âm thanh tít (nếu có)
-            stopBarcodeScanner(); // Tắt camera
-            handleScanResult(decodedText); // Xử lý dữ liệu
+            // KHÚC NÀY QUAN TRỌNG: Quét thành công là phải TẮT CAM NGAY
+            html5QrCode.stop().then(() => {
+                document.getElementById('barcode-modal').style.display = 'none';
+                
+                // Gọi hàm xử lý dữ liệu sau khi tắt cam thành công
+                processScannedData(context, decodedText);
+                
+            }).catch(err => {
+                console.error("Lỗi khi tắt cam:", err);
+            });
         },
         (errorMessage) => {
-            // Lỗi này xảy ra liên tục khi khung hình chưa thấy mã vạch -> Bỏ qua không in ra console để tránh lag máy
+            // Đang quét... không cần log để tránh rác console
         }
-    ).catch((err) => {
-        // LỖI KHÔNG MỞ ĐƯỢC CAMERA (Chưa cấp quyền, hoặc lỗi thiết bị)
-        alert("Không thể mở camera. Vui lòng cấp quyền sử dụng máy ảnh cho trình duyệt.\nChi tiết lỗi: " + err);
-        stopBarcodeScanner();
+    ).catch(err => {
+        alert("Không thể mở camera. Vui lòng cấp quyền! Chi tiết: " + err);
+        document.getElementById('barcode-modal').style.display = 'none';
     });
+}
+
+// Hàm tắt cam thủ công khi bấm nút "Tắt Camera"
+function closeBarcodeScanner() {
+    if (html5QrCode) {
+        html5QrCode.stop().then(() => {
+            document.getElementById('barcode-modal').style.display = 'none';
+            html5QrCode.clear();
+        }).catch(err => {
+            document.getElementById('barcode-modal').style.display = 'none';
+        });
+    } else {
+        document.getElementById('barcode-modal').style.display = 'none';
+    }
 }
 
 function stopBarcodeScanner() {
@@ -7620,6 +7628,38 @@ function playBeepSound() {
     
     oscillator.start(audioContext.currentTime);
     oscillator.stop(audioContext.currentTime + 0.1);
+}
+function processScannedData(context, barcode) {
+    let inputElement = null;
+
+    // Phân luồng tùy thuộc vào bạn đang bấm nút quét ở Tab nào
+    if (context === 'manage') {
+        inputElement = document.getElementById('search-product-manage');
+    } else if (context === 'price') {
+        inputElement = document.getElementById('search-price-setup');
+    } else if (context === 'update') {
+        inputElement = document.getElementById('search-batch-update');
+    } else if (context === 'import') {
+        inputElement = document.getElementById('io-search-input');
+        
+        // Nếu trong tab Nhập hàng bạn dùng hàm searchIOProduct, bạn có thể gọi thẳng:
+        // searchIOProduct(barcode); 
+    } else if (context === 'sell') {
+        // Dành cho màn hình Bán Hàng (Giỏ hàng POS)
+        // inputElement = document.getElementById('id-o-tim-kiem-trong-pos');
+        
+        // HOẶC GỌI THẲNG HÀM THÊM VÀO GIỎ HÀNG:
+        // addToCartByBarcode(barcode); 
+    }
+
+    // Tự động điền và kích hoạt sự kiện tìm kiếm
+    if (inputElement) {
+        inputElement.value = barcode;
+        
+        // Dòng này CỰC KỲ QUAN TRỌNG: Đánh lừa trình duyệt là có người vừa gõ phím
+        // Để các hàm "oninput" của bạn trong HTML tự động chạy (ra kết quả / giỏ hàng)
+        inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+    }
 }
 // 1. Thêm 2 biến này ở bên ngoài (gần chỗ khai báo let html5QrcodeScanner)
 let lastScannedCode = "";
