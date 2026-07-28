@@ -7499,73 +7499,128 @@ document.addEventListener('click', function(e) {
         parentDropdown.style.display = 'none';
     }
 });
-// Biến toàn cục giữ nguyên
-let html5QrcodeScanner = null;
-let currentScanTarget = 'pos'; 
+let html5QrCode; // Biến toàn cục để lưu instance của scanner
+let currentScanContext = ''; // Lưu lại xem đang quét ở tab nào (manage, import, price...)
 
-window.startBarcodeScanner = function(target = 'pos') {
-    currentScanTarget = target;
-    const scannerModal = document.getElementById('scanner-modal');
+function startBarcodeScanner(context) {
+    currentScanContext = context;
     
-    if (scannerModal) {
-        scannerModal.style.display = 'flex';
+    // Kiểm tra xem trình duyệt có hỗ trợ hoặc trang web có phải HTTPS không
+    if (!window.isSecureContext && location.hostname !== "localhost") {
+        alert("Lưu ý: Camera chỉ hoạt động trên môi trường bảo mật HTTPS hoặc localhost. Vui lòng kiểm tra lại đường dẫn trang web!");
     }
-    
-    setTimeout(() => {
-        if (html5QrcodeScanner) {
-            try { html5QrcodeScanner.clear(); } catch(e) {}
-            html5QrcodeScanner = null;
+
+    // Hiển thị modal
+    document.getElementById('scanner-modal').style.display = 'flex';
+
+    // Khởi tạo thư viện
+    html5QrCode = new Html5Qrcode("reader");
+
+    // CẤU HÌNH TỐI ƯU ĐỂ QUÉT NHẠY TRÊN MOBILE
+    const config = {
+        fps: 15, // Tăng tốc độ khung hình lên 15 (mặc định là 10) giúp nhận diện nhanh hơn
+        qrbox: function(viewfinderWidth, viewfinderHeight) {
+            // Tự động điều chỉnh khung quét chiếm 80% màn hình, dễ canh hơn rất nhiều
+            let minEdgePercentage = 0.8;
+            let minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+            let qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
+            return { width: qrboxSize, height: Math.max(qrboxSize, 150) }; 
+        },
+        aspectRatio: 1.0, // Tỉ lệ khung hình vuông
+        experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true // CỰC KỲ QUAN TRỌNG: Dùng API gốc của iOS/Android để quét siêu nhanh
         }
+    };
 
-        html5QrcodeScanner = new Html5Qrcode("reader");
+    // ÉP SỬ DỤNG CAMERA SAU (Môi trường)
+    const cameraConfig = { facingMode: "environment" };
+
+    html5QrCode.start(
+        cameraConfig,
+        config,
+        (decodedText, decodedResult) => {
+            // KHI QUÉT THÀNH CÔNG
+            playBeepSound(); // Phát âm thanh tít (nếu có)
+            stopBarcodeScanner(); // Tắt camera
+            handleScanResult(decodedText); // Xử lý dữ liệu
+        },
+        (errorMessage) => {
+            // Lỗi này xảy ra liên tục khi khung hình chưa thấy mã vạch -> Bỏ qua không in ra console để tránh lag máy
+        }
+    ).catch((err) => {
+        // LỖI KHÔNG MỞ ĐƯỢC CAMERA (Chưa cấp quyền, hoặc lỗi thiết bị)
+        alert("Không thể mở camera. Vui lòng cấp quyền sử dụng máy ảnh cho trình duyệt.\nChi tiết lỗi: " + err);
+        stopBarcodeScanner();
+    });
+}
+
+function stopBarcodeScanner() {
+    // Giả sử biến khởi tạo của bạn tên là html5QrCode (hoặc html5QrcodeScanner)
+    if (typeof html5QrCode !== "undefined" && html5QrCode) {
         
-        const config = { 
-            fps: 20, // Tăng FPS lên 20 để luồng video mượt hơn, bắt chuyển động nhanh hơn
-            disableFlip: false, 
-            qrbox: { width: 250, height: 120 }, // Khung chữ nhật hẹp lại để loại bỏ nhiễu xung quanh
-            // BỎ aspectRatio: 1.0 để camera lấy đúng tỷ lệ thật của điện thoại, không bị zoom vỡ hạt
-            
-            // --- BÍ QUYẾT TỐI THƯỢNG ---
-            // Ép hệ thống dùng chip xử lý phần cứng của điện thoại để quét mã
-            experimentalFeatures: {
-                useBarCodeDetectorIfSupported: true
-            },
-            
-            // Lọc bớt định dạng. Ở cửa hàng tạp hóa/siêu thị thường chỉ dùng EAN_13 (hàng VN/Quốc tế) và CODE_128 (mã nội bộ)
-            formatsToSupport: [ 
-                Html5QrcodeSupportedFormats.EAN_13,
-                Html5QrcodeSupportedFormats.EAN_8,
-                Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.UPC_A
-            ]
-        };
-
-        const startScan = () => {
-            // Cung cấp dải độ phân giải lý tưởng, cho phép trình duyệt tự lùi về min nếu máy yếu
-            const cameraConfig = { 
-                facingMode: "environment",
-                width: { min: 640, ideal: 1280 },
-                height: { min: 480, ideal: 720 }
-            };
-            
-            html5QrcodeScanner.start(
-                cameraConfig, 
-                config, 
-                onScanSuccess, 
-                onScanFailure
-            ).catch(err => {
-                // Dự phòng: Nếu điện thoại quá cũ không chịu thông số rườm rà, gọi camera trần trụi nhất
-                html5QrcodeScanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure).catch(err2 => {
-                    alert("⚠️ Lỗi Camera: " + (err2.message || err2.name));
-                    stopBarcodeScanner();
-                });
+        // Kiểm tra nếu scanner đang thực sự chạy
+        if (html5QrCode.getState() === 2) { 
+            html5QrCode.stop().then(() => {
+                html5QrCode.clear(); // Xóa UI của máy quét
+                console.log("Đã dừng máy quét thành công.");
+                
+                // TODO: Thêm code ẩn Modal hoặc giao diện chứa camera của bạn ở đây
+                
+            }).catch(err => {
+                console.error("Lỗi khi dừng máy quét: ", err);
             });
-        };
+        } else {
+            // Scanner đã dừng rồi, chỉ cần ẩn UI
+            console.log("Máy quét không chạy, bỏ qua lệnh stop.");
+            // TODO: Thêm code ẩn Modal ở đây (nếu có)
+        }
+    }
+}
 
-        startScan();
+// Hàm xử lý kết quả sau khi quét xong
+function handleScanResult(barcode) {
+    console.log("Mã vừa quét:", barcode);
+    
+    // Tùy vào việc bạn bấm nút quét ở tab nào mà điền dữ liệu vào ô tương ứng
+    if (currentScanContext === 'manage') {
+        let input = document.getElementById('search-product-manage');
+        input.value = barcode;
+        input.dispatchEvent(new Event('input')); // Kích hoạt sự kiện tìm kiếm
+    } 
+    else if (currentScanContext === 'price') {
+        let input = document.getElementById('search-price-setup');
+        input.value = barcode;
+        input.dispatchEvent(new Event('input'));
+    }
+    else if (currentScanContext === 'update') {
+        let input = document.getElementById('search-batch-update');
+        input.value = barcode;
+        input.dispatchEvent(new Event('input'));
+    }
+    else if (currentScanContext === 'import') {
+        let input = document.getElementById('io-search-input');
+        input.value = barcode;
+        input.dispatchEvent(new Event('input')); // Mở dropdown tìm kiếm nhập hàng
+    }
+}
 
-    }, 300);
-};
+// (Tùy chọn) Hàm phát âm thanh "Tít" khi quét thành công
+function playBeepSound() {
+    let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    let oscillator = audioContext.createOscillator();
+    let gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 800; // Tần số âm thanh
+    gainNode.gain.setValueAtTime(1, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.1);
+}
 // 1. Thêm 2 biến này ở bên ngoài (gần chỗ khai báo let html5QrcodeScanner)
 let lastScannedCode = "";
 let scanCooldownTimer = null;
@@ -7677,40 +7732,6 @@ function onScanFailure(error) {
     // Không làm gì cả để camera tiếp tục dò
 }
 
-// Tắt Camera và ẩn hộp thoại một cách an toàn
-window.stopBarcodeScanner = function() {
-    const scannerModal = document.getElementById('scanner-modal');
-    if (scannerModal) scannerModal.style.display = 'none';
-    
-    if (html5QrcodeScanner) {
-        try {
-            // Lấy trạng thái hiện tại của camera 
-            // (2: Html5QrcodeScannerState.SCANNING - Đang chạy)
-            // (3: Html5QrcodeScannerState.PAUSED - Đang tạm dừng)
-            const state = (typeof html5QrcodeScanner.getState === 'function') ? html5QrcodeScanner.getState() : 0;
-            
-            if (state === 2 || state === 3) {
-                // Nếu camera ĐANG CHẠY thì mới gọi lệnh tắt
-                html5QrcodeScanner.stop().then(() => {
-                    html5QrcodeScanner.clear();
-                    html5QrcodeScanner = null;
-                }).catch((err) => {
-                    // Nuốt lỗi rác để tránh báo đỏ trên console
-                    html5QrcodeScanner.clear();
-                    html5QrcodeScanner = null;
-                });
-            } else {
-                // Nếu camera chưa chạy hoặc đã tắt, chỉ cần dọn dẹp bộ nhớ
-                html5QrcodeScanner.clear();
-                html5QrcodeScanner = null;
-            }
-        } catch (error) {
-            // Bắt mọi ngoại lệ để đảm bảo hệ thống không bao giờ bị văng
-            try { html5QrcodeScanner.clear(); } catch(e) {}
-            html5QrcodeScanner = null;
-        }
-    }
-};
 
 // Hiệu ứng âm thanh Bíp đơn giản
 function playBeepSound() {

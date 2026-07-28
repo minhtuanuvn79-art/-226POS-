@@ -1690,6 +1690,22 @@
         </div>
     </div>
 </div>
+<!-- Giao diện Popup Camera -->
+<div id="scanner-modal" class="modal-overlay" style="display: none; z-index: 9999;">
+    <div class="modal-box" style="width: 95%; max-width: 400px; padding: 15px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="margin: 0;"><i class="fa-solid fa-barcode" style="color: var(--kv-pink);"></i> Quét mã vạch</h3>
+            <i class="fa-solid fa-xmark" style="font-size: 20px; cursor: pointer; color: #888;" onclick="stopBarcodeScanner()"></i>
+        </div>
+        
+        <!-- Khung chứa camera -->
+        <div id="reader" style="width: 100%; border-radius: 8px; overflow: hidden; background: #000;"></div>
+        
+        <p style="font-size: 12px; color: #666; text-align: center; margin-top: 10px;">
+            Đưa mã vạch vào giữa khung hình. Khuyên dùng trên kết nối HTTPS.
+        </p>
+    </div>
+</div>
 <script type="module">
     // 1. Nhập các thư viện cần thiết từ CDN của Firebase
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";

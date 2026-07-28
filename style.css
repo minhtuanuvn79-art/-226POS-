@@ -1170,3 +1170,38 @@ input#enable-beer-ice {
 }
 /* Sửa Dropdown màn POS đổ sang trái một chút để không bị lẹm màn hình */
 .pos-branch-selector .branch-dropdown { left: 0; right: auto; }
+/* Responsive cho thiết bị di động (màn hình dưới 768px) */
+@media (max-width: 768px) {
+    /* Ép sidebar và main xếp dọc */
+    .list-layout {
+        flex-direction: column;
+        display: flex;
+    }
+    
+    /* Điều chỉnh thanh toolbar chứa ô tìm kiếm và nút tạo phiếu */
+    .list-toolbar {
+        flex-direction: column; /* Xếp ô tìm kiếm và nút bấm thành cột */
+        gap: 15px; /* Tạo khoảng cách giữa các phần tử */
+        align-items: stretch !important;
+        height: auto;
+    }
+
+    /* Cho ô tìm kiếm tràn viền */
+    .list-toolbar .search-bar {
+        width: 100% !important;
+        margin-left: 0 !important; /* Gỡ margin nếu có ở tab Hóa đơn */
+    }
+
+    /* Cụm nút hành động (Tạo phiếu) */
+    .list-toolbar .action-btn-group {
+        display: flex;
+        flex-wrap: wrap; /* Cho phép nút rớt dòng nếu nhiều */
+        gap: 10px;
+        width: 100%;
+    }
+
+    .list-toolbar .action-btn-group button {
+        flex: 1; /* Nút sẽ giãn đều full chiều ngang màn hình */
+        justify-content: center;
+    }
+}
