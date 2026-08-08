@@ -147,7 +147,6 @@ function togglePassword() {
     p.type = p.type === 'password' ? 'text' : 'password';
 }
 
-// Biến tạm lưu thông tin đăng nhập trước khi chọn chi nhánh
 let tempLoginData = null;
 
 function handleLogin(type) {
@@ -166,20 +165,40 @@ function handleLogin(type) {
 
     if (user) {
         err.style.display = 'none';
+
+        // ========================================================
+        // 🚀 TÍNH NĂNG LƯU NHIỀU TÀI KHOẢN VÀO MÁY
+        // ========================================================
+        const rememberMe = document.getElementById('remember-me');
+        let savedLogins = JSON.parse(localStorage.getItem('kv_saved_logins')) || [];
         
-        // Hỗ trợ cả dữ liệu cũ (branchId chuỗi) và mới (branchIds mảng)
+        if (rememberMe && rememberMe.checked) {
+            const encodedPass = btoa(encodeURIComponent(p));
+            // Lọc bỏ tk này nếu đã có trong danh sách (để đưa nó lên đầu)
+            savedLogins = savedLogins.filter(acc => acc.u !== u);
+            // Thêm vào đầu danh sách
+            savedLogins.unshift({ u: u, p: encodedPass, name: user.fullname, role: user.role });
+            
+            // Chỉ giữ lại tối đa 5 tài khoản gần nhất cho đỡ rối
+            if (savedLogins.length > 5) savedLogins.pop();
+            
+            localStorage.setItem('kv_saved_logins', JSON.stringify(savedLogins));
+        } else {
+            // Nếu không tick duy trì -> Xóa tk này khỏi bộ nhớ (nếu có)
+            savedLogins = savedLogins.filter(acc => acc.u !== u);
+            localStorage.setItem('kv_saved_logins', JSON.stringify(savedLogins));
+        }
+        // ========================================================
+        
         let userBranches = user.branchIds || (user.branchId ? [user.branchId] : ['CN001']);
 
-        // Lưu thông tin tạm để dùng sau khi chọn chi nhánh
         tempLoginData = { user, type, branches: userBranches };
 
         if (userBranches.length > 1) {
-            // Hiển thị giao diện chọn chi nhánh
             document.querySelector('.login-box').style.display = 'none';
             document.getElementById('login-branch-select-box').style.display = 'block';
             renderLoginBranchSelect(userBranches);
         } else {
-            // Đăng nhập luôn nếu chỉ có 1 chi nhánh
             completeLogin(userBranches[0]);
         }
     } else {
@@ -250,15 +269,30 @@ function completeLogin(selectedBranchId) {
 }
 function logout() {
     currentUser = null;
+    
     // Xóa bộ nhớ trạng thái khi đăng xuất
     localStorage.removeItem('kv_current_user');
     sessionStorage.removeItem('kv_current_view');
     localStorage.removeItem('kv_current_tab');
     localStorage.removeItem('kv_current_branch');
     
+    // Lưu ý: Đã gỡ bỏ lệnh xóa kv_pos_state, kv_io_state, kv_ic_state để giữ lại đơn hàng đang làm dở
+    
     hideAll();
     document.getElementById('login-view').style.display = 'flex';
-    document.getElementById('login-pass').value = '';
+    
+    // --- XÓA TRẮNG VÀ NẠP LẠI TÀI KHOẢN ĐÃ LƯU ---
+    const uInput = document.getElementById('login-user');
+    const pInput = document.getElementById('login-pass');
+    
+    if (uInput) uInput.value = '';
+    if (pInput) pInput.value = '';
+    
+    // Kích hoạt nạp lại mật khẩu nếu người dùng có tick "Duy trì đăng nhập"
+    if (typeof window.loadSavedLogin === 'function') {
+        window.loadSavedLogin();
+    }
+    // ----------------------------------------------
 }
 
 function switchToPOS() {
@@ -1298,14 +1332,8 @@ window.openEditProductModal = function(id, ioItemIndex = null) {
     currentProductUnits = p.units || [];
     currentVariants = p.variants || [];
 
-    // 4. Đọc bảng giá tươi nhất để nạp vào modal thiết lập giá nhanh
-    const latestPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+// 4. Dọn sạch bộ nhớ tạm. Chỉ khi nào người dùng tự tay gõ giá mới thì mới lưu.
     tempPriceBookValues = {};
-    latestPriceBooks.forEach(pb => {
-        if (pb.prices && pb.prices[id] !== undefined) {
-            tempPriceBookValues[pb.id] = pb.prices[id];
-        }
-    });
 
     // Nạp lại danh sách nhóm trước khi gắn dữ liệu hiện tại
     if (typeof renderGroupSelects === 'function') renderGroupSelects();
@@ -1396,11 +1424,9 @@ window.saveProduct = function() {
     const costEl = document.getElementById('pm-cost');
     const stockEl = document.getElementById('pm-stock');
     const codeEl = document.getElementById('pm-code');
-    const barcodeEl = document.getElementById('pm-barcode'); // 1. Bổ sung lệnh đọc mã vạch
+    const barcodeEl = document.getElementById('pm-barcode');
 
-const parseNum = (val) => {
-    return window.parseCurrency(val);
-};
+    const parseNum = (val) => window.parseCurrency(val);
 
     const name = nameEl.value.trim();
     const price = parseNum(priceEl.value);
@@ -1413,26 +1439,35 @@ const parseNum = (val) => {
 
     window.isSyncLocked = true;
     let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-    let productIdToSave = editingProductId; // Tạo biến lưu ID để dùng chung cho Thiết lập giá
+    let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    let productIdToSave = editingProductId;
+    let isPriceBookChanged = false;
 
     if (editingProductId) {
-        // --- TRƯỜNG HỢP: SỬA HÀNG HÓA CÓ SẴN ---
+        // --- SỬA HÀNG HÓA CÓ SẴN ---
         const idx = allProducts.findIndex(p => p.id === editingProductId);
         if (idx !== -1) {
+let oldPrice = 0;
+if (allProducts[idx].units && allProducts[idx].units.length > 0) {
+    oldPrice = allProducts[idx].units[0].price || 0;
+} else {
+    oldPrice = allProducts[idx].price || 0;
+}
+const priceDiff = price - oldPrice;
+
             allProducts[idx].name = name;
             allProducts[idx].price = price;
             allProducts[idx].cost = cost;
             allProducts[idx].stock = stock;
             allProducts[idx].group = document.getElementById('pm-group').value;
             allProducts[idx].code = code;
-            allProducts[idx].barcode = barcode; // Đồng bộ mã vạch lớp ngoài
+            allProducts[idx].barcode = barcode;
 
-            // 2. FIX LỖI TÊN ĐƠN VỊ TÍNH: Bỏ chữ 'window.' đi, dùng trực tiếp biến
             if (currentProductUnits && currentProductUnits.length > 0) {
                 currentProductUnits[0].price = price;
                 currentProductUnits[0].code = code;
                 currentProductUnits[0].barcode = barcode;
-                allProducts[idx].units = currentProductUnits; // Đẩy toàn bộ lốc, thùng vào
+                allProducts[idx].units = currentProductUnits;
             } else if (allProducts[idx].units && allProducts[idx].units.length > 0) {
                 allProducts[idx].units[0].price = price;
                 allProducts[idx].units[0].code = code;
@@ -1440,21 +1475,35 @@ const parseNum = (val) => {
             } else {
                 allProducts[idx].units = [{ name: 'Cái', rate: 1, price: price, code: code, barcode: barcode, isBase: true }];
             }
+
+            // Tự động tính chênh lệch bảng giá phụ
+            if (priceDiff !== 0) {
+                allPriceBooks.forEach(pb => {
+                    if (pb.prices) {
+                        const exactKey = `${editingProductId}_0`;
+                        if (pb.prices[exactKey] !== undefined) {
+                            pb.prices[exactKey] += priceDiff;
+                            if (pb.prices[exactKey] < 0) pb.prices[exactKey] = 0;
+                            isPriceBookChanged = true;
+                        }
+                    }
+                });
+            }
         }
     } else {
-        // --- TRƯỜNG HỢP: THÊM HÀNG HÓA MỚI ---
-        let newUnits = (currentProductUnits && currentProductUnits.length > 0) 
-            ? currentProductUnits 
+        // --- THÊM HÀNG HÓA MỚI ---
+        let newUnits = (currentProductUnits && currentProductUnits.length > 0)
+            ? currentProductUnits
             : [{ name: 'Cái', rate: 1, price: price, code: code, barcode: barcode, isBase: true }];
-        
+
         newUnits[0].price = price;
         newUnits[0].code = code;
         newUnits[0].barcode = barcode;
 
         productIdToSave = 'PROD' + Date.now();
-        const newProd = { 
-            id: productIdToSave, 
-            name, price, cost, stock, 
+        const newProd = {
+            id: productIdToSave,
+            name, price, cost, stock,
             code: code || ('HH' + Date.now()),
             barcode: barcode,
             branchId: localStorage.getItem('kv_current_branch') || 'CN001',
@@ -1463,64 +1512,55 @@ const parseNum = (val) => {
         allProducts.unshift(newProd);
     }
 
-    // 3. FIX LỖI KHÔNG LƯU "THIẾT LẬP GIÁ GỐC" TỪ MODAL
+    // TÍNH TOÁN "THIẾT LẬP GIÁ NHANH" TỪ MODAL (NẾU CÓ)
     if (Object.keys(tempPriceBookValues).length > 0) {
-        let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
-        let isChanged = false;
-        
         allPriceBooks.forEach(pb => {
             if (tempPriceBookValues[pb.id] !== undefined) {
                 if (!pb.prices) pb.prices = {};
-                // Cập nhật giá gốc cho ID sản phẩm và ID đơn vị cơ bản (_0)
                 pb.prices[productIdToSave] = tempPriceBookValues[pb.id];
                 pb.prices[`${productIdToSave}_0`] = tempPriceBookValues[pb.id];
-                isChanged = true;
+                isPriceBookChanged = true;
             }
         });
-
-        // Nếu có thay đổi giá gốc thì lưu lại
-        if (isChanged) {
-            localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
-            window.priceBooks = allPriceBooks;
-            if (window.uploadToCloud) window.uploadToCloud('pricebooks', allPriceBooks);
-        }
     }
 
-    // Ghi đè biến và LocalStorage ngay lập tức
-    products = [...allProducts];
-    window.products = [...allProducts];
+    // ==========================================
+    // FIX LỖI: LƯU LOCALSTORAGE TRƯỚC TIÊN
+    // ==========================================
     localStorage.setItem('kv_products', JSON.stringify(allProducts));
+    window.products = allProducts;
+    if (typeof products !== 'undefined') products = allProducts;
 
-    // Cập nhật giao diện
-// Cập nhật giao diện
-    closeAddProductModal();
-    if (typeof renderProductList === 'function') renderProductList();
-    if (typeof renderPOS === 'function') renderPOS();
+    if (isPriceBookChanged) {
+        localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
+        window.priceBooks = allPriceBooks;
+    }
 
-    // =================================================================
-    // ĐỒNG BỘ NGƯỢC LẠI PHIẾU NHẬP HÀNG ĐANG MỞ (NẾU CÓ)
-    // =================================================================
+    // ĐỒNG BỘ LÊN CLOUD SAU CÙNG
+    if (typeof window.uploadToCloud === 'function') {
+        window.uploadToCloud('products', allProducts);
+        if (isPriceBookChanged) window.uploadToCloud('pricebooks', allPriceBooks);
+    }
+
+    // Đồng bộ ngược lại phiếu nhập đang mở
     if (typeof currentIOItems !== 'undefined' && currentIOItems.length > 0) {
         currentIOItems.forEach(item => {
             if (String(item.productId) === String(productIdToSave)) {
-                // 1. Cập nhật tên mới vừa sửa
-                item.name = name; 
-                
-                // 2. Tính toán lại giá vốn dựa theo đơn vị tính đang chọn trên dòng
+                item.name = name;
                 const rate = item.units && item.units[item.selectedUnitIdx] ? item.units[item.selectedUnitIdx].rate : 1;
                 item.baseCost = cost;
                 item.cost = cost * rate;
             }
         });
-        // Vẽ lại bảng danh sách phiếu nhập để cập nhật tên và số tiền tức thì
         if (typeof renderIOItemsTable === 'function') renderIOItemsTable();
     }
 
-    // Đồng bộ Cloud
-    if (window.uploadToCloud) window.uploadToCloud('products', allProducts);
-    showToast("Đã cập nhật dữ liệu thành công!", "success");
+    closeAddProductModal();
+    if (typeof renderProductList === 'function') renderProductList();
+    if (typeof renderPriceSetupTable === 'function') renderPriceSetupTable();
+    if (typeof renderPOS === 'function') renderPOS();
 
-    // Mở khóa sau 3 giây để Server ổn định
+    showToast("Đã cập nhật dữ liệu thành công!", "success");
     setTimeout(() => { window.isSyncLocked = false; }, 3000);
 };
 function toggleProductDetail(id) {
@@ -1739,20 +1779,36 @@ function openQuickPriceSetup() {
     const tbody = document.getElementById('quick-price-tbody');
     const countLabel = document.getElementById('quick-price-count');
     
-    countLabel.innerText = `Có ${priceBooks.length} bảng giá đang hoạt động`;
+    // Đọc giá trị mới nhất từ hệ thống
+    const latestPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    
+    countLabel.innerText = `Có ${latestPriceBooks.length} bảng giá đang hoạt động`;
 
-    if (priceBooks.length === 0) {
+    if (latestPriceBooks.length === 0) {
         tbody.innerHTML = `<tr><td colspan="2" style="text-align:center; padding: 30px; color:#888;">Bạn chưa tạo bảng giá nào. Vui lòng thiết lập ở mục Thiết lập giá.</td></tr>`;
     } else {
         let html = '';
-        priceBooks.forEach(pb => {
-            // Lấy giá trị từ biến tạm (nếu đã nhập ở lần mở trước)
-            const currentVal = tempPriceBookValues[pb.id] !== undefined ? tempPriceBookValues[pb.id] : '';
+        latestPriceBooks.forEach(pb => {
+            // Xác định giá hiện hành của hệ thống để làm gợi ý mờ (placeholder)
+            let systemVal = '';
+            if (editingProductId) {
+                // Ưu tiên lấy theo ID_0 (giá chuẩn), nếu không có mới lấy theo ID cũ
+                if (pb.prices && pb.prices[`${editingProductId}_0`] !== undefined) {
+                    systemVal = pb.prices[`${editingProductId}_0`];
+                } else if (pb.prices && pb.prices[editingProductId] !== undefined) {
+                    systemVal = pb.prices[editingProductId];
+                }
+            }
+
+            // Nếu người dùng đã gõ số mới thì hiển thị số đó, nếu không thì để trống ô nhập
+            const displayVal = tempPriceBookValues[pb.id] !== undefined ? tempPriceBookValues[pb.id] : '';
+            const placeholderStr = systemVal !== '' ? systemVal : 'Giá tự động';
+            
             html += `
                 <tr style="border-bottom: 1px solid #eee;">
                     <td style="padding: 10px;">${pb.name}</td>
                     <td style="padding: 10px; text-align:right;">
-                        <input type="number" class="quick-price-input" data-pbid="${pb.id}" value="${currentVal}" style="width: 130px; text-align: right; padding: 6px 10px; border: 1px solid #007bff; border-radius: 4px; outline: none;">
+                        <input type="number" class="quick-price-input" data-pbid="${pb.id}" value="${displayVal}" placeholder="${placeholderStr}" style="width: 130px; text-align: right; padding: 6px 10px; border: 1px solid #007bff; border-radius: 4px; outline: none;">
                     </td>
                 </tr>
             `;
@@ -2080,25 +2136,73 @@ window.changePricePage = function(newPage) {
 
 window.updateMainProductPrice = function(productId, unitIdx, newPrice) {
     const cleanPrice = typeof newPrice === 'string' ? window.parseCurrency(newPrice) : newPrice;
-    const pIndex = window.products.findIndex(x => x.id === productId);
-    
+
+    // 1. Luôn đọc dữ liệu mới nhất từ kho lưu trữ để làm chuẩn
+    let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+
+    const pIndex = allProducts.findIndex(x => x.id === productId);
+
     if(pIndex !== -1) {
-        window.isSyncLocked = true; 
-        
-        // Cập nhật giá vào đúng vị trí của đơn vị tính
-        if (window.products[pIndex].units && window.products[pIndex].units[unitIdx]) {
-            window.products[pIndex].units[unitIdx].price = cleanPrice || 0;
+        window.isSyncLocked = true;
+
+        // 2. Lấy giá cũ để tính độ chênh lệch
+        let oldPrice = 0;
+        if (allProducts[pIndex].units && allProducts[pIndex].units[unitIdx]) {
+            oldPrice = allProducts[pIndex].units[unitIdx].price || 0;
+        } else {
+            oldPrice = allProducts[pIndex].price || 0;
         }
-        
-        // Nếu đang sửa đơn vị cơ bản (unitIdx = 0), đồng bộ ra giá lớp ngoài
+
+        const priceDiff = cleanPrice - oldPrice;
+
+        // 3. Cập nhật giá chính
+        if (allProducts[pIndex].units && allProducts[pIndex].units[unitIdx]) {
+            allProducts[pIndex].units[unitIdx].price = cleanPrice || 0;
+        }
         if (unitIdx === 0) {
-            window.products[pIndex].price = cleanPrice || 0;
+            allProducts[pIndex].price = cleanPrice || 0;
         }
-        
-        localStorage.setItem('kv_products', JSON.stringify(window.products));
-        if (typeof window.uploadToCloud === 'function') window.uploadToCloud('products', window.products);
-        
+
+        // 4. Tính toán chênh lệch cho bảng giá phụ
+        let isPriceBookChanged = false;
+        if (priceDiff !== 0) {
+            allPriceBooks.forEach(pb => {
+                if (pb.prices) {
+                    const exactKey = `${productId}_${unitIdx}`;
+                    if (pb.prices[exactKey] !== undefined) {
+                        pb.prices[exactKey] += priceDiff;
+                        if (pb.prices[exactKey] < 0) pb.prices[exactKey] = 0; // Không cho âm
+                        isPriceBookChanged = true;
+                    }
+                }
+            });
+        }
+
+        // ==========================================
+        // FIX LỖI: PHẢI LƯU VÀO MÁY TRƯỚC KHI ĐẨY LÊN CLOUD
+        // ==========================================
+        localStorage.setItem('kv_products', JSON.stringify(allProducts));
+        window.products = allProducts;
+        if (typeof products !== 'undefined') products = allProducts; // Cập nhật biến Global
+
+        if (isPriceBookChanged) {
+            localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
+            window.priceBooks = allPriceBooks;
+        }
+
+        // SAU ĐÓ MỚI ĐẨY LÊN CLOUD
+        if (typeof window.uploadToCloud === 'function') {
+            window.uploadToCloud('products', allProducts);
+            if (isPriceBookChanged) {
+                window.uploadToCloud('pricebooks', allPriceBooks);
+            }
+        }
+
+        // RENDER LẠI GIAO DIỆN
         if (typeof renderProductList === 'function') renderProductList();
+        if (typeof renderPriceSetupTable === 'function') renderPriceSetupTable();
+
         setTimeout(() => { window.isSyncLocked = false; }, 3000);
     }
 };
@@ -3575,29 +3679,32 @@ let clockInterval;
 
 // HÀM MỚI: LƯU TOÀN BỘ TRẠNG THÁI POS VÀO BỘ NHỚ TRÌNH DUYỆT
 window.savePOSState = function() {
-    localStorage.setItem('kv_pos_state', JSON.stringify({
+    // SỬA ĐỔI: Lấy tên tài khoản và chi nhánh để tạo "chìa khóa" lưu trữ riêng biệt
+    const branch = localStorage.getItem('kv_current_branch') || 'CN001';
+    const user = currentUser ? currentUser.username : 'unknown';
+    const storageKey = `kv_pos_state_${user}_${branch}`;
+
+    localStorage.setItem(storageKey, JSON.stringify({
         tabs: posTabs,
         activeIndex: activeTabIndex,
         counter: tabCounter
     }));
 };
-
 function initPOSData() {
     // 1. Hiển thị thông tin nhân viên và khởi động đồng hồ hệ thống
     if (currentUser) {
-
-        const currentBranchId = localStorage.getItem('kv_current_branch') || 'CN001'; //
-        const allBranches = JSON.parse(localStorage.getItem('kv_branches')) || []; //
-        const currentBranchObj = allBranches.find(b => b.id === currentBranchId); //[cite: 2]
-        const branchName = currentBranchObj ? currentBranchObj.name : currentBranchId; //[cite: 2]
+        const currentBranchId = localStorage.getItem('kv_current_branch') || 'CN001'; 
+        const allBranches = JSON.parse(localStorage.getItem('kv_branches')) || []; 
+        const currentBranchObj = allBranches.find(b => b.id === currentBranchId); 
+        const branchName = currentBranchObj ? currentBranchObj.name : currentBranchId; 
 
         const sellerNameEl = document.getElementById('pos-seller-name');
         if (sellerNameEl) {
             // Hiển thị cả Tên nhân viên và Tên chi nhánh ngay phía dưới
-            sellerNameEl.innerHTML = `<i class="fa-solid fa-user-tie" style="color: #888; margin-right:5px;"></i> ${currentUser.fullname} <br><span style="font-size: 11px; color: var(--kv-pink);">📍 ${branchName}</span>`; //[cite: 2]
+            sellerNameEl.innerHTML = `<i class="fa-solid fa-user-tie" style="color: #888; margin-right:5px;"></i> ${currentUser.fullname} <br><span style="font-size: 11px; color: var(--kv-pink);">📍 ${branchName}</span>`; 
         }
         const userNameEl = document.getElementById('pos-user-name');
-        if (userNameEl) userNameEl.innerText = currentUser.username; //[cite: 2]
+        if (userNameEl) userNameEl.innerText = currentUser.username; 
     }
 
     // Cập nhật thời gian thực mỗi giây
@@ -3610,7 +3717,7 @@ function initPOSData() {
     }, 1000);
 
     // 2. Nạp danh sách Bảng giá từ bộ nhớ vào thanh chọn POS
-    priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || []; //[cite: 2]
+    priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || []; 
     const pbSelect = document.getElementById('pos-pricebook-select');
     if (pbSelect) {
         let pbHtml = `<option value="default">Bảng giá chung</option>`;
@@ -3620,8 +3727,12 @@ function initPOSData() {
         pbSelect.innerHTML = pbHtml;
     }
 
-    // 3. KHÔI PHỤC DỮ LIỆU POS (Xử lý chống lỗi F5 hiện lại đơn đã thanh toán)
-    const savedStateStr = localStorage.getItem('kv_pos_state');
+    // 3. KHÔI PHỤC DỮ LIỆU POS (Lấy đúng giỏ hàng của nhân viên & chi nhánh này)
+    const branch = localStorage.getItem('kv_current_branch') || 'CN001';
+    const user = currentUser ? currentUser.username : 'unknown';
+    const storageKey = `kv_pos_state_${user}_${branch}`;
+    
+    const savedStateStr = localStorage.getItem(storageKey);
     
     if (savedStateStr) {
         try {
@@ -3693,9 +3804,14 @@ window.searchPOSProduct = function(keyword) {
     const cleanKw = window.removeVietnameseTones(rawKw);
     const searchTerms = cleanKw.split(/\s+/);
     
-    // 2. Lấy chi nhánh hiện tại từ phiên đăng nhập
+    // 2. Lấy chi nhánh hiện tại
     const currentBranch = localStorage.getItem('kv_current_branch');
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    
+    // BƯỚC SỬA LỖI: Lấy thông tin Bảng giá đang chọn ở Tab hiện hành
+    const tab = posTabs[activeTabIndex];
+    const currentPriceBookId = tab ? (tab.priceBook || 'default') : 'default';
+
     let results = [];
 
     latestProducts.forEach(p => {
@@ -3721,11 +3837,15 @@ window.searchPOSProduct = function(keyword) {
                 const uBarcode = (unit.barcode || "").toLowerCase();
                 
                 if (matchBase || checkMatch(uCode) || checkMatch(uBarcode)) {
+                    
+                    // BƯỚC SỬA LỖI: Dùng hàm getProductPrice để tính toán giá chuẩn theo Bảng giá phụ
+                    const correctPrice = window.getProductPrice(p, currentPriceBookId, uIdx);
+
                     results.push({
                         ...p,
                         matchedUnitIdx: uIdx,
                         displayUnitName: unit.name,
-                        displayPrice: unit.price || (p.price * unit.rate), 
+                        displayPrice: correctPrice, // <--- Hiển thị giá đã tính toán chính xác
                         displayCode: unit.code || p.code
                     });
                 }
@@ -3862,12 +3982,18 @@ window.addPOSTab = function() {
         }
     }
 
+    // [THÊM MỚI] Lấy bảng giá của tab đang mở hiện tại, nếu không có thì mới dùng 'default'
+    let currentPb = 'default';
+    if (posTabs.length > 0 && posTabs[activeTabIndex]) {
+        currentPb = posTabs[activeTabIndex].priceBook;
+    }
+
     // 3. Tạo tab mới với số vừa tìm được
     posTabs.push({ 
         id: Date.now(), 
         name: `Hóa đơn ${nextNumber}`, 
         items: [], 
-        priceBook: 'default', 
+        priceBook: currentPb, // Áp dụng bảng giá kế thừa
         discount: 0, 
         extraFee: 0 
     });
@@ -4043,12 +4169,16 @@ window.renderPOSCart = function() {
         <div class="cart-item-row" style="display: flex; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f4f4f4; font-size: 14px;">
             <div style="width: 35px; text-align:center; color: #aaa; font-size: 12px;">${index + 1}</div>
             ${iceCheckboxHtml}
-            <div style="flex: 1; min-width: 0; padding-right: 10px;">
+<div style="flex: 1; min-width: 0; padding-right: 10px;">
                 <div style="color: var(--kv-pink); font-weight: 600; font-size: 13px;">${item.code}</div>
-                <div style="font-weight: 500;">
-                    ${item.name} ${item.isIce ? '<i class="fa-solid fa-snowflake" style="color: #00bcd4; font-size: 11px;"></i>' : ''}
+                
+                <!-- ĐÃ TĂNG KÍCH THƯỚC CHỮ LÊN 16PX VÀ IN ĐẬM RÕ NÉT HƠN -->
+                <div style="font-weight: bold; font-size: 16px; color: #111; margin-top: 4px; margin-bottom: 4px;">
+                    ${item.name} ${item.isIce ? '<i class="fa-solid fa-snowflake" style="color: #00bcd4; font-size: 14px;"></i>' : ''}
                 </div>
-                <div style="font-size: 11px; margin-top: 2px; color:#888;">Tồn chi nhánh: ${currentStock}</div>
+                
+                <!-- Tăng nhẹ cỡ chữ tồn kho cho cân đối -->
+                <div style="font-size: 12px; color:#888;">Tồn chi nhánh: ${currentStock}</div>
             </div>
             <div style="width: 90px;"><select onchange="updatePOSUnit(${index}, this.value)" style="width: 100%; border: 1px solid #eee; padding: 5px; border-radius: 4px;">${unitOptions}</select></div>
             <div style="width: 100px; display: flex; align-items: center; justify-content: center;">
@@ -4144,9 +4274,36 @@ function calcPOSTotals() {
     document.getElementById('pos-total-qty').innerText = totalQty;
     document.getElementById('pos-total-goods').innerText = totalGoods.toLocaleString('vi-VN');
     document.getElementById('pos-total-goods').dataset.val = totalGoods;
-    document.getElementById('pos-must-pay').innerText = mustPay.toLocaleString('vi-VN');
-}
+document.getElementById('pos-must-pay').innerText = mustPay.toLocaleString('vi-VN');
+    
+    // ==========================================
+    // ĐOẠN MÃ MỚI: TỰ ĐỘNG ẨN/HIỆN KHU VỰC THANH TOÁN
+    const paymentSection = document.getElementById('pos-payment-section');
+    if (paymentSection) {
+        if (tab.items.length === 0) {
+            paymentSection.style.display = 'none'; // Giỏ hàng trống -> Ẩn đi
+        } else {
+            paymentSection.style.display = 'block'; // Có hàng -> Hiện lên
+        }
+    }
+    // ==========================================
 
+    // GỌI HÀM VẼ NÚT GỢI Ý & TÍNH TIỀN THỪA KHÁCH ĐƯA
+    if (typeof window.renderQuickMoneySuggestions === 'function') {
+        window.renderQuickMoneySuggestions(mustPay);
+    }
+    
+    const paidInput = document.getElementById('pos-customer-paid');
+    if (paidInput) {
+        // Mặc định lấy số tiền đã nhập, nếu chưa nhập thì lấy bằng đúng số tiền khách cần trả
+        const savedPaid = tab.customerPaid !== undefined ? tab.customerPaid : mustPay;
+        
+        // CHIA 1000 ĐỂ HIỂN THỊ RÚT GỌN VÀO Ô NHẬP (Ví dụ 135,000 sẽ hiện 135)
+        paidInput.value = (savedPaid / 1000).toLocaleString('vi-VN');
+        
+        if (typeof window.calcPOSChange === 'function') window.calcPOSChange();
+    }
+}
 window.changePOSPriceBook = function(pbId) {
     const tab = posTabs[activeTabIndex];
     tab.priceBook = pbId;
@@ -4169,33 +4326,75 @@ window.processCheckout = function() {
         return; 
     }
 
-    // Xác định chi nhánh hiện tại từ phiên đăng nhập
+    // Xác định chi nhánh và lấy dữ liệu
     const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const latestProds = JSON.parse(localStorage.getItem('kv_products')) || [];
+    let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
     const totalAmount = parseFloat(document.getElementById('pos-total-goods').dataset.val) || 0;
     
-    // Tính toán tiền bia lạnh nếu có tính năng này[cite: 2]
+    // Tính toán tiền bia lạnh nếu có tính năng này
     const isFeatureEnabled = document.getElementById('enable-beer-ice')?.checked;
     const iceAmount = isFeatureEnabled ? calculateManualBeerIce() : 0;
     
     const mustPay = totalAmount - (tab.discount || 0) + (tab.extraFee || 0) + iceAmount;
-    
+
+    // Lấy số tiền thực tế khách đưa (Đã xử lý việc nhập rút gọn 3 số 0)
+    const actualPaidStr = document.getElementById('pos-customer-paid')?.value || '0';
+    // NHÂN 1000 ĐỂ LƯU CHUẨN VÀO HÓA ĐƠN
+    const actualPaid = (window.parseCurrency(actualPaidStr) * 1000) || mustPay;
+
+    // ========================================================
+    // BẮT ĐẦU ĐOẠN MÃ XỬ LÝ RIÊNG CHO SỬA HÓA ĐƠN
+    // ========================================================
+    let invoiceIdToSave = 'HD' + Date.now().toString().slice(-6); // Mã mặc định nếu tạo mới
+    let originalInvoiceDate = new Date().toLocaleString('vi-VN'); // Giờ mặc định nếu tạo mới
+
+    // Nếu hệ thống nhận diện đây là Tab đang sửa hóa đơn
+    if (tab.isEditing && tab.oldInvId) {
+        invoiceIdToSave = tab.oldInvId; // Lấy lại mã hóa đơn cũ để ghi đè
+        
+        // Tìm hóa đơn cũ trong dữ liệu
+        const oldInvIndex = allInvoices.findIndex(x => x.id === tab.oldInvId);
+        if (oldInvIndex !== -1) {
+            const oldInv = allInvoices[oldInvIndex];
+            originalInvoiceDate = oldInv.createdAt; // Giữ nguyên giờ bán ban đầu của khách
+            
+            // QUAN TRỌNG: Hoàn trả lại tồn kho của hóa đơn cũ trước khi trừ tồn kho mới
+            if (oldInv.status === 'done') {
+                oldInv.items.forEach(oldItem => {
+                    const prod = latestProds.find(p => p.id === oldItem.productId);
+                    if (prod) {
+                        const oldRate = oldItem.units && oldItem.units[oldItem.selectedUnitIdx] ? (oldItem.units[oldItem.selectedUnitIdx].rate || 1) : 1;
+                        prod.stock = (parseFloat(prod.stock) || 0) + (oldItem.qty * oldRate);
+                    }
+                });
+            }
+            
+            // Xóa bản gốc cũ đi để lát nữa chèn bản mới vào thế chỗ
+            allInvoices.splice(oldInvIndex, 1);
+        }
+    }
+    // ========================================================
+
     const newInvoice = {
-        id: 'HD' + Date.now().toString().slice(-6),
-        branchId: currentBranch, // LƯU MÃ CHI NHÁNH VÀO HÓA ĐƠN[cite: 2]
-        createdAt: new Date().toLocaleString('vi-VN'),
+        id: invoiceIdToSave,
+        branchId: currentBranch,
+        createdAt: originalInvoiceDate,
         items: JSON.parse(JSON.stringify(tab.items)),
         totalAmount: totalAmount,
         invoiceDiscount: tab.discount || 0,
         extraFee: tab.extraFee || 0,
         beerIceAmount: iceAmount,
         beerIceNote: tab.beerIceNote || "",
-        customerPaid: mustPay,
+        customerPaid: actualPaid, // Lưu đúng số tiền khách thanh toán
         creator: currentUser.fullname,
         status: 'done'
     };
 
-    // 1. Trừ tồn kho[cite: 2]
+    // Bật cờ khóa đồng bộ để Firebase không đè dữ liệu cũ xuống
+    window.isSyncLocked = true;
+
+    // 1. Trừ tồn kho theo số lượng hàng hóa mới cập nhật
     tab.items.forEach(cartItem => {
         const prod = latestProds.find(p => p.id === cartItem.productId);
         if (prod) {
@@ -4204,10 +4403,10 @@ window.processCheckout = function() {
         }
     });
 
-    let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
+    // 2. Chèn hóa đơn (vừa sửa hoặc tạo mới) lên đầu danh sách
     allInvoices.unshift(newInvoice);
 
-    // 2. Lưu dữ liệu cục bộ và đồng bộ Cloud[cite: 2]
+    // 3. Lưu dữ liệu cục bộ và đồng bộ Cloud
     localStorage.setItem('kv_products', JSON.stringify(latestProds));
     localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
 
@@ -4216,14 +4415,14 @@ window.processCheckout = function() {
         window.uploadToCloud('products', latestProds);
     }
     
-    // 3. Xử lý in hóa đơn và thông báo[cite: 2]
+    // 4. Xử lý in hóa đơn và thông báo
     if (window.autoPrintMode) {
         window.printReceipt(newInvoice);
     } else {
-        showToast("Thanh toán thành công!", "success");
+        showToast(tab.isEditing ? "Cập nhật hóa đơn thành công!" : "Thanh toán thành công!", "success");
     }
     
-    // 4. Dọn dẹp Tab sau khi thanh toán[cite: 2]
+    // 5. Dọn dẹp Tab sau khi thanh toán/lưu xong
     posTabs.splice(activeTabIndex, 1); 
 
     if (posTabs.length === 0) {
@@ -4234,11 +4433,14 @@ window.processCheckout = function() {
         window.savePOSState();
     }
     
-    focusPOSSearch();
+    if (typeof focusPOSSearch === 'function') focusPOSSearch();
     setTimeout(() => {
         const searchInput = document.getElementById('pos-search-input');
         if (searchInput) searchInput.value = '';
     }, 200);
+
+    // Mở khóa đồng bộ sau 3 giây để hệ thống ổn định lại
+    setTimeout(() => { window.isSyncLocked = false; }, 3000);
 };
 window.clearPOS = function() {
     // 1. Reset về 1 tab trống duy nhất
@@ -4341,35 +4543,26 @@ window.editInvoice = function(invId) {
     });
 };
 function printInvoice(invId) {
-    // Tìm hóa đơn trong dữ liệu
-    const inv = invoices.find(x => x.id === invId);
-    if (!inv) return;
+    // 1. Lấy danh sách hóa đơn MỚI NHẤT trực tiếp từ bộ nhớ máy
+    const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
+    const inv = allInvoices.find(x => x.id === invId);
+    
+    if (!inv) {
+        alert("Không tìm thấy hóa đơn!");
+        return;
+    }
 
-    // Tạo nội dung HTML để in
-    let printHTML = `
-        <div style="width: 80mm; font-family: sans-serif; padding: 10px;">
-            <h2 style="text-align: center;">226 POS</h2>
-            <p style="text-align: center;">Mã HD: ${inv.id}</p>
-            <hr>
-            <table style="width: 100%; font-size: 12px;">
-                ${inv.items.map(i => `
-                    <tr>
-                        <td>${i.name} x${i.qty}</td>
-                        <td style="text-align: right;">${(i.qty * i.price).toLocaleString()}</td>
-                    </tr>
-                `).join('')}
-            </table>
-            <hr>
-            <p>Khách cần trả: <strong>${((inv.totalAmount || 0) - (inv.invoiceDiscount || 0)).toLocaleString()}</strong></p>
-            <p style="text-align: center; font-size: 10px;">Cảm ơn quý khách!</p>
-        </div>
-    `;
+    // 2. Tính toán lại số tiền Khách Trả (đề phòng dữ liệu hóa đơn cũ lưu bị thiếu trường này)
+    if (inv.customerPaid === undefined) {
+        inv.customerPaid = (inv.totalAmount || 0) - (inv.invoiceDiscount || 0) + (inv.extraFee || 0) + (inv.beerIceAmount || 0);
+    }
 
-    const win = window.open('', '_blank');
-    win.document.write(printHTML);
-    win.document.close();
-    win.print();
-    win.close();
+    // 3. Gọi trực tiếp hàm in mẫu chuẩn của trang Bán hàng (POS)
+    if (typeof window.printReceipt === 'function') {
+        window.printReceipt(inv);
+    } else {
+        alert("Lỗi: Không tìm thấy mẫu in hóa đơn!");
+    }
 }
 function refundInvoice(invId) {
     const inv = invoices.find(x => x.id === invId);
@@ -5642,31 +5835,32 @@ window.renderICCreatorFilter = function() {
     const select = document.getElementById('filter-ic-creator');
     if (!select) return;
     
-    // Bước 1: Lấy dữ liệu mới nhất từ LocalStorage (Nơi lưu tài khoản Admin bạn vừa tạo)
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const allAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || [];
-    const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
     const allInventoryChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
 
-    // Bước 2: Gom tất cả tên từ 3 nguồn: Danh sách tài khoản Admin, Người bán hóa đơn, Người tạo phiếu kiểm
-    const namesFromAcc = allAccounts.map(acc => acc.fullname);
-    const namesFromInv = allInvoices.map(inv => inv.creator);
-    const namesFromIC = allInventoryChecks.map(ic => ic.creator);
+    // 1. Lọc nhân viên thuộc chi nhánh hiện tại (Hoặc là Admin)
+    const validAccs = allAccounts.filter(acc => 
+        acc.username === 'admin' || 
+        (acc.branchIds && acc.branchIds.includes(currentBranch)) || 
+        (acc.branchId === currentBranch)
+    ).map(a => a.fullname);
+
+    // 2. Lọc người tạo từ các phiếu kiểm kho của chi nhánh hiện tại
+    const validICs = allInventoryChecks.filter(ic => (ic.branchId || 'CN001') === currentBranch).map(ic => ic.creator);
+
+    // 3. Gộp lại và loại bỏ trùng lặp
+    const uniqueCreators = [...new Set([...validAccs, ...validICs])].filter(Boolean);
     
-    // Bước 3: Gộp lại, loại bỏ tên trùng và các giá trị rỗng (Sử dụng Set)
-    const uniqueCreators = [...new Set([...namesFromAcc, ...namesFromInv, ...namesFromIC])].filter(Boolean);
+    const currentVal = select.value;
     
-    // Ghi nhớ tên đang chọn hiện tại để không bị mất khi nạp lại
-    const currentVal = select.value; 
-    
-    // Bước 4: Vẽ HTML cho Dropdown
     let html = '<option value="">Tất cả người tạo</option>';
     uniqueCreators.sort().forEach(name => {
-        html += `<option value="${name}">${name}</option>`;
+        if(name !== "1") html += `<option value="${name}">${name}</option>`;
     });
     
     select.innerHTML = html;
     
-    // Trả lại giá trị đang chọn nếu nó vẫn tồn tại
     if (currentVal && uniqueCreators.includes(currentVal)) {
         select.value = currentVal;
     }
@@ -5704,11 +5898,23 @@ window.initApp = function() {
                         localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                         if (typeof renderProductList === 'function') renderProductList();
                     }
+                } 
+                // [THÊM MỚI] CHẶN LỖI GHI ĐÈ HÓA ĐƠN / PHIẾU NHẬP / KIỂM KHO KHI ĐANG GIAO DỊCH
+                else if (item.path === 'invoices' || item.path === 'import_orders' || item.path === 'inventory_checks') {
+                    if (!window.isSyncLocked) {
+                        if (item.path === 'invoices') window.invoices = dataArray;
+                        if (item.path === 'import_orders') window.importOrders = dataArray;
+                        if (item.path === 'inventory_checks') window.inventoryChecks = dataArray;
+                        localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
+                    }
+                } 
+                else {
+                    // Các dữ liệu cấu hình khác (Nhóm hàng, Bảng giá, Chi nhánh...) cập nhật bình thường
+                    localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
+                    if (item.path === 'pricebooks') window.priceBooks = dataArray;
+                    if (item.path === 'groups') window.productGroups = dataArray;
+                    if (item.path === 'branches') window.branches = dataArray;
                 }
-                
-if (item.path === 'pricebooks') window.priceBooks = dataArray;
-                if (item.path === 'groups') window.productGroups = dataArray;
-                if (item.path === 'branches') window.branches = dataArray;
                 
                 // ===============================================
                 // LOGIC BẢO MẬT: XỬ LÝ TÀI KHOẢN (ĐỔI MK / BỊ XÓA)
@@ -5722,42 +5928,33 @@ if (item.path === 'pricebooks') window.priceBooks = dataArray;
                         const updatedMe = dataArray.find(acc => acc.username === currentUser.username);
                         
                         if (!updatedMe) {
-                            // Trường hợp 1: Tài khoản đã bị Admin xóa
                             alert("Tài khoản của bạn đã bị xóa khỏi hệ thống. Vui lòng liên hệ Quản lý!");
                             if (typeof logout === 'function') logout();
                         } 
                         else if (updatedMe.password !== currentUser.password) {
-                            // Trường hợp 2: Mật khẩu đã bị Admin (hoặc người khác) thay đổi
                             alert("Mật khẩu của bạn vừa được thay đổi. Vui lòng đăng nhập lại bằng mật khẩu mới!");
                             if (typeof logout === 'function') logout();
                         } 
                         else {
-                            // Trường hợp 3: Bình thường (Cập nhật ngầm thông tin quyền/chi nhánh mới nhất vào phiên làm việc)
                             currentUser = updatedMe;
                             localStorage.setItem('kv_current_user', JSON.stringify(currentUser));
                         }
                     }
                 }
 
-                // Lưu vào bộ nhớ máy (LocalStorage)
-                localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
-
-                // 2. CẬP NHẬT GIAO DIỆN SAU KHI DỮ LIỆU VỀ (ĐÃ FIX TÊN TAB CHUẨN XÁC)
+                // 2. CẬP NHẬT GIAO DIỆN SAU KHI DỮ LIỆU VỀ
                 const currentView = sessionStorage.getItem('kv_current_view');
                 const currentTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
 
                 if (currentView === 'pos-view') {
-                    // Nếu đang ở màn hình bán hàng
                     if (item.path === 'products' && typeof renderPOSProducts === 'function') renderPOSProducts();
                     if (typeof renderPOSCart === 'function') renderPOSCart();
                 } else if (currentView === 'dashboard-view') {
                     
-                    // NẾU LÀ NHÓM HÀNG: Luôn vẽ lại thanh chọn và cây nhóm hàng ngay lập tức
                     if (item.path === 'groups') {
                         if (typeof window.renderGroupData === 'function') window.renderGroupData();
                     }
 
-                    // Mapping đúng ID của các tab trong HTML
                     const tabMapping = {
                         'products': 'tab-danh-sach-hang',
                         'invoices': 'tab-hoa-don',
@@ -5766,7 +5963,6 @@ if (item.path === 'pricebooks') window.priceBooks = dataArray;
                         'pricebooks': 'tab-thiet-lap-gia'
                     };
 
-                    // Kích hoạt vẽ lại Tab nếu dữ liệu tải về khớp với Tab đang mở
                     if (tabMapping[item.path] === currentTab || currentTab === 'tab-tong-quan') {
                         openDashTab(currentTab); 
                     }
@@ -5783,9 +5979,9 @@ if (item.path === 'pricebooks') window.priceBooks = dataArray;
         try {
             currentUser = JSON.parse(savedUser);
             window.renderQuickBranchSwitcher();
-if (currentUser.branchId && !localStorage.getItem('kv_current_branch')) {
-    localStorage.setItem('kv_current_branch', currentUser.branchId); 
-}
+            if (currentUser.branchId && !localStorage.getItem('kv_current_branch')) {
+                localStorage.setItem('kv_current_branch', currentUser.branchId); 
+            }
 
             hideAll(); 
 
@@ -5904,13 +6100,33 @@ window.toggleInvDateFilter = function() {
 window.renderInvCreatorFilter = function() {
     const select = document.getElementById('filter-inv-creator');
     if (!select) return;
+    
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const allAccs = JSON.parse(localStorage.getItem('kv_accounts')) || [];
     const allInvs = JSON.parse(localStorage.getItem('kv_invoices')) || [];
-    const names = [...new Set([...allAccs.map(a => a.fullname), ...allInvs.map(i => i.creator)])].filter(Boolean);
+    
+    // 1. Lọc nhân viên thuộc chi nhánh hiện tại
+    const validAccs = allAccs.filter(acc => 
+        acc.username === 'admin' || 
+        (acc.branchIds && acc.branchIds.includes(currentBranch)) || 
+        (acc.branchId === currentBranch)
+    ).map(a => a.fullname);
+
+    // 2. Lọc người bán từ các hóa đơn của chi nhánh hiện tại
+    const validInvs = allInvs.filter(inv => (inv.branchId || 'CN001') === currentBranch).map(i => i.creator);
+    
+    // 3. Gộp lại
+    const names = [...new Set([...validAccs, ...validInvs])].filter(Boolean);
+    
+    const currentVal = select.value;
     
     let html = '<option value="">Tất cả người bán</option>';
     names.sort().forEach(n => { if(n !== "1") html += `<option value="${n}">${n}</option>`; });
     select.innerHTML = html;
+
+    if (currentVal && names.includes(currentVal)) {
+        select.value = currentVal;
+    }
 };
 window.toggleImpDateFilter = function() {
     const type = document.querySelector('input[name="imp-date-type"]:checked').value;
@@ -5935,13 +6151,33 @@ window.toggleImpDateFilter = function() {
 window.renderImpCreatorFilter = function() {
     const select = document.getElementById('filter-imp-creator');
     if (!select) return;
+    
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const allAccs = JSON.parse(localStorage.getItem('kv_accounts')) || [];
     const allImps = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
-    const names = [...new Set([...allAccs.map(a => a.fullname), ...allImps.map(i => i.creator)])].filter(Boolean);
+    
+    // 1. Lọc nhân viên thuộc chi nhánh hiện tại (Hoặc là Admin)
+    const validAccs = allAccs.filter(acc => 
+        acc.username === 'admin' || 
+        (acc.branchIds && acc.branchIds.includes(currentBranch)) || 
+        (acc.branchId === currentBranch)
+    ).map(a => a.fullname);
+
+    // 2. Lọc người tạo từ các phiếu nhập của chi nhánh hiện tại
+    const validImps = allImps.filter(imp => (imp.branchId || 'CN001') === currentBranch).map(i => i.creator);
+    
+    // 3. Gộp lại và loại bỏ trùng lặp
+    const names = [...new Set([...validAccs, ...validImps])].filter(Boolean);
+    
+    const currentVal = select.value; // Giữ lại giá trị đang chọn
     
     let html = '<option value="">Tất cả người tạo</option>';
     names.sort().forEach(n => { if(n !== "1") html += `<option value="${n}">${n}</option>`; });
     select.innerHTML = html;
+
+    if (currentVal && names.includes(currentVal)) {
+        select.value = currentVal;
+    }
 };
 // ==========================================
 // TÍNH NĂNG CẬP NHẬT HÀNG LOẠT (CÓ SỬA SONG SONG)
@@ -7236,13 +7472,15 @@ window.saveImportOrder = function(action) {
     let allImportOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
     const ioId = document.getElementById('io-code').value.trim();
 
-    // KIỂM TRA PHIẾU HỦY: Chặn sửa nếu phiếu đã bị hủy
     const existingOrder = allImportOrders.find(x => String(x.id) === String(editingIOId || ioId));
     if (existingOrder && existingOrder.status === 'cancel') {
         if (typeof showToast === 'function') showToast("Phiếu này đã bị hủy, không thể thay đổi!", "error");
         else alert("Phiếu này đã bị hủy, không thể thay đổi!");
         return; 
     }
+
+    // [THÊM MỚI] Khóa đồng bộ dữ liệu
+    window.isSyncLocked = true;
 
     const totalAmountEl = document.getElementById('io-total-amount');
     const totalAmount = parseFloat(totalAmountEl ? totalAmountEl.dataset.val : 0) || 0;
@@ -7268,7 +7506,6 @@ window.saveImportOrder = function(action) {
     if (action === 'done') {
         let latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
 
-        // Nếu sửa một phiếu đã HOÀN THÀNH trước đó, phải trừ ngược kho của dữ liệu cũ ra
         if (existingOrder && existingOrder.status === 'done') {
             existingOrder.items.forEach(oldItem => {
                 const prod = latestProducts.find(p => p.id === oldItem.productId);
@@ -7279,7 +7516,6 @@ window.saveImportOrder = function(action) {
             });
         }
 
-        // Cộng dồn số lượng mới từ phiếu vừa chỉnh sửa vào lại kho
         itemsToSave.forEach(item => {
             const prod = latestProducts.find(p => p.id === item.productId);
             if (prod) {
@@ -7294,12 +7530,11 @@ window.saveImportOrder = function(action) {
         if (window.uploadToCloud) window.uploadToCloud('products', latestProducts);
     }
 
-    // FIX LỖI NHÂN BẢN: Luôn dùng mã trên Form để quét ghi đè
     const idx = allImportOrders.findIndex(x => String(x.id) === String(ioId));
     if (idx !== -1) {
-        allImportOrders[idx] = ioData; // Có rồi thì Cập nhật
+        allImportOrders[idx] = ioData; 
     } else {
-        allImportOrders.unshift(ioData); // Chưa có mới Thêm mới
+        allImportOrders.unshift(ioData); 
     }
 
     localStorage.setItem('kv_import_orders', JSON.stringify(allImportOrders));
@@ -7319,6 +7554,9 @@ window.saveImportOrder = function(action) {
     const msg = action === 'done' ? "Cập nhật phiếu và tồn kho thành công!" : "Đã lưu phiếu tạm.";
     if (typeof showToast === 'function') showToast(msg, "success");
     else alert(msg);
+
+    // [THÊM MỚI] Mở khóa đồng bộ
+    setTimeout(() => { window.isSyncLocked = false; }, 3000);
 };
 
 const _origAddIO = window.addIOToList;
@@ -8198,10 +8436,79 @@ document.addEventListener('change', function(e) {
 // Xóa bản nháp sau khi đã Lưu chính thức thành công hoặc Hủy
 const _origSaveIC = window.saveInventoryCheck;
 window.saveInventoryCheck = function(action) {
-    if (_origSaveIC) _origSaveIC(action);
-    if (typeof currentICItems !== 'undefined' && currentICItems.length === 0) {
-        clearICState();
+    if (currentICItems.length === 0) { 
+        alert("Vui lòng thêm hàng để kiểm!"); 
+        return; 
     }
+
+    // [THÊM MỚI] Khóa đồng bộ dữ liệu
+    window.isSyncLocked = true;
+
+    const icCode = document.getElementById('ic-code').value || ("KK" + Date.now().toString().slice(-6));
+    let allChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
+
+    const icData = {
+        branchId: localStorage.getItem('kv_current_branch') || 'CN001',
+        id: editingICId || Date.now(), 
+        code: icCode,
+        creator: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.fullname : 'Admin',
+        status: action,
+        note: document.getElementById('ic-note').value.trim(),
+        items: JSON.parse(JSON.stringify(currentICItems))
+    };
+
+    if (editingICId) {
+        const idx = allChecks.findIndex(x => String(x.id) === String(editingICId));
+        if (idx !== -1) {
+            allChecks[idx] = icData;
+        } else {
+            allChecks.unshift(icData);
+        }
+    } else {
+        allChecks.unshift(icData);
+    }
+
+    // Nếu hoàn thành, cập nhật tồn kho vào danh mục sản phẩm
+    if (action === 'done') {
+        let latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+        currentICItems.forEach(item => {
+            const prod = latestProducts.find(p => p.id === item.productId);
+            if (prod) {
+                const rate = item.units[item.selectedUnitIdx]?.rate || 1;
+                prod.stock = item.realQty * rate; 
+            }
+        });
+        localStorage.setItem('kv_products', JSON.stringify(latestProducts));
+        if (window.uploadToCloud) window.uploadToCloud('products', latestProducts);
+    }
+
+    // Lưu mảng phiếu kiểm vào Storage
+    localStorage.setItem('kv_inventory_checks', JSON.stringify(allChecks));
+    if (window.uploadToCloud) window.uploadToCloud('inventory_checks', allChecks);
+    
+    // Đồng bộ lại mảng Global
+    inventoryChecks = allChecks;
+
+    // Dọn dẹp trạng thái
+    currentICItems = []; 
+    editingICId = null; 
+
+    // Đóng giao diện
+    const icView = document.getElementById('inventory-check-view');
+    if (icView) icView.style.display = 'none';
+
+    // Vẽ lại bảng ngoài trang danh sách
+    if (typeof renderInventoryChecks === 'function') renderInventoryChecks();
+
+    const msg = action === 'done' ? "Cân bằng kho thành công!" : "Đã lưu phiếu tạm.";
+    if (typeof showToast === 'function') {
+        showToast(msg, "success");
+    } else {
+        alert(msg);
+    }
+
+    // [THÊM MỚI] Mở khóa đồng bộ
+    setTimeout(() => { window.isSyncLocked = false; }, 3000);
 };
 
 const _origCloseIC = window.closeCreateCheckView;
@@ -8457,4 +8764,212 @@ window.playBeepSound = function() {
         osc.start();
         osc.stop(ctx.currentTime + 0.1);
     } catch(e) { }
+};
+// ==========================================
+// HỆ THỐNG QUẢN LÝ NHIỀU TÀI KHOẢN CỤC BỘ
+// ==========================================
+
+// 1. Tự động điền tài khoản gần nhất khi mở trang
+window.loadSavedLogin = function() {
+    const savedLogins = JSON.parse(localStorage.getItem('kv_saved_logins')) || [];
+    
+    // Điền tk đăng nhập gần nhất (nằm ở vị trí 0)
+    if (savedLogins.length > 0) {
+        const latest = savedLogins[0];
+        const uInput = document.getElementById('login-user');
+        const pInput = document.getElementById('login-pass');
+        const rememberCb = document.getElementById('remember-me');
+        
+        if (uInput && pInput) {
+            uInput.value = latest.u;
+            pInput.value = decodeURIComponent(atob(latest.p)); 
+            if (rememberCb) rememberCb.checked = true;
+        }
+    }
+    
+    // Render sẵn danh sách vào Dropdown
+    renderSavedAccountsDropdown(savedLogins);
+};
+
+// 2. Vẽ danh sách Dropdown
+window.renderSavedAccountsDropdown = function(savedLogins) {
+    const dropdown = document.getElementById('saved-accounts-dropdown');
+    if (!dropdown) return;
+
+    if (savedLogins.length === 0) {
+        dropdown.innerHTML = '<div style="padding: 15px; color: #888; text-align: center; font-size: 13px;">Chưa có tài khoản nào được lưu</div>';
+        return;
+    }
+
+    let html = '';
+    savedLogins.forEach((acc, index) => {
+        const roleName = acc.role === 'manager' ? 'Quản lý' : 'Thu ngân';
+        html += `
+            <div style="padding: 12px 15px; border-bottom: 1px solid #f5f5f5; display: flex; justify-content: space-between; align-items: center; transition: 0.2s;" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='white'">
+                <div style="flex: 1; cursor: pointer;" onclick="fillSavedAccount(${index})">
+                    <div style="font-weight: bold; color: var(--kv-blue); font-size: 14px;">${acc.name || acc.u}</div>
+                    <div style="font-size: 11px; color: #888;">${acc.u} - ${roleName}</div>
+                </div>
+                <i class="fa-solid fa-xmark" style="color: #ccc; cursor: pointer; padding: 5px; margin-left: 10px; border-radius: 4px;" onclick="removeSavedAccount('${acc.u}', event)" onmouseover="this.style.color='#d9534f'; this.style.background='#fff0f0';" onmouseout="this.style.color='#ccc'; this.style.background='transparent';" title="Xóa tài khoản này khỏi máy"></i>
+            </div>
+        `;
+    });
+    dropdown.innerHTML = html;
+};
+
+// 3. Đóng/Mở Dropdown
+window.toggleSavedAccounts = function() {
+    const dropdown = document.getElementById('saved-accounts-dropdown');
+    if (dropdown) {
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    }
+};
+
+// 4. Chọn và điền tài khoản
+window.fillSavedAccount = function(index) {
+    const savedLogins = JSON.parse(localStorage.getItem('kv_saved_logins')) || [];
+    const acc = savedLogins[index];
+    if (acc) {
+        document.getElementById('login-user').value = acc.u;
+        document.getElementById('login-pass').value = decodeURIComponent(atob(acc.p));
+        document.getElementById('saved-accounts-dropdown').style.display = 'none';
+    }
+};
+
+// 5. Xóa 1 tài khoản khỏi máy
+window.removeSavedAccount = function(username, event) {
+    event.stopPropagation(); // Ngăn sự kiện click lan ra ngoài
+    let savedLogins = JSON.parse(localStorage.getItem('kv_saved_logins')) || [];
+    
+    savedLogins = savedLogins.filter(acc => acc.u !== username);
+    localStorage.setItem('kv_saved_logins', JSON.stringify(savedLogins));
+    
+    // Cập nhật lại UI
+    renderSavedAccountsDropdown(savedLogins);
+
+    // Nếu xóa trúng tài khoản đang hiển thị trên ô nhập thì xóa luôn text trên ô
+    if (document.getElementById('login-user').value === username) {
+        document.getElementById('login-user').value = '';
+        document.getElementById('login-pass').value = '';
+    }
+};
+
+// 6. Đóng Dropdown khi click chuột ra vùng khác
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('saved-accounts-dropdown');
+    const userBox = document.getElementById('login-user');
+    const arrow = document.querySelector('.fa-chevron-down');
+    
+    if (dropdown && dropdown.style.display === 'block') {
+        if (!dropdown.contains(e.target) && e.target !== userBox && e.target !== arrow) {
+            dropdown.style.display = 'none';
+        }
+    }
+});
+
+// Chạy hàm nạp tài khoản khi khởi động
+window.loadSavedLogin();
+// ==========================================
+// TÍNH NĂNG DROPDOWN MENU TÀI KHOẢN (ĐĂNG XUẤT)
+// ==========================================
+
+// 1. Hàm bật/tắt menu xổ xuống
+window.toggleUserDropdown = function() {
+    const dropdown = document.getElementById('dash-user-dropdown');
+    if (dropdown) {
+        dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+    }
+};
+
+// 2. Tự động đóng menu khi click chuột ra chỗ khác trên màn hình
+document.addEventListener('click', function(e) {
+    const userDropdown = document.getElementById('dash-user-dropdown');
+    const userMenu = document.querySelector('.user-menu');
+    
+    // Nếu menu đang mở và vị trí click chuột không nằm trong vùng user-menu
+    if (userDropdown && userDropdown.style.display === 'block') {
+        if (userMenu && !userMenu.contains(e.target)) {
+            userDropdown.style.display = 'none';
+        }
+    }
+});
+// Tính toán tiền thừa trả khách
+window.calcPOSChange = function() {
+    const mustPayStr = document.getElementById('pos-must-pay').innerText;
+    const mustPay = window.parseCurrency(mustPayStr) || 0;
+    
+    const paidStr = document.getElementById('pos-customer-paid').value;
+    
+    // BÍ QUYẾT: Nhân 1000 ngầm ở bên trong để khớp với chữ ,000 hiển thị bên ngoài
+    const paid = (window.parseCurrency(paidStr) || 0) * 1000; 
+    
+    const change = paid - mustPay;
+    const changeEl = document.getElementById('pos-change-return');
+    
+    if (changeEl) {
+        if (change < 0) {
+            changeEl.innerText = "0"; // Khách đưa thiếu
+        } else {
+            changeEl.innerText = change.toLocaleString('vi-VN');
+        }
+    }
+    
+    const tab = posTabs[activeTabIndex];
+    if (tab) {
+        tab.customerPaid = paid;
+        savePOSState();
+    }
+};
+
+// Thuật toán tạo gợi ý tiền (Giống KiotViet)
+window.renderQuickMoneySuggestions = function(mustPay) {
+    const container = document.getElementById('pos-quick-money-suggestions');
+    if (!container) return;
+    
+    if (mustPay <= 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    let suggestions = [mustPay]; // Luôn gợi ý nút đầu tiên là số tiền vừa đủ
+    
+    // Các mệnh giá tiền phổ biến ở VN
+    const denominations = [50000, 100000, 200000, 500000];
+    
+    // Làm tròn số tiền lên các mốc chẵn (VD: 135k thì làm tròn lên 140k, 150k, 200k)
+    const roundUp10k = Math.ceil(mustPay / 10000) * 10000;
+    const roundUp50k = Math.ceil(mustPay / 50000) * 50000;
+    const roundUp100k = Math.ceil(mustPay / 100000) * 100000;
+    
+    if (roundUp10k > mustPay) suggestions.push(roundUp10k);
+    if (roundUp50k > mustPay && !suggestions.includes(roundUp50k)) suggestions.push(roundUp50k);
+    if (roundUp100k > mustPay && !suggestions.includes(roundUp100k)) suggestions.push(roundUp100k);
+    
+    // Thêm các tờ tiền polymer nếu số tiền phải trả nhỏ hơn tờ đó
+    for (let d of denominations) {
+        if (d > mustPay && !suggestions.includes(d)) {
+            suggestions.push(d);
+        }
+    }
+    
+    // Sắp xếp từ nhỏ đến lớn và chỉ lấy tối đa 4 gợi ý cho gọn màn hình
+    suggestions.sort((a, b) => a - b);
+    const finalSuggestions = suggestions.slice(0, 4);
+
+    let html = '';
+    finalSuggestions.forEach(amount => {
+        html += `<button type="button" class="btn-quick-money" onclick="applyQuickMoney(${amount})">${amount.toLocaleString('vi-VN')}</button>`;
+    });
+    
+    container.innerHTML = html;
+};
+
+// Áp dụng số tiền khi click vào nút gợi ý
+window.applyQuickMoney = function(amount) {
+    const input = document.getElementById('pos-customer-paid');
+    if (input) {
+        // Chia 1000 vì trên màn hình đã có sẵn 3 số 0
+        input.value = (amount / 1000).toLocaleString('vi-VN');
+        window.calcPOSChange();
+    }
 };

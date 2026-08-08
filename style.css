@@ -960,8 +960,17 @@ input#enable-beer-ice {
     .pos-header { height: auto; flex-direction: column; padding: 10px; gap: 10px; }
     .pos-header-right { width: 100%; justify-content: space-between; margin-bottom: 0; }
     
-    /* VÙNG SỬA LỖI MỜ GIAO DIỆN: Tối ưu menu Hamburger (3 gạch) */
-    .pos-header-right > div { position: static; } 
+/* VÙNG SỬA LỖI MỜ GIAO DIỆN: Tối ưu menu Hamburger (3 gạch) */
+.pos-header-right > div:not(.kv-branch-selector) { position: static; } 
+
+/* Tối ưu riêng hộp thoại chọn chi nhánh cho điện thoại */
+.pos-branch-selector .branch-dropdown {
+    top: calc(100% + 10px) !important;
+    left: 0 !important;
+    right: auto !important;
+    width: 250px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3) !important;
+}
     #pos-hamburger-menu {
         position: fixed !important;
         top: auto !important;
@@ -1325,3 +1334,38 @@ input#enable-beer-ice {
         padding-bottom: 20px;
     }
 }
+/* Nút gợi ý tiền khách đưa nhanh */
+.btn-quick-money {
+    background: #f0f7ff;
+    color: var(--kv-blue);
+    border: 1px solid #cce5ff;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.btn-quick-money:hover {
+    background: var(--kv-blue);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 123, 255, 0.2);
+}
+/* =========================================
+   TỐI ƯU LẠI CHIỀU CAO CỘT PHẢI POS (CHỐNG LỐ MÀN HÌNH)
+   ========================================= */
+.pos-right { width: 360px; min-width: 360px; }
+.pos-bill-box { padding: 12px 15px !important; }
+.pos-bill-header { margin-bottom: 10px !important; padding-bottom: 10px !important; }
+.pos-bill-row { margin-bottom: 10px !important; }
+.pos-summary-lines { gap: 10px !important; }
+.pos-line input { padding: 4px 8px !important; font-size: 13px !important; height: 32px; }
+.total-line { padding-top: 10px !important; margin-top: 5px !important; }
+
+/* Thu nhỏ nút thanh toán cho vừa màn hình */
+.pos-checkout-wrapper { padding: 10px 15px !important; }
+.pos-checkout-btn { padding: 12px !important; font-size: 15px !important; }
+
+/* Thu nhỏ nút gợi ý tiền */
+.btn-quick-money { padding: 4px 8px !important; font-size: 12px !important; margin-top: 2px; }

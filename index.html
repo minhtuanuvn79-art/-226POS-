@@ -13,26 +13,37 @@
 <body>
 
     <div id="login-view">
-        <div class="login-box">
-            <div class="login-content">
-                <div class="login-logo"><i class="fa-solid fa-store"></i> 226 <span>POS</span></div>
-                <div id="login-error" class="error-msg">Tên đăng nhập hoặc mật khẩu không đúng!</div>
-                <div class="input-group">
-                    <input type="text" id="login-user" placeholder="Tên đăng nhập" required>
-                </div>
-                <div class="input-group">
-                    <input type="password" id="login-pass" placeholder="Mật khẩu" required>
-                    <i class="fa-solid fa-eye-slash toggle-pw" onclick="togglePassword()"></i>
-                </div>
-                <div class="login-options">
-                    <label><input type="checkbox" checked> Duy trì đăng nhập</label>
-                    <a href="#">Quên mật khẩu?</a>
-                </div>
+<div class="login-box">
+<form id="login-form" action="#" onsubmit="event.preventDefault(); handleLogin(window.loginType || 'manage');">
+    <div class="login-content">
+        <div class="login-logo"><i class="fa-solid fa-store"></i> 226 <span>POS</span></div>
+        <div id="login-error" class="error-msg">Tên đăng nhập hoặc mật khẩu không đúng!</div>
+        
+<!-- Ô nhập User có thêm mũi tên và danh sách Dropdown -->
+        <div class="input-group" style="position: relative;">
+            <input type="text" id="login-user" name="username" placeholder="Tên đăng nhập" required autocomplete="off" onclick="toggleSavedAccounts()">
+            <i class="fa-solid fa-chevron-down" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); color: #888; cursor: pointer; padding: 5px;" onclick="toggleSavedAccounts()"></i>
+            
+            <!-- Danh sách tài khoản đã lưu (Ẩn mặc định) -->
+            <div id="saved-accounts-dropdown" style="display: none; position: absolute; top: calc(100% + 5px); left: 0; width: 100%; background: white; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 5px 15px rgba(0,0,0,0.15); z-index: 100; max-height: 220px; overflow-y: auto;">
+                <!-- JS sẽ rải dữ liệu vào đây -->
             </div>
-            <div class="login-btns">
-                <button class="btn-manage" onclick="handleLogin('manage')"><i class="fa-solid fa-chart-line"></i> Quản lý</button>
-                <button class="btn-sell" onclick="handleLogin('sell')"><i class="fa-solid fa-cart-shopping"></i> Bán hàng</button>
-            </div>
+        </div>
+        <div class="input-group">
+            <input type="password" id="login-pass" name="password" placeholder="Mật khẩu" required>
+            <i class="fa-solid fa-eye-slash toggle-pw" onclick="togglePassword()"></i>
+        </div>
+        <div class="login-options">
+            <label><input type="checkbox" id="remember-me" checked> Duy trì đăng nhập</label>
+            <a href="#">Quên mật khẩu?</a>
+        </div>
+    </div>
+    
+    <div class="login-btns">
+        <button type="submit" class="btn-manage" onclick="window.loginType = 'manage';"><i class="fa-solid fa-chart-line"></i> Quản lý</button>
+        <button type="submit" class="btn-sell" onclick="window.loginType = 'sell';"><i class="fa-solid fa-cart-shopping"></i> Bán hàng</button>
+    </div>
+</form>
         </div>
 <!-- HỘP THOẠI CHỌN CHI NHÁNH KHI ĐĂNG NHẬP -->
         <div id="login-branch-select-box" class="login-box" style="display: none; padding: 30px;">
@@ -216,9 +227,21 @@
         </div>
     </div>
 
-    <div class="user-menu" title="Tài khoản">
-        <i class="fa-solid fa-user-circle" style="font-size: 18px; color: #888;"></i>
-        <span id="dash-user-name" onclick="logout()" title="Đăng xuất">Tên nhân viên</span>
+<!-- Giao diện Menu Nhân viên có Dropdown Đăng xuất -->
+    <div class="user-menu" style="position: relative;" title="Tài khoản">
+        <!-- Khối bấm để xổ menu -->
+        <div onclick="toggleUserDropdown()" style="display: flex; align-items: center; gap: 8px; width: 100%;">
+            <i class="fa-solid fa-user-circle" style="font-size: 18px; color: #888;"></i>
+            <span id="dash-user-name">Tên nhân viên</span>
+            <i class="fa-solid fa-angle-down" style="font-size: 12px; color: #888; margin-left: 3px;"></i>
+        </div>
+        
+        <!-- Menu xổ xuống -->
+        <ul id="dash-user-dropdown" class="dropdown-menu" style="right: 0; left: auto; top: calc(100% + 10px); min-width: 170px; z-index: 1000; border-radius: 6px; display: none;">
+            <li onclick="logout()" style="color: #d9534f; font-weight: 500;">
+                <i class="fa-solid fa-arrow-right-from-bracket" style="width: 20px;"></i> Đăng xuất
+            </li>
+        </ul>
     </div>
 </div>
         </div>
@@ -1114,6 +1137,31 @@
                             <strong style="color: #333; font-size: 15px;">Khách cần trả</strong>
                             <strong id="pos-must-pay" style="color: var(--kv-blue); font-size: 22px;">0</strong>
                         </div>
+<!-- BỌC TẤT CẢ VÀO MỘT KHUNG ĐỂ DỄ DÀNG ẨN/HIỆN -->
+<div id="pos-payment-section" style="display: none;">
+    
+    <div class="pos-line" style="margin-top: 5px;">
+        <span>Khách thanh toán</span>
+        <div style="display: flex; align-items: baseline; justify-content: flex-end; background: #f4f6f9; border-radius: 6px; padding: 6px 12px; width: 130px; border: 1px solid transparent; transition: 0.2s;" 
+             onfocusin="this.style.background='#fff'; this.style.borderColor='var(--kv-pink)';" 
+             onfocusout="this.style.background='#f4f6f9'; this.style.borderColor='transparent';">
+            
+            <input type="text" id="pos-customer-paid" value="0" onfocus="this.select()" oninput="formatCurrency(this); calcPOSChange()" 
+                   style="font-size: 15px !important; color: var(--kv-pink) !important; font-weight: bold !important; background: transparent !important; border: none !important; outline: none !important; text-align: right !important; padding: 0 !important; width: 100% !important; box-shadow: none !important; height: auto !important;">
+            
+            <strong style="color: var(--kv-pink); font-size: 15px; margin-left: 1px;">,000</strong>
+        </div>
+    </div>
+
+    <!-- Vùng chứa các nút gợi ý tiền -->
+    <div id="pos-quick-money-suggestions" style="display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end;"></div>
+
+    <div class="pos-line" style="font-weight: bold; padding-top: 8px; border-top: 1px dashed #eaeaea;">
+        <span>Tiền thừa trả khách</span>
+        <strong id="pos-change-return" style="color: #d9534f; font-size: 16px;">0</strong>
+    </div>
+
+</div>
                     </div>
                 </div>
                 
