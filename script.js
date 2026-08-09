@@ -4008,37 +4008,153 @@ function addActive(items) {
     activeItem.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
-function handleDirectEnter(kw) {
-    const currentBranch = localStorage.getItem('kv_current_branch')
+window.handleDirectEnter = function(kw) {
+    if (!kw) return;
+    
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
     const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-    let found = null;
+    const allBranches = JSON.parse(localStorage.getItem('kv_branches')) || [];
+    
+    let foundInCurrent = null;
+    let foundInOther = null;
 
+    // 1. Quét tìm sản phẩm trên toàn bộ hệ thống
     for (let p of latestProducts) {
-        if (p.branchId !== currentBranch) continue; 
+        let isMatch = false;
+        let matchUIdx = 0;
+
+        // Khớp mã gốc
         if (p.code?.toLowerCase() === kw || p.barcode?.toLowerCase() === kw) {
-            found = { id: p.id, uIdx: 0 }; 
-            break;
-        }
-        if (p.units) {
+            isMatch = true;
+        } 
+        // Khớp mã đơn vị tính phụ (Thùng, lốc...)
+        else if (p.units) {
             const uIdx = p.units.findIndex(u => u.barcode?.toLowerCase() === kw || u.code?.toLowerCase() === kw);
             if (uIdx !== -1) { 
-                found = { id: p.id, uIdx: uIdx }; 
-                break; 
+                isMatch = true; 
+                matchUIdx = uIdx;
+            }
+        }
+
+        if (isMatch) {
+            if ((p.branchId || 'CN001') === currentBranch) {
+                foundInCurrent = { id: p.id, uIdx: matchUIdx };
+                break; // Ưu tiên tìm thấy ở chi nhánh hiện tại là dừng vòng lặp luôn
+            } else {
+                if (!foundInOther) {
+                    foundInOther = { product: p, uIdx: matchUIdx }; // Lưu lại nếu tìm thấy ở CN khác
+                }
             }
         }
     }
 
-    if (found) {
-        addPOSItem(found.id, true, found.uIdx);
+    // 2. Xử lý kết quả
+    if (foundInCurrent) {
+        // TRƯỜNG HỢP 1: Đã có ở chi nhánh này -> Nạp thẳng vào giỏ hàng POS
+        window.addPOSItem(foundInCurrent.id, true, foundInCurrent.uIdx);
         
         const searchInput = document.getElementById('pos-search-input');
         if (searchInput) {
             searchInput.focus();
-            searchInput.select(); // Bôi đen ngay lập tức (0ms)
+            searchInput.select();
         }
-    } else {
-        showToast("Không tìm thấy mã này tại chi nhánh hiện tại", "warning");
+    } 
+    else if (foundInOther) {
+        // TRƯỜNG HỢP 2: Không có ở chi nhánh này NHƯNG có ở chi nhánh khác -> Hỏi copy
+        const otherBranchName = allBranches.find(b => b.id === (foundInOther.product.branchId || 'CN001'))?.name || 'Chi nhánh khác';
+        
+        window.showConfirm(
+            `<div style="text-align:center;">
+                <i class="fa-solid fa-copy" style="font-size: 45px; color: var(--kv-blue); margin-bottom: 15px;"></i>
+                <h3 style="color: var(--kv-blue); margin-bottom: 10px; font-size: 18px;">Phát hiện mã ở chi nhánh khác!</h3>
+                <p style="font-size: 14px; color: #555;">Mã <b>${kw}</b> chưa có ở chi nhánh hiện tại, nhưng đã được tạo tại <b>${otherBranchName}</b> với tên:</p>
+                <p style="margin: 15px 0;"><strong style="color:var(--kv-pink); font-size:16px;">${foundInOther.product.name}</strong></p>
+                <p style="font-size: 14px; color: #333; font-weight: 500;">Bạn có muốn copy mặt hàng này về chi nhánh của mình để bán không?</p>
+            </div>`, 
+            function() {
+                // Nếu bấm Đồng ý -> Thực hiện sao chép
+                copySingleProductToCurrentBranch(foundInOther.product, currentBranch, latestProducts, foundInOther.uIdx);
+            }
+        );
         document.getElementById('pos-search-input').value = "";
+    } 
+    else {
+        // TRƯỜNG HỢP 3: Không có ở BẤT KỲ chi nhánh nào -> Hiện thông báo Lỗi Đỏ giữa màn hình
+        window.showConfirm(
+            `<div style="text-align:center;">
+                <i class="fa-solid fa-circle-xmark" style="font-size: 55px; color: #dc3545; margin-bottom: 15px;"></i>
+                <h3 style="color: #dc3545; margin-bottom: 10px; font-size: 20px;">Mã hàng không tồn tại</h3>
+                <p style="font-size: 15px; color: #555;">Mã vạch <b>${kw}</b> chưa được tạo trên hệ thống.</p>
+                <p style="font-size: 13px; color: #888; margin-top: 10px;">Vui lòng thêm mới hàng hóa (F4) trước khi bán.</p>
+            </div>`,
+            null
+        );
+        
+        // CSS lại nút bấm của form Confirm cho phù hợp với thông báo lỗi
+        setTimeout(() => {
+            const btnCancel = document.getElementById('confirm-cancel');
+            if (btnCancel) btnCancel.style.display = 'none'; // Ẩn nút "Bỏ qua"
+            
+            const btnOk = document.getElementById('confirm-ok');
+            if (btnOk) {
+                btnOk.innerText = 'Đã hiểu';
+                btnOk.style.background = '#dc3545'; // Đổi nút thành màu đỏ cảnh báo
+            }
+        }, 10);
+        
+        document.getElementById('pos-search-input').value = "";
+    }
+};
+
+// Hàm phụ trợ: Xử lý sao chép 1 sản phẩm
+function copySingleProductToCurrentBranch(sourceProduct, targetBranchId, allProducts, uIdxToCart) {
+    let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    
+    // Deep copy tách biệt dữ liệu hoàn toàn khỏi chi nhánh cũ
+    let newP = JSON.parse(JSON.stringify(sourceProduct));
+    
+    // Cấp phát ID mới
+    const newId = 'PROD' + Date.now();
+    const oldId = sourceProduct.id;
+    
+    newP.id = newId;
+    newP.branchId = targetBranchId; // Đổi quyền sở hữu về chi nhánh hiện tại
+    newP.stock = 0;                 // Tồn kho ở chi nhánh mới mặc định phải bằng 0
+    
+    // Chép theo Bảng giá phụ (nếu có)
+    allPriceBooks.forEach(pb => {
+        if (!pb.prices) return;
+        Object.keys(pb.prices).forEach(oldKey => {
+            if (oldKey === oldId || oldKey.startsWith(oldId + '_')) {
+                const newKey = oldKey.replace(oldId, newId);
+                pb.prices[newKey] = pb.prices[oldKey];
+            }
+        });
+    });
+    
+    // Lưu lại hệ thống
+    allProducts.unshift(newP);
+    localStorage.setItem('kv_products', JSON.stringify(allProducts));
+    localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
+    
+    window.products = allProducts;
+    window.priceBooks = allPriceBooks;
+    
+    if (typeof window.uploadToCloud === 'function') {
+        window.uploadToCloud('products', allProducts);
+        window.uploadToCloud('pricebooks', allPriceBooks);
+    }
+    
+    window.showToast("Đã sao chép hàng hóa thành công!", "success");
+    
+    // Đẩy ngay lập tức mặt hàng vừa copy vào giỏ hàng để tiếp tục tính tiền
+    window.addPOSItem(newId, true, uIdxToCart);
+    
+    // Focus lại ô tìm kiếm
+    const searchInput = document.getElementById('pos-search-input');
+    if (searchInput) {
+        searchInput.focus();
+        searchInput.select();
     }
 }
 function getProductPrice(productObj, priceBookId) {
