@@ -8074,9 +8074,9 @@ window.startBarcodeScanner = function(context) {
 function initScanner(context) {
     html5QrCode = new Html5Qrcode("reader");
 
-    // Tự động căn chỉnh kích thước vùng nhận diện (75% màn hình) để không bị méo trên điện thoại
+    // 1. Tối ưu khung quét và tăng tốc độ khung hình (fps) để bắt nét nhanh hơn
     const config = {
-        fps: 10,
+        fps: 20, // Tăng fps từ 10 lên 20 để mượt hơn
         qrbox: function(viewfinderWidth, viewFinderHeight) {
             let minEdgeSize = Math.min(viewfinderWidth, viewFinderHeight);
             let qrboxSize = Math.floor(minEdgeSize * 0.75); 
@@ -8085,9 +8085,18 @@ function initScanner(context) {
         aspectRatio: 1.0
     };
 
-    // Ép sử dụng camera sau cực nhạy bằng 'environment'
+    // 2. CẤU HÌNH CAMERA NÂNG CAO CHO IPHONE
+    const cameraConstraints = {
+        facingMode: "environment",
+        // Ép độ phân giải cao (Full HD) để cầm xa vẫn đọc được các vạch nhỏ
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        // Thử ép zoom kỹ thuật số 2x (hoạt động tốt trên iOS 15+ và Android)
+        advanced: [{ zoom: 2.0 }]
+    };
+
     html5QrCode.start(
-        { facingMode: "environment" }, 
+        cameraConstraints, 
         config,
         (decodedText, decodedResult) => {
             const scannedCode = decodedText.trim();
