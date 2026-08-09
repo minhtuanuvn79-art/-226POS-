@@ -1737,12 +1737,13 @@ window.renderProductList = function() {
             else if (stockVal === 'out_of_stock') matchStock = (currentStock <= 0);
             // ... các điều kiện tồn kho khác
 
-            if (matchStock) {
+if (matchStock) {
                 flatProducts.push({
                     ...p,
                     displayUnit: unit,
                     displayStock: currentStock,
-                    displayCode: unit.code || p.code
+                    displayCode: unit.code || p.code,
+                    uIdx: uIdx 
                 });
             }
         });
@@ -1775,8 +1776,8 @@ window.renderProductList = function() {
                 <td style="text-align: right; color: var(--kv-pink); font-weight: bold;">${(item.displayUnit.price || 0).toLocaleString()}</td>
                 <td style="text-align: right;">${(item.cost * item.displayUnit.rate || 0).toLocaleString()}</td>
                 <td style="text-align: center;">${item.displayStock}</td>
-                <td style="text-align: center;">
-                    <button onclick="event.stopPropagation(); deleteProduct('${item.id}', '${item.name}')" class="btn-delete-small"><i class="fa-solid fa-trash"></i></button>
+<td style="text-align: center;">
+                    <button onclick="event.stopPropagation(); deleteProductUnit('${item.id}', ${item.uIdx}, '${item.name}', '${item.displayUnit.name}')" style="background: white; border: 1px solid #d9534f; color: #d9534f; padding: 4px 8px; border-radius: 4px; cursor: pointer;"><i class="fa-solid fa-trash"></i></button>
                 </td>
             </tr>
         `;
@@ -4839,6 +4840,90 @@ window.deleteProduct = function(productId, productName) {
         showToast("Đã xóa hàng hóa thành công", "success");
         renderProductList(); 
     });
+};
+window.deleteProductUnit = function(productId, uIdx, productName, unitName) {
+    let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    
+    const pIndex = allProducts.findIndex(p => p.id === productId);
+    if (pIndex === -1) return;
+
+    // TRƯỜNG HỢP 1: NẾU LÀ ĐƠN VỊ CƠ BẢN (XÓA TOÀN BỘ)
+    if (uIdx === 0) {
+        showConfirm(`<b>${unitName}</b> là đơn vị cơ bản.<br>Việc xóa đơn vị này sẽ <b>XÓA TOÀN BỘ</b> mặt hàng <b>${productName}</b>.<br><br>Bạn có chắc chắn muốn xóa không?`, function() {
+            allProducts.splice(pIndex, 1);
+            
+            // Dọn dẹp giá rác trong Bảng giá
+            allPriceBooks.forEach(pb => {
+                if (pb.prices) {
+                    Object.keys(pb.prices).forEach(key => {
+                        if (key === productId || key.startsWith(productId + '_')) {
+                            delete pb.prices[key];
+                        }
+                    });
+                }
+            });
+
+            localStorage.setItem('kv_products', JSON.stringify(allProducts));
+            localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
+            window.products = allProducts;
+            window.priceBooks = allPriceBooks;
+            
+            if (typeof window.uploadToCloud === 'function') {
+                window.uploadToCloud('products', allProducts);
+                window.uploadToCloud('pricebooks', allPriceBooks);
+            }
+            
+            showToast(`Đã xóa toàn bộ mặt hàng ${productName}`, "success");
+            renderProductList();
+        });
+    } 
+    // TRƯỜNG HỢP 2: NẾU LÀ ĐƠN VỊ PHỤ (CHỈ XÓA NÓ)
+    else {
+        showConfirm(`Bạn có chắc muốn xóa đơn vị quy đổi <b>${unitName}</b> của mặt hàng <b>${productName}</b>?`, function() {
+            const oldUnitsLength = allProducts[pIndex].units.length;
+            
+            // Cắt đơn vị phụ đó ra khỏi mảng
+            allProducts[pIndex].units.splice(uIdx, 1);
+            
+            // Xử lý dồn Bảng giá: Vì mảng units bị thụt đi 1, nên ID của bảng giá (Ví dụ: SP01_2) cũng phải lùi lại thành SP01_1 để không bị hiển thị sai giá
+            let isPbChanged = false;
+            allPriceBooks.forEach(pb => {
+                if (pb.prices) {
+                    // Xóa giá của đơn vị hiện tại
+                    if (pb.prices[`${productId}_${uIdx}`] !== undefined) {
+                        delete pb.prices[`${productId}_${uIdx}`];
+                        isPbChanged = true;
+                    }
+                    // Đẩy giá của các đơn vị nằm sau nó lên 1 bậc
+                    for (let i = uIdx + 1; i < oldUnitsLength; i++) {
+                        if (pb.prices[`${productId}_${i}`] !== undefined) {
+                            pb.prices[`${productId}_${i - 1}`] = pb.prices[`${productId}_${i}`];
+                            delete pb.prices[`${productId}_${i}`];
+                            isPbChanged = true;
+                        }
+                    }
+                }
+            });
+
+            // Lưu dữ liệu lại
+            localStorage.setItem('kv_products', JSON.stringify(allProducts));
+            window.products = allProducts;
+            
+            if (isPbChanged) {
+                localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
+                window.priceBooks = allPriceBooks;
+            }
+
+            if (typeof window.uploadToCloud === 'function') {
+                window.uploadToCloud('products', allProducts);
+                if (isPbChanged) window.uploadToCloud('pricebooks', allPriceBooks);
+            }
+            
+            showToast(`Đã xóa đơn vị ${unitName}`, "success");
+            renderProductList();
+        });
+    }
 };
 // File kết thúc tại đây, không có thêm dấu ngoặc nào bên dưới
 // ==========================================
