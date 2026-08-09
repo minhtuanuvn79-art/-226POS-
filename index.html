@@ -1345,14 +1345,11 @@
 
             </div>
 
-            <div class="product-modal-footer">
-                    <label style="font-size: 13px; display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                    <input type="checkbox" id="pm-sell-direct" checked> Bán trực tiếp
-                    </label>
+<div class="product-modal-footer" style="justify-content: flex-end;">
                 <div class="pm-footer-btns" style="display: flex; gap: 15px; align-items: center;">
-                            <label style="font-size: 13px; display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--kv-blue); font-weight: bold;">
-                            <input type="checkbox" id="pm-continue-add"> Thêm liên tục
-                        </label>
+                    <label style="font-size: 13px; display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--kv-blue); font-weight: bold;">
+                        <input type="checkbox" id="pm-continue-add"> Thêm liên tục
+                    </label>
                     <button class="pm-btn-cancel" onclick="closeAddProductModal()">Bỏ qua</button>
                     <button class="pm-btn-save" onclick="saveProduct()">Lưu</button>
                 </div>
@@ -1377,7 +1374,6 @@
                 <div class="ua-section" id="variant-section" style="display: none;">
                     <div class="ua-sec-title" style="display: flex; justify-content: space-between;">
                         <span>Hàng cùng loại</span>
-                        <span style="color: var(--kv-blue); cursor: pointer; font-size: 13px; font-weight: normal;"><i class="fa-solid fa-tag"></i> Thiết lập giá</span>
                     </div>
                     <div style="overflow-x: auto; margin-top: 15px;">
                         <table class="kv-table variant-table" style="min-width: 800px;">
@@ -1437,10 +1433,6 @@
 
                 <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Giá bán</label>
                 <input type="text" id="sub-unit-price" placeholder="Giá bán quy đổi" oninput="formatCurrency(this)">
-
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; margin-bottom: 20px;">
-                    <input type="checkbox" id="sub-unit-sell" checked> Bán trực tiếp
-                </label>
 
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button onclick="closeAddUnitModal()" style="padding: 8px 15px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer;">Bỏ qua</button>

@@ -1291,7 +1291,6 @@ if (pmGroupDisplay) {
     pmGroupDisplay.style.color = '#555';
     pmGroupDisplay.style.fontWeight = 'normal';
 }
-document.getElementById('pm-sell-direct').checked = true;
     
     const modalProduct = document.getElementById('add-product-modal');
     if (modalProduct) {
@@ -1368,7 +1367,6 @@ window.openEditProductModal = function(id, ioItemIndex = null) {
     }
 
     document.getElementById('pm-stock').value = p.stock || 0;
-    document.getElementById('pm-sell-direct').checked = p.sellDirect;
     
     // ==========================================
     // TÍNH TOÁN GIÁ VỐN ƯU TIÊN LẤY TỪ PHIẾU NHẬP
@@ -1437,6 +1435,31 @@ window.saveProduct = function() {
 
     if (!name) { showToast("Vui lòng nhập tên hàng hóa!", "error"); return; }
 
+    // ==========================================
+    // KIỂM TRA TRÙNG MÃ HÀNG
+    // ==========================================
+    let allProductsCheck = JSON.parse(localStorage.getItem('kv_products')) || [];
+    let currentBranchCheck = localStorage.getItem('kv_current_branch') || 'CN001';
+
+    let isDuplicateCode = false;
+    if (code !== '') {
+        isDuplicateCode = allProductsCheck.some(p => {
+            if ((p.branchId || 'CN001') !== currentBranchCheck) return false;
+            if (editingProductId && p.id === editingProductId) return false;
+            if (p.code && p.code.toLowerCase() === code.toLowerCase()) return true;
+            if (p.units && p.units.length > 0) {
+                return p.units.some(u => u.code && u.code.toLowerCase() === code.toLowerCase());
+            }
+            return false;
+        });
+    }
+
+    if (isDuplicateCode) {
+        showToast("Mã hàng này đã tồn tại! Vui lòng nhập mã khác.", "error");
+        document.getElementById('pm-code').focus();
+        return; 
+    }
+
     window.isSyncLocked = true;
     let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
     let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
@@ -1447,19 +1470,19 @@ window.saveProduct = function() {
         // --- SỬA HÀNG HÓA CÓ SẴN ---
         const idx = allProducts.findIndex(p => p.id === editingProductId);
         if (idx !== -1) {
-let oldPrice = 0;
-if (allProducts[idx].units && allProducts[idx].units.length > 0) {
-    oldPrice = allProducts[idx].units[0].price || 0;
-} else {
-    oldPrice = allProducts[idx].price || 0;
-}
-const priceDiff = price - oldPrice;
+            let oldPrice = 0;
+            if (allProducts[idx].units && allProducts[idx].units.length > 0) {
+                oldPrice = allProducts[idx].units[0].price || 0;
+            } else {
+                oldPrice = allProducts[idx].price || 0;
+            }
+            const priceDiff = price - oldPrice;
 
             allProducts[idx].name = name;
             allProducts[idx].price = price;
             allProducts[idx].cost = cost;
             allProducts[idx].stock = stock;
-            allProducts[idx].group = document.getElementById('pm-group').value;
+            allProducts[idx].group = document.getElementById('pm-group').value; // Sửa thì có lưu nhóm
             allProducts[idx].code = code;
             allProducts[idx].barcode = barcode;
 
@@ -1476,7 +1499,7 @@ const priceDiff = price - oldPrice;
                 allProducts[idx].units = [{ name: 'Cái', rate: 1, price: price, code: code, barcode: barcode, isBase: true }];
             }
 
-            // Tự động tính chênh lệch bảng giá phụ
+            // Tự động tính chênh lệch bảng giá phụ cho đơn vị cơ bản
             if (priceDiff !== 0) {
                 allPriceBooks.forEach(pb => {
                     if (pb.prices) {
@@ -1506,27 +1529,47 @@ const priceDiff = price - oldPrice;
             name, price, cost, stock,
             code: code || ('HH' + Date.now()),
             barcode: barcode,
+            group: document.getElementById('pm-group').value, // <--- ĐÃ FIX: Lấy dữ liệu nhóm khi tạo mới
             branchId: localStorage.getItem('kv_current_branch') || 'CN001',
             units: newUnits
         };
         allProducts.unshift(newProd);
     }
 
-    // TÍNH TOÁN "THIẾT LẬP GIÁ NHANH" TỪ MODAL (NẾU CÓ)
+    // ==========================================
+    // TÍNH TOÁN "THIẾT LẬP GIÁ NHANH" CHO TỪNG ĐƠN VỊ TÍNH
+    // ==========================================
     if (Object.keys(tempPriceBookValues).length > 0) {
-        allPriceBooks.forEach(pb => {
-            if (tempPriceBookValues[pb.id] !== undefined) {
-                if (!pb.prices) pb.prices = {};
-                pb.prices[productIdToSave] = tempPriceBookValues[pb.id];
-                pb.prices[`${productIdToSave}_0`] = tempPriceBookValues[pb.id];
-                isPriceBookChanged = true;
+        Object.keys(tempPriceBookValues).forEach(tempKey => {
+            const parts = tempKey.split('___');
+            
+            if (parts.length === 2) {
+                const pbId = parts[0];
+                const unitIdx = parts[1];
+                const priceVal = tempPriceBookValues[tempKey];
+                
+                let pb = allPriceBooks.find(x => x.id === pbId);
+                if (pb) {
+                    if (!pb.prices) pb.prices = {};
+                    pb.prices[`${productIdToSave}_${unitIdx}`] = priceVal;
+                    if (parseInt(unitIdx) === 0) {
+                        pb.prices[productIdToSave] = priceVal;
+                    }
+                    isPriceBookChanged = true;
+                }
+            } else {
+                const pbId = tempKey;
+                let pb = allPriceBooks.find(x => x.id === pbId);
+                if (pb) {
+                    if (!pb.prices) pb.prices = {};
+                    pb.prices[`${productIdToSave}_0`] = tempPriceBookValues[tempKey];
+                    pb.prices[productIdToSave] = tempPriceBookValues[tempKey];
+                    isPriceBookChanged = true;
+                }
             }
         });
     }
 
-    // ==========================================
-    // FIX LỖI: LƯU LOCALSTORAGE TRƯỚC TIÊN
-    // ==========================================
     localStorage.setItem('kv_products', JSON.stringify(allProducts));
     window.products = allProducts;
     if (typeof products !== 'undefined') products = allProducts;
@@ -1536,13 +1579,11 @@ const priceDiff = price - oldPrice;
         window.priceBooks = allPriceBooks;
     }
 
-    // ĐỒNG BỘ LÊN CLOUD SAU CÙNG
     if (typeof window.uploadToCloud === 'function') {
         window.uploadToCloud('products', allProducts);
         if (isPriceBookChanged) window.uploadToCloud('pricebooks', allPriceBooks);
     }
 
-    // Đồng bộ ngược lại phiếu nhập đang mở
     if (typeof currentIOItems !== 'undefined' && currentIOItems.length > 0) {
         currentIOItems.forEach(item => {
             if (String(item.productId) === String(productIdToSave)) {
@@ -1555,12 +1596,46 @@ const priceDiff = price - oldPrice;
         if (typeof renderIOItemsTable === 'function') renderIOItemsTable();
     }
 
-    closeAddProductModal();
+    // Cập nhật giao diện chung
     if (typeof renderProductList === 'function') renderProductList();
     if (typeof renderPriceSetupTable === 'function') renderPriceSetupTable();
     if (typeof renderPOS === 'function') renderPOS();
 
     showToast("Đã cập nhật dữ liệu thành công!", "success");
+
+    // ==========================================
+    // LOGIC THÊM LIÊN TỤC 
+    // ==========================================
+    const continueAddCb = document.getElementById('pm-continue-add');
+    const isContinueAdd = continueAddCb && continueAddCb.checked;
+
+    if (isContinueAdd && !editingProductId) {
+        document.getElementById('pm-code').value = '';
+        document.getElementById('pm-barcode').value = '';
+        document.getElementById('pm-name').value = '';
+        document.getElementById('pm-cost').value = '0';
+        document.getElementById('pm-price').value = '0';
+        document.getElementById('pm-stock').value = '0';
+        
+        // <--- ĐÃ FIX: Reset lại hiển thị Nhóm hàng khi thêm liên tục
+        document.getElementById('pm-group').value = '';
+        const pmGroupDisplay = document.getElementById('pm-group-display');
+        if (pmGroupDisplay) {
+            pmGroupDisplay.innerText = 'Chọn nhóm hàng...';
+            pmGroupDisplay.style.color = '#555';
+            pmGroupDisplay.style.fontWeight = 'normal';
+        }
+        
+        currentProductUnits = [];
+        tempPriceBookValues = {};
+
+        if (typeof renderUnitAttrUI === 'function') renderUnitAttrUI();
+
+        setTimeout(() => { document.getElementById('pm-name').focus(); }, 100);
+    } else {
+        if (typeof closeAddProductModal === 'function') closeAddProductModal();
+    }
+
     setTimeout(() => { window.isSyncLocked = false; }, 3000);
 };
 function toggleProductDetail(id) {
@@ -1775,13 +1850,22 @@ function togglePMSection(headerEl) {
 // ==========================================
 // CÁC HÀM XỬ LÝ MODAL THIẾT LẬP GIÁ NHANH (MỚI BỔ SUNG)
 // ==========================================
-function openQuickPriceSetup() {
+window.openQuickPriceSetup = function(unitIdx = 0) {
+    window.currentQuickPriceUnitIdx = unitIdx; // Lưu lại Index của đơn vị đang được thao tác
+    
     const tbody = document.getElementById('quick-price-tbody');
     const countLabel = document.getElementById('quick-price-count');
+    const titleLabel = document.querySelector('#quick-price-modal h3');
+    
+    // Đổi tiêu đề Modal để người dùng biết đang chỉnh giá cho đơn vị nào
+    let unitName = 'Cơ bản';
+    if (typeof currentProductUnits !== 'undefined' && currentProductUnits[unitIdx]) {
+        unitName = currentProductUnits[unitIdx].name;
+    }
+    if (titleLabel) titleLabel.innerText = `Bảng giá cho: ${unitName}`;
     
     // Đọc giá trị mới nhất từ hệ thống
     const latestPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
-    
     countLabel.innerText = `Có ${latestPriceBooks.length} bảng giá đang hoạt động`;
 
     if (latestPriceBooks.length === 0) {
@@ -1789,26 +1873,28 @@ function openQuickPriceSetup() {
     } else {
         let html = '';
         latestPriceBooks.forEach(pb => {
-            // Xác định giá hiện hành của hệ thống để làm gợi ý mờ (placeholder)
             let systemVal = '';
             if (editingProductId) {
-                // Ưu tiên lấy theo ID_0 (giá chuẩn), nếu không có mới lấy theo ID cũ
-                if (pb.prices && pb.prices[`${editingProductId}_0`] !== undefined) {
-                    systemVal = pb.prices[`${editingProductId}_0`];
-                } else if (pb.prices && pb.prices[editingProductId] !== undefined) {
+                // Lấy giá theo đúng Index của đơn vị
+                if (pb.prices && pb.prices[`${editingProductId}_${unitIdx}`] !== undefined) {
+                    systemVal = pb.prices[`${editingProductId}_${unitIdx}`];
+                } else if (unitIdx === 0 && pb.prices && pb.prices[editingProductId] !== undefined) {
                     systemVal = pb.prices[editingProductId];
                 }
             }
 
-            // Nếu người dùng đã gõ số mới thì hiển thị số đó, nếu không thì để trống ô nhập
-            const displayVal = tempPriceBookValues[pb.id] !== undefined ? tempPriceBookValues[pb.id] : '';
-            const placeholderStr = systemVal !== '' ? systemVal : 'Giá tự động';
+            // Tạo mã khóa lưu nháp độc nhất: ID_Bảng_Giá + ___ + ID_Đơn_Vị
+            const tempKey = `${pb.id}___${unitIdx}`;
+            const displayVal = tempPriceBookValues[tempKey] !== undefined ? tempPriceBookValues[tempKey] : '';
+            
+            const placeholderStr = systemVal !== '' ? Number(systemVal).toLocaleString('vi-VN') : 'Giá tự động';
+            const formattedDisplayVal = displayVal !== '' ? Number(displayVal).toLocaleString('vi-VN') : '';
             
             html += `
                 <tr style="border-bottom: 1px solid #eee;">
                     <td style="padding: 10px;">${pb.name}</td>
                     <td style="padding: 10px; text-align:right;">
-                        <input type="number" class="quick-price-input" data-pbid="${pb.id}" value="${displayVal}" placeholder="${placeholderStr}" style="width: 130px; text-align: right; padding: 6px 10px; border: 1px solid #007bff; border-radius: 4px; outline: none;">
+                        <input type="text" class="quick-price-input" data-pbid="${pb.id}" value="${formattedDisplayVal}" placeholder="${placeholderStr}" oninput="window.formatCurrency(this)" style="width: 130px; text-align: right; padding: 6px 10px; border: 1px solid #007bff; border-radius: 4px; outline: none;">
                     </td>
                 </tr>
             `;
@@ -1817,25 +1903,29 @@ function openQuickPriceSetup() {
     }
 
     document.getElementById('quick-price-modal').style.display = 'flex';
-}
-
+};
 function closeQuickPriceSetup() {
     document.getElementById('quick-price-modal').style.display = 'none';
 }
 
-function saveQuickPriceSetup() {
+window.saveQuickPriceSetup = function() {
     const inputs = document.querySelectorAll('.quick-price-input');
+    const unitIdx = window.currentQuickPriceUnitIdx !== undefined ? window.currentQuickPriceUnitIdx : 0;
+    
     inputs.forEach(input => {
         const pbId = input.getAttribute('data-pbid');
         const val = input.value;
+        const tempKey = `${pbId}___${unitIdx}`; // Nối tên Bảng giá và Vị trí đơn vị tính lại với nhau
+        
         if (val !== '') {
-            tempPriceBookValues[pbId] = parseFloat(val);
+            tempPriceBookValues[tempKey] = window.parseCurrency(val);
         } else {
-            delete tempPriceBookValues[pbId];
+            delete tempPriceBookValues[tempKey];
         }
     });
-    closeQuickPriceSetup();
-}
+    
+    document.getElementById('quick-price-modal').style.display = 'none';
+};
 
 // ==========================================
 // 8. QUẢN LÝ THIẾT LẬP GIÁ ĐA CỘT
@@ -2645,13 +2735,14 @@ function renderUnitAttrUI() {
         currentProductUnits.forEach((u, index) => {
             const isBase = index === 0;
             const subTitle = isBase ? '(Đơn vị cơ bản)' : `(${u.rate} ${currentProductUnits[0].name})`;
-            const sellText = u.sellDirect ? 'Bán trực tiếp' : 'Ngừng bán';
+            
+            // Đã bỏ dòng const sellText = ...
+            // Đã xóa thẻ hiển thị sellText
             
             tagsContainer.innerHTML += `
                 <div class="unit-tag ${isBase ? 'base' : ''}" onclick="openAddUnitModal(${isBase}, ${index})">
                     <div class="unit-tag-info">
                         <span class="unit-tag-title">${u.name} ${subTitle}</span>
-                        <span class="unit-tag-subtitle">• ${sellText}</span>
                     </div>
                     <i class="fa-solid fa-pen"></i>
                 </div>
@@ -2694,7 +2785,6 @@ function openAddUnitModal(isBase, editIndex = null) {
         // HIỂN THỊ GIÁ CÓ DẤU CHẤM: Sử dụng toLocaleString để dễ nhìn[cite: 2]
         document.getElementById('sub-unit-price').value = (u.price || 0).toLocaleString('vi-VN');
         
-        document.getElementById('sub-unit-sell').checked = u.sellDirect;
     } else {
         // Trường hợp: Thêm mới hoàn toàn đơn vị tính[cite: 2]
         document.getElementById('sub-unit-name').value = '';
@@ -2706,7 +2796,6 @@ function openAddUnitModal(isBase, editIndex = null) {
         const mainPriceNum = window.parseCurrency(mainPriceStr);
         
         document.getElementById('sub-unit-price').value = mainPriceNum.toLocaleString('vi-VN');
-        document.getElementById('sub-unit-sell').checked = true;
     }
     
     // 5. Hiển thị Modal lên màn hình[cite: 1, 2]
@@ -2732,7 +2821,7 @@ function saveSubUnit() {
     const rate = isBase ? 1 : parseFloat(document.getElementById('sub-unit-rate').value) || 1;
     
     const price = window.parseCurrency(document.getElementById('sub-unit-price').value);
-    const sellDirect = document.getElementById('sub-unit-sell').checked;
+    const sellDirect = true;
 
     if (editingUnitIndex !== null) {
         currentProductUnits[editingUnitIndex].name = name;
@@ -2756,7 +2845,7 @@ function saveSubUnit() {
     renderUnitAttrUI();
 }
 
-function generateVariants() {
+window.generateVariants = function() {
     const vSection = document.getElementById('variant-section');
     const vBody = document.getElementById('variant-tbody');
     
@@ -2774,7 +2863,7 @@ function generateVariants() {
     const mainBarcode = document.getElementById('pm-barcode').value.trim() || '';
     
     currentProductUnits.forEach((unit, uIdx) => {
-        // 3. HIỂN THỊ: Ưu tiên mã riêng của đơn vị, nếu trống thì lấy luôn mã ngoài cùng
+        // HIỂN THỊ: Ưu tiên mã riêng của đơn vị, nếu trống thì lấy luôn mã ngoài cùng
         const displayCode = unit.code || mainCode;
         const displayBarcode = unit.barcode || mainBarcode; 
         const displayPrice = (unit.price || 0).toLocaleString('vi-VN');
@@ -2795,17 +2884,21 @@ function generateVariants() {
                 <td>
                     <input type="text" class="variant-input" value="${displayPrice}" 
                         placeholder="Giá bán"
-                        oninput="formatCurrency(this); currentProductUnits[${uIdx}].price = window.parseCurrency(this.value)" 
+                        oninput="window.formatCurrency(this); currentProductUnits[${uIdx}].price = window.parseCurrency(this.value)" 
                         style="text-align:right; font-weight:bold; color:var(--kv-pink);">
                 </td>
-                <td style="text-align:center;">
-                    <i class="fa-solid fa-trash-can" style="color:#888; cursor:pointer;" 
-                        onclick="currentProductUnits.splice(${uIdx}, 1); renderUnitAttrUI();"></i>
+                <td style="text-align:center; white-space: nowrap;">
+                    <!-- THÊM MỚI NÚT THIẾT LẬP GIÁ Ở ĐÂY -->
+                    <i class="fa-solid fa-tags" style="color:var(--kv-blue); cursor:pointer; margin-right: 12px; font-size: 15px;" 
+                        onclick="window.openQuickPriceSetup(${uIdx})" title="Thiết lập bảng giá cho ${unit.name}"></i>
+                        
+                    <i class="fa-solid fa-trash-can" style="color:#888; cursor:pointer; font-size: 15px;" 
+                        onclick="currentProductUnits.splice(${uIdx}, 1); renderUnitAttrUI();" title="Xóa đơn vị này"></i>
                 </td>
             </tr>
         `;
     });
-}
+};
 
 window.saveUnitAttr = function() {
     const rows = document.querySelectorAll('#variant-tbody tr');
@@ -6439,9 +6532,39 @@ window.saveBatchUpdates = function() {
         return;
     }
 
+    // Lấy dữ liệu để kiểm tra
+    let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    let currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
+    let hasDuplicateError = false;
+
+    // KIỂM TRA TRÙNG LẶP TRƯỚC KHI LƯU
+    if (attr === 'code_and_barcode' || attr === 'code') {
+        for (let i = 0; i < updateIds.length; i++) {
+            const id = updateIds[i];
+            const updates = window.pendingBatchUpdates[id];
+            const newCodeToSave = attr === 'code_and_barcode' ? updates.code : updates[attr];
+
+            if (newCodeToSave && newCodeToSave.trim() !== '') {
+                const isDup = allProducts.some(p => {
+                    if ((p.branchId || 'CN001') !== currentBranch) return false;
+                    if (p.id === id) return false; // Bỏ qua chính nó
+                    if (p.code && p.code.toLowerCase() === newCodeToSave.trim().toLowerCase()) return true;
+                    if (p.units && p.units.some(u => u.code && u.code.toLowerCase() === newCodeToSave.trim().toLowerCase())) return true;
+                    return false;
+                });
+
+                if (isDup) {
+                    alert(`Lỗi: Mã hàng "${newCodeToSave}" đã tồn tại trên hệ thống. Cập nhật bị hủy!`);
+                    hasDuplicateError = true;
+                    break; 
+                }
+            }
+        }
+    }
+
+    if (hasDuplicateError) return; // Dừng lại nếu phát hiện lỗi
+
     showConfirm(`Bạn sắp cập nhật dữ liệu cho ${updateIds.length} mặt hàng. Bạn có chắc chắn?`, function() {
-        let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-        
         updateIds.forEach(id => {
             const prodIndex = allProducts.findIndex(p => p.id === id);
             if (prodIndex !== -1) {
@@ -6462,8 +6585,7 @@ window.saveBatchUpdates = function() {
                         }
                     }
                 } else {
-                    // SỬA LỖI Ở ĐÂY: Thêm [attr] để trích xuất đúng giá trị chữ/số bên trong, 
-                    // thay vì lấy cả cục Object gây lỗi [object Object]
+                    // SỬA LỖI Ở ĐÂY: Thêm [attr] để trích xuất đúng giá trị chữ/số bên trong
                     const newValue = window.pendingBatchUpdates[id][attr];
                     
                     allProducts[prodIndex][attr] = newValue;
@@ -6488,8 +6610,6 @@ window.saveBatchUpdates = function() {
         renderBatchUpdateTable();
     });
 };
-// Hàm hỗ trợ copy chéo dữ liệu hàng loạt (Từ Mã vạch -> Mã hàng và ngược lại)
-// Hàm hỗ trợ copy chéo dữ liệu hàng loạt (Từ Mã vạch -> Mã hàng và ngược lại)
 // Hàm hỗ trợ copy chéo dữ liệu hàng loạt (Từ Mã vạch -> Mã hàng và ngược lại)
 window.copyColumnData = function(source, target) {
     let sourceName = source === 'barcode' ? 'Mã vạch' : 'Mã hàng';
