@@ -1284,6 +1284,7 @@ function openAddProductModal() {
     }
 
     document.getElementById('pm-group').value = '';
+    document.getElementById('pm-is-combo').checked = false;
  // Thêm 3 dòng này để xóa giao diện tên nhóm hiển thị về mặc định
 const pmGroupDisplay = document.getElementById('pm-group-display');
 if (pmGroupDisplay) {
@@ -1367,7 +1368,7 @@ window.openEditProductModal = function(id, ioItemIndex = null) {
     }
 
     document.getElementById('pm-stock').value = p.stock || 0;
-    
+    document.getElementById('pm-is-combo').checked = p.isCombo || false;
     // ==========================================
     // TÍNH TOÁN GIÁ VỐN ƯU TIÊN LẤY TỪ PHIẾU NHẬP
     // ==========================================
@@ -1423,6 +1424,7 @@ window.saveProduct = function() {
     const stockEl = document.getElementById('pm-stock');
     const codeEl = document.getElementById('pm-code');
     const barcodeEl = document.getElementById('pm-barcode');
+    const isComboEl = document.getElementById('pm-is-combo'); // Lấy checkbox Combo
 
     const parseNum = (val) => window.parseCurrency(val);
 
@@ -1432,6 +1434,7 @@ window.saveProduct = function() {
     const stock = parseFloat(stockEl.value) || 0;
     const code = codeEl.value.trim();
     const barcode = barcodeEl ? barcodeEl.value.trim() : '';
+    const isCombo = isComboEl ? isComboEl.checked : false; // Kiểm tra cờ Combo
 
     if (!name) { showToast("Vui lòng nhập tên hàng hóa!", "error"); return; }
 
@@ -1482,9 +1485,10 @@ window.saveProduct = function() {
             allProducts[idx].price = price;
             allProducts[idx].cost = cost;
             allProducts[idx].stock = stock;
-            allProducts[idx].group = document.getElementById('pm-group').value; // Sửa thì có lưu nhóm
+            allProducts[idx].group = document.getElementById('pm-group').value; // Đã fix lưu nhóm
             allProducts[idx].code = code;
             allProducts[idx].barcode = barcode;
+            allProducts[idx].isCombo = isCombo; // Ghi nhận cờ Combo khi sửa
 
             if (currentProductUnits && currentProductUnits.length > 0) {
                 currentProductUnits[0].price = price;
@@ -1529,9 +1533,10 @@ window.saveProduct = function() {
             name, price, cost, stock,
             code: code || ('HH' + Date.now()),
             barcode: barcode,
-            group: document.getElementById('pm-group').value, // <--- ĐÃ FIX: Lấy dữ liệu nhóm khi tạo mới
+            group: document.getElementById('pm-group').value, // Đã fix: Bắt nhóm ngay khi thêm mới
             branchId: localStorage.getItem('kv_current_branch') || 'CN001',
-            units: newUnits
+            units: newUnits,
+            isCombo: isCombo // Ghi nhận cờ Combo khi thêm mới
         };
         allProducts.unshift(newProd);
     }
@@ -1610,6 +1615,7 @@ window.saveProduct = function() {
     const isContinueAdd = continueAddCb && continueAddCb.checked;
 
     if (isContinueAdd && !editingProductId) {
+        // Dọn dẹp Text
         document.getElementById('pm-code').value = '';
         document.getElementById('pm-barcode').value = '';
         document.getElementById('pm-name').value = '';
@@ -1617,7 +1623,10 @@ window.saveProduct = function() {
         document.getElementById('pm-price').value = '0';
         document.getElementById('pm-stock').value = '0';
         
-        // <--- ĐÃ FIX: Reset lại hiển thị Nhóm hàng khi thêm liên tục
+        // Dọn dẹp Checkbox Combo
+        if(isComboEl) isComboEl.checked = false;
+        
+        // Dọn dẹp Dropdown Nhóm hàng
         document.getElementById('pm-group').value = '';
         const pmGroupDisplay = document.getElementById('pm-group-display');
         if (pmGroupDisplay) {
@@ -1626,6 +1635,7 @@ window.saveProduct = function() {
             pmGroupDisplay.style.fontWeight = 'normal';
         }
         
+        // Dọn dẹp Đơn vị tính
         currentProductUnits = [];
         tempPriceBookValues = {};
 
@@ -9302,4 +9312,292 @@ window.applyQuickMoney = function(amount) {
         input.value = (amount / 1000).toLocaleString('vi-VN');
         window.calcPOSChange();
     }
+};
+// ==========================================
+// TÍNH NĂNG: HÀNG COMBO / THÙNG MIX
+// ==========================================
+
+let pendingComboParent = null; // Chứa thông tin thùng mix đang chọn
+let pendingComboItems = [];    // Chứa các mặt hàng lẻ nạp vào thùng
+
+// 1. CHẶN VÀ CHUYỂN HƯỚNG TỪ HÀM addPOSItem HIỆN TẠI
+const originalAddPOSItem = window.addPOSItem;
+window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) {
+    const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
+    const p = allProds.find(x => String(x.id) === String(productId));
+    
+    // Nếu sản phẩm này được đánh dấu là Hàng Combo (Thùng Mix)
+    if (p && p.isCombo) {
+        // Đóng dropdown tìm kiếm POS
+        const dropdown = document.getElementById('pos-search-dropdown');
+        if (dropdown) dropdown.style.display = 'none';
+
+        // Mở bảng đóng gói Thùng
+        openComboModal(p, forcedUnitIdx !== null ? forcedUnitIdx : 0);
+        
+        // Reset thanh tìm kiếm POS
+        const sInput = document.getElementById('pos-search-input');
+        if (sInput && !keepInput) sInput.value = '';
+        return; // Ngắt, không đưa ngay vào giỏ hàng
+    }
+
+    // Nếu là hàng bình thường, chạy luồng gốc
+    originalAddPOSItem(productId, keepInput, forcedUnitIdx);
+};
+
+// 2. MỞ BẢNG ĐÓNG GÓI THÙNG MIX
+window.openComboModal = function(parentProd, parentUnitIdx) {
+    pendingComboParent = { product: parentProd, uIdx: parentUnitIdx };
+    pendingComboItems = []; // Rỗng thùng
+    
+    document.getElementById('combo-parent-name').innerText = `Đang mix: ${parentProd.name}`;
+    document.getElementById('pos-combo-modal').style.display = 'flex';
+    document.getElementById('combo-search-input').value = '';
+    document.getElementById('combo-search-dropdown').style.display = 'none';
+    
+    renderComboItems();
+    
+    setTimeout(() => {
+        document.getElementById('combo-search-input').focus();
+    }, 100);
+};
+
+// 3. TÌM/QUÉT CÁC MÓN LẺ VÀO THÙNG (Giống hệt logic tìm POS)
+window.searchComboItem = function(keyword) {
+    const dropdown = document.getElementById('combo-search-dropdown');
+    if (!keyword.trim()) { dropdown.style.display = 'none'; return; }
+    
+    const rawKw = keyword.toLowerCase().trim();
+    const cleanKw = window.removeVietnameseTones(rawKw);
+    const searchTerms = cleanKw.split(/\s+/);
+    
+    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
+    const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    
+    let results = [];
+
+    // Tự động Add thẳng nếu quét bằng máy tít mã vạch khớp 100%
+    let exactMatch = null;
+    for (let p of latestProducts) {
+        if (p.branchId !== currentBranch || p.isCombo) continue; // Không cho phép nhét thùng mix vào trong thùng mix
+        if (p.code?.toLowerCase() === rawKw || p.barcode?.toLowerCase() === rawKw) { exactMatch = { id: p.id, uIdx: 0 }; break; }
+        if (p.units) {
+            const uIdx = p.units.findIndex(u => u.barcode?.toLowerCase() === rawKw || u.code?.toLowerCase() === rawKw);
+            if (uIdx !== -1) { exactMatch = { id: p.id, uIdx: uIdx }; break; }
+        }
+    }
+    if (exactMatch) {
+        addComboChild(exactMatch.id, exactMatch.uIdx);
+        document.getElementById('combo-search-input').value = '';
+        dropdown.style.display = 'none';
+        return;
+    }
+
+    // Tìm kiếm tương đối để gõ phím
+    latestProducts.forEach(p => {
+        if (p.branchId !== currentBranch || p.isCombo) return;
+
+        let fullStr = (p.name || '') + ' ' + (p.code || '') + ' ' + (p.barcode || '');
+        if (p.units) p.units.forEach(u => fullStr += ' ' + (u.name || '') + ' ' + (u.code || '') + ' ' + (u.barcode || ''));
+        
+        if (searchTerms.every(term => window.removeVietnameseTones(fullStr.toLowerCase()).includes(term))) {
+            results.push(p);
+        }
+    });
+
+    if (results.length === 0) {
+        dropdown.innerHTML = '<div style="padding:10px; color:#888; text-align:center;">Không tìm thấy hàng lẻ</div>';
+    } else {
+        dropdown.innerHTML = results.slice(0, 10).map(p => `
+            <div onclick="addComboChild('${p.id}', 0)" style="padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between;" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='transparent'">
+                <div><b>${p.code}</b> - ${p.name}</div>
+                <div style="color: #888; font-size: 11px;">Tồn: ${p.stock || 0}</div>
+            </div>
+        `).join('');
+    }
+    dropdown.style.display = 'block';
+};
+
+// 4. THÊM MÓN LẺ VÀO THÙNG
+window.addComboChild = function(productId, uIdx) {
+    const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
+    const p = allProds.find(x => x.id === productId);
+    if (!p) return;
+
+    const unit = p.units && p.units[uIdx] ? p.units[uIdx] : { name: 'Cái', rate: 1 };
+    
+    const existIdx = pendingComboItems.findIndex(x => x.productId === productId && x.uIdx === uIdx);
+    if (existIdx !== -1) {
+        pendingComboItems[existIdx].qty += 1;
+    } else {
+        pendingComboItems.push({
+            productId: p.id,
+            uIdx: uIdx,
+            code: unit.code || p.code,
+            name: `${p.name} (${unit.name})`,
+            qty: 1,
+            rate: unit.rate || 1
+        });
+    }
+
+    document.getElementById('combo-search-dropdown').style.display = 'none';
+    const sInput = document.getElementById('combo-search-input');
+    sInput.value = '';
+    sInput.focus();
+    renderComboItems();
+};
+
+window.removeComboChild = function(index) {
+    pendingComboItems.splice(index, 1);
+    renderComboItems();
+};
+
+window.updateComboChildQty = function(index, qty) {
+    let q = parseInt(qty);
+    if (isNaN(q) || q < 1) q = 1;
+    pendingComboItems[index].qty = q;
+    renderComboItems();
+};
+
+function renderComboItems() {
+    const list = document.getElementById('combo-items-list');
+    let total = 0;
+    
+    if (pendingComboItems.length === 0) {
+        list.innerHTML = `<div style="text-align:center; padding: 20px; color:#aaa; font-style:italic;">Thùng rỗng. Quét để thêm hàng...</div>`;
+    } else {
+        list.innerHTML = pendingComboItems.map((item, index) => {
+            total += item.qty;
+            return `
+            <div style="display: flex; align-items: center; justify-content: space-between; background: #fdfdfd; border: 1px solid #eee; padding: 8px 12px; border-radius: 6px;">
+                <div style="flex: 1;">
+                    <div style="font-weight: bold; color: #333; font-size: 13px;">${item.name}</div>
+                    <div style="font-size: 11px; color: var(--kv-blue);">${item.code}</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <input type="number" value="${item.qty}" onchange="updateComboChildQty(${index}, this.value)" style="width: 50px; text-align: center; padding: 4px; border: 1px solid #ccc; border-radius: 4px; outline: none;">
+                    <i class="fa-solid fa-trash-can" onclick="removeComboChild(${index})" style="color: #d9534f; cursor: pointer; padding: 5px;"></i>
+                </div>
+            </div>`;
+        }).join('');
+    }
+    document.getElementById('combo-total-qty').innerText = total;
+}
+
+// 5. XÁC NHẬN VÀ ĐẨY THÙNG MIX VÀO GIỎ HÀNG POS
+window.confirmComboToCart = function() {
+    if (pendingComboItems.length === 0) {
+        alert("Thùng mix đang trống! Vui lòng chọn các món lẻ trước khi bán.");
+        return;
+    }
+
+    const tab = posTabs[activeTabIndex];
+    const parentProd = pendingComboParent.product;
+    const parentUnitIdx = pendingComboParent.uIdx;
+    
+    const productUnits = (parentProd.units && parentProd.units.length > 0) ? parentProd.units : [{ name: 'Cái', rate: 1, price: parentProd.price, isBase: true }];
+    const selectedUnit = productUnits[parentUnitIdx];
+
+    // Lấy giá của cái thùng (Giá bán bạn đã thiết lập lúc tạo hàng)
+    let finalPrice = 0;
+    const currentPriceBookId = tab.priceBook || 'default';
+    if (currentPriceBookId === 'default') {
+        finalPrice = selectedUnit.price || (parentProd.price * (selectedUnit.rate || 1));
+    } else {
+        const basePriceFromBook = getProductPrice(parentProd, currentPriceBookId); 
+        finalPrice = basePriceFromBook * (selectedUnit.rate || 1);
+    }
+
+    // Đẩy vào giỏ hàng POS như 1 món bình thường, nhưng KÈM THEO DANH SÁCH MÓN LẺ
+    tab.items.unshift({ 
+        productId: parentProd.id, 
+        code: selectedUnit.code || parentProd.code, 
+        name: parentProd.name, 
+        qty: 1, 
+        basePrice: parentProd.price, 
+        price: finalPrice, 
+        units: productUnits, 
+        selectedUnitIdx: parentUnitIdx, 
+        isIce: false,
+        isCombo: true, // Cờ báo hiệu đây là hàng Mix
+        comboComponents: JSON.parse(JSON.stringify(pendingComboItems)) // Lưu lại các món lẻ
+    });
+
+    document.getElementById('pos-combo-modal').style.display = 'none';
+    savePOSState();
+    renderPOSCart();
+    
+    // Tự động nhảy lại thanh tìm kiếm
+    const sInput = document.getElementById('pos-search-input');
+    if (sInput) {
+        sInput.value = '';
+        sInput.focus();
+    }
+};
+
+// 6. CẬP NHẬT GIAO DIỆN GIỎ HÀNG POS (Để hiển thị các món lẻ nằm thụt lề dưới Thùng mix)
+const originalRenderPOSCart = window.renderPOSCart;
+window.renderPOSCart = function() {
+    originalRenderPOSCart();
+    
+    // Chèn thêm danh sách món lẻ vào dưới tên của hàng Combo
+    const tab = posTabs[activeTabIndex];
+    if (!tab) return;
+    
+    const cartRows = document.querySelectorAll('.cart-item-row');
+    tab.items.forEach((item, index) => {
+        if (item.isCombo && item.comboComponents && item.comboComponents.length > 0) {
+            const row = cartRows[index];
+            if (row) {
+                const nameContainer = row.querySelector('div[style*="flex: 1; min-width: 0; padding-right: 10px;"]');
+                if (nameContainer) {
+                    let subHtml = `<div style="margin-top: 5px; padding-left: 10px; border-left: 2px solid var(--kv-blue); font-size: 11px; color: #555;">`;
+                    item.comboComponents.forEach(comp => {
+                        // Tính tổng số lượng lẻ = Số lượng của Thùng x Số lượng lẻ bên trong
+                        subHtml += `<div>- ${comp.name} <b>x${comp.qty}</b></div>`;
+                    });
+                    subHtml += `</div>`;
+                    nameContainer.innerHTML += subHtml;
+                }
+            }
+        }
+    });
+};
+
+// 7. CẬP NHẬT HÀM THANH TOÁN (Trừ đúng tồn kho của món lẻ)
+const originalProcessCheckout = window.processCheckout;
+window.processCheckout = function() {
+    // 1. Can thiệp vào trước khi trừ tồn kho
+    const tab = posTabs[activeTabIndex];
+    if (!tab || tab.items.length === 0) { return originalProcessCheckout(); }
+
+    const latestProds = JSON.parse(localStorage.getItem('kv_products')) || [];
+
+    // Chúng ta sẽ "đánh lừa" hệ thống cũ bằng cách chuẩn bị sẵn tồn kho
+    tab.items.forEach(cartItem => {
+        if (cartItem.isCombo && cartItem.comboComponents) {
+            // A. Trừ tồn kho của CÁC MÓN LẺ
+            cartItem.comboComponents.forEach(child => {
+                const childProd = latestProds.find(p => p.id === child.productId);
+                if (childProd) {
+                    // Số lượng trừ = Số lượng Thùng Mix * Số lượng lẻ trong 1 thùng * tỷ lệ quy đổi
+                    const totalDeduct = cartItem.qty * child.qty * child.rate;
+                    childProd.stock = (parseFloat(childProd.stock) || 0) - totalDeduct;
+                }
+            });
+
+            // B. Trả lại tồn kho cho Thùng Mix ảo (để hàm gốc chạy trừ đi là hòa về 0, không bị âm kho ảo)
+            const parentProd = latestProds.find(p => p.id === cartItem.productId);
+            if (parentProd) {
+                const parentRate = cartItem.units[cartItem.selectedUnitIdx]?.rate || 1;
+                parentProd.stock = (parseFloat(parentProd.stock) || 0) + (cartItem.qty * parentRate);
+            }
+        }
+    });
+
+    // Lưu lại tồn kho đã được can thiệp vào máy trước khi gọi hàm Checkout gốc
+    localStorage.setItem('kv_products', JSON.stringify(latestProds));
+
+    // Gọi hàm thanh toán gốc (Nó sẽ lo in hóa đơn, lưu lịch sử, và vô tình trừ đi phần tồn kho ảo ta vừa bù vào)
+    originalProcessCheckout();
 };
