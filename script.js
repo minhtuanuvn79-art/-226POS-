@@ -3987,17 +3987,21 @@ document.getElementById('pos-search-input').addEventListener('keydown', function
         e.preventDefault(); currentFocus++; addActive(items);
     } else if (e.key === 'ArrowUp') {
         e.preventDefault(); currentFocus--; addActive(items);
-    } else if (e.key === 'Enter') {
+} else if (e.key === 'Enter') {
         e.preventDefault();
         
-        if (dropdown && dropdown.style.display === 'block') {
-            if (currentFocus > -1 && items.length > 0) items[currentFocus].click(); 
-            else if (items.length > 0) items[0].click(); 
+        const kw = this.value.trim().toLowerCase();
+        if (!kw) return;
+
+        // BƯỚC SỬA LỖI: Thêm điều kiện (items.length > 0) 
+        // Chỉ ưu tiên chọn Dropdown nếu Dropdown đang mở VÀ thực sự có chứa mặt hàng
+        if (dropdown && dropdown.style.display === 'block' && items.length > 0) {
+            if (currentFocus > -1) items[currentFocus].click(); 
+            else items[0].click(); 
         } 
+        // Nếu Dropdown không mở, HOẶC Dropdown mở nhưng trống rỗng (khi quét mã sai) -> Bắn ra cảnh báo đỏ
         else {
-            const kw = this.value.trim().toLowerCase();
-            if (!kw) return;
-            handleDirectEnter(kw); // Chạy thẳng lập tức, không dùng setTimeout nữa
+            handleDirectEnter(kw); 
         }
     }
 });
