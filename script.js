@@ -8206,8 +8206,14 @@ function initScanner(context) {
             clearTimeout(scanCooldownTimer);
             scanCooldownTimer = setTimeout(() => { lastScannedCode = ""; }, 1500);
 
-            playBeepSound();
-            closeBarcodeScanner();
+playBeepSound();
+            
+            // Kiểm tra trạng thái nút Quét liên tục
+            const isContinuous = document.getElementById('continuous-scan-toggle');
+            if (!isContinuous || !isContinuous.checked) {
+                closeBarcodeScanner(); // Chỉ đóng khi không bật chế độ liên tục
+            }
+            
             processScannedData(context, scannedCode);
         },
         (errorMessage) => { /* Ẩn các lỗi nhòe nét khi cam đang lia */ }

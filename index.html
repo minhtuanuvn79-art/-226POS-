@@ -1734,9 +1734,15 @@
         <!-- Vùng hiển thị camera -->
         <div id="reader" style="width: 100%; flex: 1; display: flex; justify-content: center; align-items: center; color: white; font-size: 14px; overflow: hidden;">Đang khởi động Camera...</div>
         
-        <!-- Hướng dẫn phía dưới -->
-        <div style="padding: 25px; text-align: center; font-size: 15px; color: white; position: absolute; bottom: 0; left: 0; width: 100%; z-index: 20; background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);">
-            Giữ điện thoại cách mã vạch <b>15-20cm</b> để lấy nét
+<!-- Hướng dẫn phía dưới và Nút quét liên tục -->
+        <div style="padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; position: absolute; bottom: 0; left: 0; width: 100%; z-index: 20; background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);">
+            <div style="font-size: 14px; color: white; text-shadow: 1px 1px 3px black;">
+                Giữ điện thoại cách mã vạch <b>15-20cm</b> để lấy nét
+            </div>
+            <label style="display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.2); padding: 8px 20px; border-radius: 20px; cursor: pointer; color: white; font-size: 14px; font-weight: bold; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.3);">
+                <input type="checkbox" id="continuous-scan-toggle" style="width: 18px; height: 18px; accent-color: var(--kv-pink); cursor: pointer;">
+                <span>Quét liên tục</span>
+            </label>
         </div>
     </div>
 </div>
