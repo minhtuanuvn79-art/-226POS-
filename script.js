@@ -4253,8 +4253,12 @@ function switchPOSTab(index) {
 
     const tab = posTabs[activeTabIndex];
     if (tab) {
-        if (document.getElementById('pos-pricebook-select')) 
-            document.getElementById('pos-pricebook-select').value = String(tab.priceBook);
+        // [QUAN TRỌNG] Cập nhật ngay UI Dropdown Bảng giá cho khớp với Tab
+        const pbSelect = document.getElementById('pos-pricebook-select');
+        if (pbSelect) {
+            pbSelect.value = tab.priceBook || 'default';
+        }
+        
         if (document.getElementById('pos-discount')) 
             document.getElementById('pos-discount').value = (tab.discount || 0).toLocaleString('vi-VN');
         if (document.getElementById('pos-extra-fee')) 
@@ -4265,7 +4269,7 @@ function switchPOSTab(index) {
     savePOSState();
     
     // Đảm bảo cứ đổi tab là chuột nhảy về ô tìm kiếm
-    focusPOSSearch();
+    if (typeof focusPOSSearch === 'function') focusPOSSearch();
 }
 
 window.closePOSTab = function(index, event) {
@@ -4477,17 +4481,27 @@ document.getElementById('pos-must-pay').innerText = mustPay.toLocaleString('vi-V
 }
 window.changePOSPriceBook = function(pbId) {
     const tab = posTabs[activeTabIndex];
+    if (!tab) return;
+    
     tab.priceBook = pbId;
+    
+    // Quét lại toàn bộ hàng hóa trong giỏ để cập nhật giá mới
     tab.items.forEach(item => {
-        const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
-        const prod = allProds.find(p => p.id === item.productId);
+        const allProds = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
+        const prod = allProds.find(p => String(p.id) === String(item.productId));
         if (prod) {
             item.basePrice = window.getProductPrice(prod, pbId, 0);
             item.price = window.getProductPrice(prod, pbId, item.selectedUnitIdx);
         }
     });
+    
     renderPOSCart();
-    savePOSState();
+    
+    // LƯU NGAY LẬP TỨC ĐỂ CHỐNG F5 HOẶC MỞ TAB MỚI BỊ LỖI
+    savePOSState(); 
+    
+    // Đưa chuột về lại ô tìm kiếm để sẵn sàng bắn mã
+    if (typeof focusPOSSearch === 'function') focusPOSSearch();
 };
 
 window.processCheckout = function() {
@@ -4614,30 +4628,37 @@ window.processCheckout = function() {
     setTimeout(() => { window.isSyncLocked = false; }, 3000);
 };
 window.clearPOS = function() {
-    // 1. Reset về 1 tab trống duy nhất
+    // 1. Lấy bảng giá đang được chọn trên giao diện (nếu có), nếu không có mới dùng 'default'
+    const currentPbSelect = document.getElementById('pos-pricebook-select');
+    const lastPriceBook = currentPbSelect ? currentPbSelect.value : 'default';
+
+    // 2. Reset về 1 tab trống duy nhất nhưng GIỮ NGUYÊN BẢNG GIÁ
     tabCounter = 1;
     posTabs = [{ 
         id: Date.now(), 
         name: 'Hóa đơn 1', 
         items: [], 
-        priceBook: 'default', 
+        priceBook: lastPriceBook, // SỬA Ở ĐÂY
         discount: 0, 
         extraFee: 0 
     }];
     activeTabIndex = 0;
 
-    // 2. XÓA SẠCH DỮ LIỆU TẠM TRONG MÁY
+    // 3. XÓA SẠCH DỮ LIỆU TẠM TRONG MÁY
     localStorage.removeItem('kv_pos_state');
 
-    // 3. Vẽ lại giao diện trắng
+    // 4. Vẽ lại giao diện trắng
     renderPOSTabs();
     renderPOSCart();
     
+    // Đảm bảo ô chọn bảng giá hiển thị đúng
+    if (currentPbSelect) currentPbSelect.value = lastPriceBook;
+
     // Đưa các ô nhập giảm giá/phí về 0
     if (document.getElementById('pos-discount')) document.getElementById('pos-discount').value = '0';
     if (document.getElementById('pos-extra-fee')) document.getElementById('pos-extra-fee').value = '0';
 
-    console.log("🧹 Đã dọn sạch bộ nhớ POS.");
+    console.log("🧹 Đã dọn sạch bộ nhớ POS, giữ lại bảng giá: " + lastPriceBook);
 };
 
 
