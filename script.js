@@ -3887,9 +3887,12 @@ window.getProductPrice = function(productObj, priceBookId, unitIdx = 0) {
         return productObj.price || 0;
     }
 
-    // TỐI ƯU SỬA LỖI: Bắt buộc đọc từ localStorage để không bao giờ bị mảng rỗng (Tránh lỗi lâu lâu rớt về giá chung)
-    const latestPBs = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
-    const pb = latestPBs.find(x => String(x.id) === String(priceBookId));
+    // TỐI ƯU SIÊU TỐC: Đọc bảng giá từ biến RAM thay vì ổ cứng để chống đứng máy
+    if (!window.priceBooks || window.priceBooks.length === 0) {
+        window.priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    }
+    
+    const pb = window.priceBooks.find(x => String(x.id) === String(priceBookId));
 
     if (pb && pb.prices) {
         const exactKey = `${productObj.id}_${unitIdx}`;
@@ -9568,11 +9571,14 @@ window.searchPOSProduct = function(keyword) {
     window.currentFocus = -1; 
 };
 
-// 3. FIX LUỒNG BẮN QUÉT MÃ BÁN HÀNG TỰ ĐỘNG
-// HÀM XỬ LÝ KHI DÙNG SÚNG QUÉT MÃ VẠCH (TỰ ĐỘNG ENTER)
+// HÀM XỬ LÝ KHI DÙNG SÚNG QUÉT MÃ VẠCH (TỐI ƯU SIÊU TỐC)
 window.handleDirectEnter = function(barcode) {
     const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
-    const latestProducts = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
+    
+    if (!window.products || window.products.length === 0) {
+        window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
+    }
+    const latestProducts = window.products;
     
     let exactMatch = null;
     let matchedUnitIdx = 0;
@@ -9580,14 +9586,12 @@ window.handleDirectEnter = function(barcode) {
     for (let p of latestProducts) {
         if (p.branchId !== currentBranch) continue;
         
-        // 1. Kiểm tra lớp ngoài cùng (Đơn vị cơ bản)
         if ((p.barcode && p.barcode.toLowerCase() === barcode) || (p.code && p.code.toLowerCase() === barcode)) {
             exactMatch = p;
             matchedUnitIdx = 0;
             break;
         }
         
-        // 2. Kiểm tra các đơn vị quy đổi (Lốc, Thùng, Hộp...)
         if (p.units && p.units.length > 0) {
             const uIdx = p.units.findIndex(u => (u.barcode && u.barcode.toLowerCase() === barcode) || (u.code && u.code.toLowerCase() === barcode));
             if (uIdx !== -1) {
@@ -9598,12 +9602,10 @@ window.handleDirectEnter = function(barcode) {
         }
     }
 
-    // Nếu tìm thấy, ném thẳng vào giỏ hàng với đúng đơn vị tính
     if (exactMatch) {
         window.addPOSItem(exactMatch.id, false, matchedUnitIdx);
     } else {
         showToast(`Không tìm thấy hàng hóa có mã: ${barcode}`, "error");
-        // Bôi đen lại ô tìm kiếm để người dùng sẵn sàng quét mã khác
         const sInput = document.getElementById('pos-search-input');
         if (sInput) {
             sInput.focus();
@@ -9611,7 +9613,6 @@ window.handleDirectEnter = function(barcode) {
         }
     }
     
-    // Đóng Dropdown lại cho gọn
     const dropdown = document.getElementById('pos-search-dropdown');
     if (dropdown) dropdown.style.display = 'none';
 };
@@ -9623,8 +9624,12 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     
     if (dropdown) dropdown.style.display = 'none';
     
-    // Đọc dữ liệu từ RAM để tăng tốc
-    const allProds = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
+    // Tối ưu RAM: Không quét lại ổ cứng để tránh trễ nhịp
+    if (!window.products || window.products.length === 0) {
+        window.products = JSON.parse(localStorage.getItem('kv_products')) || [];
+    }
+    const allProds = window.products;
+    
     const p = allProds.find(x => String(x.id) === String(productId));
     if (!p) { showToast("Không tìm thấy hàng hóa!", "error"); return; }
 
@@ -9635,8 +9640,6 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1, price: p.price, isBase: true }];
     const selectedUnit = productUnits[unitIdx];
 
-    // TỐI ƯU SỬA LỖI BẢNG GIÁ: 
-    // Truyền trực tiếp unitIdx vào hàm getProductPrice để lấy chính xác giá của bảng giá phụ
     const currentPriceBookId = tab.priceBook || 'default';
     const finalPrice = window.getProductPrice(p, currentPriceBookId, unitIdx);
 
@@ -9646,7 +9649,6 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     
     if (existingIndex !== -1) {
         tab.items[existingIndex].qty += 1;
-        // Sửa lỗi: Cập nhật lại đúng giá trị mới (không bị nhảy về giá chung nữa)
         tab.items[existingIndex].price = finalPrice; 
         const item = tab.items.splice(existingIndex, 1)[0];
         tab.items.unshift(item);
