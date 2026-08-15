@@ -3971,8 +3971,8 @@ window.getProductPrice = function(productObj, priceBookId, unitIdx = 0) {
         return productObj.price || 0;
     }
 
-    // TỐI ƯU: Đọc từ RAM (window.priceBooks) thay vì ép hệ thống parse JSON liên tục
-    const latestPBs = window.priceBooks || JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    // TỐI ƯU SỬA LỖI: Bắt buộc đọc từ localStorage để không bao giờ bị mảng rỗng (Tránh lỗi lâu lâu rớt về giá chung)
+    const latestPBs = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
     const pb = latestPBs.find(x => String(x.id) === String(priceBookId));
 
     if (pb && pb.prices) {
@@ -4192,43 +4192,37 @@ window.addPOSTab = function() {
     if (isTabCreating) return;
     isTabCreating = true;
 
-    // 1. Tìm tất cả các số thứ tự hiện có (ví dụ từ "Hóa đơn 1" lấy ra số 1)
     const existingNumbers = posTabs.map(tab => {
         const match = tab.name.match(/\d+/);
         return match ? parseInt(match[0]) : 0;
     }).sort((a, b) => a - b);
 
-    // 2. Tìm số nhỏ nhất còn thiếu (bắt đầu từ 1)
     let nextNumber = 1;
     for (let i = 0; i < existingNumbers.length; i++) {
         if (existingNumbers[i] === nextNumber) {
             nextNumber++;
         } else if (existingNumbers[i] > nextNumber) {
-            break; // Đã tìm thấy khoảng trống
+            break;
         }
     }
 
-    // [THÊM MỚI] Lấy bảng giá của tab đang mở hiện tại, nếu không có thì mới dùng 'default'
+    // Đảm bảo lấy CHÍNH XÁC bảng giá của tab hiện hành để kế thừa cho Tab 2, Tab 3...
     let currentPb = 'default';
-    if (posTabs.length > 0 && posTabs[activeTabIndex]) {
+    if (posTabs.length > 0 && posTabs[activeTabIndex] && posTabs[activeTabIndex].priceBook) {
         currentPb = posTabs[activeTabIndex].priceBook;
     }
 
-    // 3. Tạo tab mới với số vừa tìm được
     posTabs.push({ 
         id: Date.now(), 
         name: `Hóa đơn ${nextNumber}`, 
         items: [], 
-        priceBook: currentPb, // Áp dụng bảng giá kế thừa
+        priceBook: currentPb, 
         discount: 0, 
         extraFee: 0 
     });
 
-    // 4. Chuyển sang tab mới và focus vào ô tìm kiếm
     switchPOSTab(posTabs.length - 1);
-    savePOSState();
-    if (typeof focusPOSSearch === 'function') focusPOSSearch();
-
+    
     setTimeout(() => { isTabCreating = false; }, 200);
 };
 function renderPOSTabs() {
@@ -4253,10 +4247,24 @@ function switchPOSTab(index) {
 
     const tab = posTabs[activeTabIndex];
     if (tab) {
-        // [QUAN TRỌNG] Cập nhật ngay UI Dropdown Bảng giá cho khớp với Tab
+        // [TỐI ƯU CỰC QUAN TRỌNG]: Nạp lại danh sách Bảng giá liên tục để chống lỗi rỗng
         const pbSelect = document.getElementById('pos-pricebook-select');
         if (pbSelect) {
+            const latestPBs = JSON.parse(localStorage.getItem('kv_pricebooks')) || []; 
+            let pbHtml = `<option value="default">Bảng giá chung</option>`;
+            latestPBs.forEach(pb => { 
+                pbHtml += `<option value="${pb.id}">${pb.name}</option>`; 
+            });
+            pbSelect.innerHTML = pbHtml;
+
+            // Khôi phục giá trị đã lưu cho Tab này
             pbSelect.value = tab.priceBook || 'default';
+            
+            // Nếu giá trị không tồn tại trong danh sách, tự ép về mặc định
+            if (!pbSelect.value) {
+                pbSelect.value = 'default';
+                tab.priceBook = 'default';
+            }
         }
         
         if (document.getElementById('pos-discount')) 
@@ -4267,8 +4275,6 @@ function switchPOSTab(index) {
 
     renderPOSCart();
     savePOSState();
-    
-    // Đảm bảo cứ đổi tab là chuột nhảy về ô tìm kiếm
     if (typeof focusPOSSearch === 'function') focusPOSSearch();
 }
 
