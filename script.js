@@ -3965,26 +3965,22 @@ function initPOSData() {
         window.clearPOS();
     }
 }
-// Hàm cốt lõi: Tính toán và lấy giá chính xác của đơn vị tính trong Bảng giá
 window.getProductPrice = function(productObj, priceBookId, unitIdx = 0) {
-    // 1. Nếu là bảng giá chung (default)
     if (!priceBookId || String(priceBookId) === 'default') {
         if (productObj.units && productObj.units[unitIdx]) return productObj.units[unitIdx].price;
         return productObj.price || 0;
     }
 
-    // 2. Nếu là Bảng giá tùy chỉnh (Giá đêm, giá VIP...)
-    const latestPBs = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+    // TỐI ƯU: Đọc từ RAM (window.priceBooks) thay vì ép hệ thống parse JSON liên tục
+    const latestPBs = window.priceBooks || JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
     const pb = latestPBs.find(x => String(x.id) === String(priceBookId));
 
     if (pb && pb.prices) {
-        // Ưu tiên 1: Tìm giá được thiết lập RIÊNG cho đơn vị tính này (VD: SP01_1)
         const exactKey = `${productObj.id}_${unitIdx}`;
         if (pb.prices[exactKey] !== undefined) return pb.prices[exactKey];
 
-        // Ưu tiên 2: Không có giá riêng thì tìm giá cơ bản (SP01_0) rồi nhân tỷ lệ quy đổi
         let basePrice = pb.prices[`${productObj.id}_0`];
-        if (basePrice === undefined) basePrice = pb.prices[productObj.id]; // Hỗ trợ dữ liệu cũ
+        if (basePrice === undefined) basePrice = pb.prices[productObj.id];
 
         if (basePrice !== undefined) {
             const rate = (productObj.units && productObj.units[unitIdx]) ? (productObj.units[unitIdx].rate || 1) : 1;
@@ -3992,90 +3988,91 @@ window.getProductPrice = function(productObj, priceBookId, unitIdx = 0) {
         }
     }
 
-    // 3. Fallback: Nếu bảng giá không có thiết lập cho món này, lấy giá gốc
     if (productObj.units && productObj.units[unitIdx]) return productObj.units[unitIdx].price;
     return productObj.price || 0;
 };
 var currentFocus = -1; // Biến theo dõi vị trí đang chọn trong dropdown
 
+let posSearchTimeout = null; // Biến giữ nhịp thời gian
+
 window.searchPOSProduct = function(keyword) {
     const dropdown = document.getElementById('pos-search-dropdown');
+    
     if (!keyword || !keyword.trim()) { 
         dropdown.style.display = 'none'; 
         return; 
     }
-    
-    // 1. Chuẩn hóa từ khóa
-    const rawKw = keyword.toLowerCase().trim();
-    const cleanKw = window.removeVietnameseTones(rawKw);
-    const searchTerms = cleanKw.split(/\s+/);
-    
-    // 2. Lấy chi nhánh hiện tại
-    const currentBranch = localStorage.getItem('kv_current_branch');
-    const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-    
-    // BƯỚC SỬA LỖI: Lấy thông tin Bảng giá đang chọn ở Tab hiện hành
-    const tab = posTabs[activeTabIndex];
-    const currentPriceBookId = tab ? (tab.priceBook || 'default') : 'default';
 
-    let results = [];
+    // Xóa bộ đếm cũ nếu có phím mới được gõ vào
+    clearTimeout(posSearchTimeout);
 
-    latestProducts.forEach(p => {
-        // --- BỘ LỌC CHI NHÁNH QUAN TRỌNG ---
-        if (p.branchId !== currentBranch) return; 
+    // Đợi 100ms (súng quét mã vạch thường chỉ tốn 20-30ms để bắn xong 1 mã)
+    posSearchTimeout = setTimeout(() => {
+        // 1. Chuẩn hóa từ khóa
+        const rawKw = keyword.toLowerCase().trim();
+        const cleanKw = window.removeVietnameseTones(rawKw);
+        const searchTerms = cleanKw.split(/\s+/);
+        
+        // 2. TỐI ƯU: Sử dụng biến toàn cục (RAM) thay vì đọc ổ cứng (LocalStorage)
+        const currentBranch = localStorage.getItem('kv_current_branch');
+        const latestProducts = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
+        
+        const tab = posTabs[activeTabIndex];
+        const currentPriceBookId = tab ? (tab.priceBook || 'default') : 'default';
 
-        // Chuẩn hóa dữ liệu gốc để so sánh
-        const pName = window.removeVietnameseTones((p.name || "").toLowerCase());
-        const pCode = (p.code || "").toLowerCase();
-        const pBarcode = (p.barcode || "").toLowerCase();
+        let results = [];
 
-        const checkMatch = (str) => {
-            if (!str) return false;
-            return searchTerms.every(term => str.includes(term));
-        };
+        latestProducts.forEach(p => {
+            if (p.branchId !== currentBranch) return; 
 
-        const matchBase = checkMatch(pName) || checkMatch(pCode) || checkMatch(pBarcode);
+            const pName = window.removeVietnameseTones((p.name || "").toLowerCase());
+            const pCode = (p.code || "").toLowerCase();
+            const pBarcode = (p.barcode || "").toLowerCase();
 
-        // Duyệt đơn vị tính
-        if (p.units && p.units.length > 0) {
-            p.units.forEach((unit, uIdx) => {
-                const uCode = (unit.code || "").toLowerCase();
-                const uBarcode = (unit.barcode || "").toLowerCase();
-                
-                if (matchBase || checkMatch(uCode) || checkMatch(uBarcode)) {
+            const checkMatch = (str) => {
+                if (!str) return false;
+                return searchTerms.every(term => str.includes(term));
+            };
+
+            const matchBase = checkMatch(pName) || checkMatch(pCode) || checkMatch(pBarcode);
+
+            if (p.units && p.units.length > 0) {
+                p.units.forEach((unit, uIdx) => {
+                    const uCode = (unit.code || "").toLowerCase();
+                    const uBarcode = (unit.barcode || "").toLowerCase();
                     
-                    // BƯỚC SỬA LỖI: Dùng hàm getProductPrice để tính toán giá chuẩn theo Bảng giá phụ
-                    const correctPrice = window.getProductPrice(p, currentPriceBookId, uIdx);
+                    if (matchBase || checkMatch(uCode) || checkMatch(uBarcode)) {
+                        const correctPrice = window.getProductPrice(p, currentPriceBookId, uIdx);
+                        results.push({
+                            ...p,
+                            matchedUnitIdx: uIdx,
+                            displayUnitName: unit.name,
+                            displayPrice: correctPrice,
+                            displayCode: unit.code || p.code
+                        });
+                    }
+                });
+            }
+        });
 
-                    results.push({
-                        ...p,
-                        matchedUnitIdx: uIdx,
-                        displayUnitName: unit.name,
-                        displayPrice: correctPrice, // <--- Hiển thị giá đã tính toán chính xác
-                        displayCode: unit.code || p.code
-                    });
-                }
-            });
+        // 3. Hiển thị kết quả
+        if (results.length === 0) {
+            dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa thuộc chi nhánh này</div>';
+        } else {
+            dropdown.innerHTML = results.slice(0, 20).map(p => `
+                <div class="pos-dropdown-item pos-item-node"  onclick="document.getElementById('pos-search-input').value='${p.displayCode}'; addPOSItem('${p.id}', true, ${p.matchedUnitIdx});">
+                    <div style="flex:1;">
+                        <strong style="color: var(--kv-blue);">${p.displayCode}</strong> - 
+                        <strong>${p.name} (${p.displayUnitName})</strong>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-weight: bold; color: var(--kv-pink);">${(p.displayPrice || 0).toLocaleString('vi-VN')}</div>
+                    </div>
+                </div>`).join('');
         }
-    });
-
-    // 3. Hiển thị kết quả
-    if (results.length === 0) {
-        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa thuộc chi nhánh này</div>';
-    } else {
-        dropdown.innerHTML = results.slice(0, 20).map(p => `
-            <div class="pos-dropdown-item pos-item-node"  onclick="document.getElementById('pos-search-input').value='${p.displayCode}'; addPOSItem('${p.id}', true, ${p.matchedUnitIdx});">
-                <div style="flex:1;">
-                    <strong style="color: var(--kv-blue);">${p.displayCode}</strong> - 
-                    <strong>${p.name} (${p.displayUnitName})</strong>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-weight: bold; color: var(--kv-pink);">${(p.displayPrice || 0).toLocaleString('vi-VN')}</div>
-                </div>
-            </div>`).join('');
-    }
-    dropdown.style.display = 'block';
-    window.currentFocus = -1; // Reset vị trí chọn phím mũi tên
+        dropdown.style.display = 'block';
+        window.currentFocus = -1;
+    }, 100); // 100ms Debounce
 };
 
 // Biến đồng hồ để gộp nhịp Enter
@@ -4305,61 +4302,6 @@ window.closePOSTab = function(index, event) {
     }
 };
 
-window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) {
-    const sInput = document.getElementById('pos-search-input');
-    const dropdown = document.getElementById('pos-search-dropdown');
-    
-    if (dropdown) dropdown.style.display = 'none';
-    
-    const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
-    const p = allProds.find(x => String(x.id) === String(productId));
-    if (!p) { showToast("Không tìm thấy hàng hóa!", "error"); return; }
-
-    const tab = posTabs[activeTabIndex];
-    if (!tab) return;
-
-    const unitIdx = forcedUnitIdx !== null ? forcedUnitIdx : 0;
-    const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1, price: p.price, isBase: true }];
-    const selectedUnit = productUnits[unitIdx];
-
-    let finalPrice = 0;
-    const currentPriceBookId = tab.priceBook || 'default';
-
-    if (currentPriceBookId === 'default') {
-        finalPrice = selectedUnit.price || (p.price * (selectedUnit.rate || 1));
-    } else {
-        const basePriceFromBook = getProductPrice(p, currentPriceBookId); 
-        finalPrice = basePriceFromBook * (selectedUnit.rate || 1);
-    }
-
-    const existingIndex = tab.items.findIndex(x => 
-        String(x.productId) === String(productId) && parseInt(x.selectedUnitIdx) === parseInt(unitIdx)
-    );
-    
-    if (existingIndex !== -1) {
-        tab.items[existingIndex].qty += 1;
-        tab.items[existingIndex].price = finalPrice; 
-        const item = tab.items.splice(existingIndex, 1)[0];
-        tab.items.unshift(item);
-    } else {
-        tab.items.unshift({ 
-            productId: p.id, code: selectedUnit.code || p.code, name: p.name, 
-            qty: 1, basePrice: p.price, price: finalPrice, 
-            units: productUnits, selectedUnitIdx: unitIdx, isIce: false 
-        });
-    }
-    
-    savePOSState();
-    
-    // TỐC ĐỘ BÀN THỜ: Bắt trình duyệt vẽ lại giỏ hàng NGAY LẬP TỨC 
-    if (typeof renderPOSCart === 'function') renderPOSCart();
-
-    if (sInput) {
-        if (!keepInput) sInput.value = '';
-        sInput.focus();
-        sInput.select(); 
-    }
-};
 
 window.renderPOSCart = function() {
     const listDiv = document.getElementById('pos-cart-list');
@@ -9765,15 +9707,18 @@ window.handleDirectEnter = function(kw) {
 window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) {
     const sInput = document.getElementById('pos-search-input');
     const dropdown = document.getElementById('pos-search-dropdown');
+    
     if (dropdown) dropdown.style.display = 'none';
     
-    const allProds = window.products || []; // Lấy từ RAM
+    // TỐI ƯU: Sử dụng dữ liệu trên RAM
+    const allProds = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
     const p = allProds.find(x => String(x.id) === String(productId));
     if (!p) { showToast("Không tìm thấy hàng hóa!", "error"); return; }
 
     const tab = posTabs[activeTabIndex];
     if (!tab) return;
 
+    // ... (Giữ nguyên phần logic tính toán còn lại của bạn) ...
     const unitIdx = forcedUnitIdx !== null ? forcedUnitIdx : 0;
     const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1, price: p.price, isBase: true }];
     const selectedUnit = productUnits[unitIdx];
@@ -9784,11 +9729,14 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     if (currentPriceBookId === 'default') {
         finalPrice = selectedUnit.price || (p.price * (selectedUnit.rate || 1));
     } else {
-        const basePriceFromBook = getProductPrice(p, currentPriceBookId); 
+        const basePriceFromBook = window.getProductPrice(p, currentPriceBookId); 
         finalPrice = basePriceFromBook * (selectedUnit.rate || 1);
     }
 
-    const existingIndex = tab.items.findIndex(x => String(x.productId) === String(productId) && parseInt(x.selectedUnitIdx) === parseInt(unitIdx));
+    const existingIndex = tab.items.findIndex(x => 
+        String(x.productId) === String(productId) && parseInt(x.selectedUnitIdx) === parseInt(unitIdx)
+    );
+    
     if (existingIndex !== -1) {
         tab.items[existingIndex].qty += 1;
         tab.items[existingIndex].price = finalPrice; 
@@ -9804,7 +9752,12 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     
     savePOSState();
     if (typeof renderPOSCart === 'function') renderPOSCart();
-    if (sInput) { if (!keepInput) sInput.value = ''; sInput.focus(); sInput.select(); }
+
+    if (sInput) {
+        if (!keepInput) sInput.value = '';
+        sInput.focus();
+        sInput.select(); 
+    }
 };
 
 window.searchIOProduct = function(keyword) {
