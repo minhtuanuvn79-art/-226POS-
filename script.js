@@ -9647,81 +9647,51 @@ window.searchPOSProduct = function(keyword) {
 };
 
 // 3. FIX LUỒNG BẮN QUÉT MÃ BÁN HÀNG TỰ ĐỘNG
-window.handleDirectEnter = function(kw) {
-    if (!kw) return;
+// HÀM XỬ LÝ KHI DÙNG SÚNG QUÉT MÃ VẠCH (TỰ ĐỘNG ENTER)
+window.handleDirectEnter = function(barcode) {
     const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
+    const latestProducts = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
     
-    // Lấy từ RAM để tăng tốc
-    const latestProducts = window.products || [];
-    const allBranches = window.branches || [];
-    
-    let foundInCurrent = null;
-    let foundInOther = null;
+    let exactMatch = null;
+    let matchedUnitIdx = 0;
 
     for (let p of latestProducts) {
-        let isMatch = false;
-        let matchUIdx = 0;
-
-        if (p.code?.toLowerCase() === kw || p.barcode?.toLowerCase() === kw) {
-            isMatch = true;
-        } else if (p.units) {
-            const uIdx = p.units.findIndex(u => u.barcode?.toLowerCase() === kw || u.code?.toLowerCase() === kw);
-            if (uIdx !== -1) { isMatch = true; matchUIdx = uIdx; }
+        if (p.branchId !== currentBranch) continue;
+        
+        // 1. Kiểm tra lớp ngoài cùng (Đơn vị cơ bản)
+        if ((p.barcode && p.barcode.toLowerCase() === barcode) || (p.code && p.code.toLowerCase() === barcode)) {
+            exactMatch = p;
+            matchedUnitIdx = 0;
+            break;
         }
-
-        if (isMatch) {
-            if ((p.branchId || 'CN001') === currentBranch) {
-                foundInCurrent = { id: p.id, uIdx: matchUIdx };
+        
+        // 2. Kiểm tra các đơn vị quy đổi (Lốc, Thùng, Hộp...)
+        if (p.units && p.units.length > 0) {
+            const uIdx = p.units.findIndex(u => (u.barcode && u.barcode.toLowerCase() === barcode) || (u.code && u.code.toLowerCase() === barcode));
+            if (uIdx !== -1) {
+                exactMatch = p;
+                matchedUnitIdx = uIdx;
                 break;
-            } else {
-                if (!foundInOther) foundInOther = { product: p, uIdx: matchUIdx }; 
             }
         }
     }
 
-    if (foundInCurrent) {
-        window.addPOSItem(foundInCurrent.id, true, foundInCurrent.uIdx);
-        const searchInput = document.getElementById('pos-search-input');
-        if (searchInput) { searchInput.focus(); searchInput.select(); }
-    } else if (foundInOther) {
-        const otherBranchName = allBranches.find(b => b.id === (foundInOther.product.branchId || 'CN001'))?.name || 'Chi nhánh khác';
-        window.showConfirm(
-            `<div style="text-align:center;">
-                <i class="fa-solid fa-copy" style="font-size: 45px; color: var(--kv-blue); margin-bottom: 15px;"></i>
-                <h3 style="color: var(--kv-blue); margin-bottom: 10px; font-size: 18px;">Phát hiện mã ở chi nhánh khác!</h3>
-                <p style="font-size: 14px; color: #555;">Mã <b>${kw}</b> chưa có ở chi nhánh hiện tại, nhưng đã được tạo tại <b>${otherBranchName}</b> với tên:</p>
-                <p style="margin: 15px 0;"><strong style="color:var(--kv-pink); font-size:16px;">${foundInOther.product.name}</strong></p>
-                <p style="font-size: 14px; color: #333; font-weight: 500;">Bạn có muốn copy mặt hàng này về chi nhánh của mình để bán không?</p>
-            </div>`, 
-            function() { copySingleProductToCurrentBranch(foundInOther.product, currentBranch, latestProducts, foundInOther.uIdx); }
-        );
-        document.getElementById('pos-search-input').value = "";
+    // Nếu tìm thấy, ném thẳng vào giỏ hàng với đúng đơn vị tính
+    if (exactMatch) {
+        window.addPOSItem(exactMatch.id, false, matchedUnitIdx);
     } else {
-        // KHÔI PHỤC BẢNG THÔNG BÁO LỖI TO MÀU ĐỎ CHÍNH GIỮA MÀN HÌNH
-        window.showConfirm(
-            `<div style="text-align:center;">
-                <i class="fa-solid fa-circle-xmark" style="font-size: 55px; color: #dc3545; margin-bottom: 15px;"></i>
-                <h3 style="color: #dc3545; margin-bottom: 10px; font-size: 20px;">Mã hàng không tồn tại</h3>
-                <p style="font-size: 15px; color: #555;">Mã vạch <b>${kw}</b> chưa được tạo trên hệ thống.</p>
-                <p style="font-size: 13px; color: #888; margin-top: 10px;">Vui lòng thêm mới hàng hóa (F4) trước khi bán.</p>
-            </div>`,
-            null
-        );
-        
-        // CSS lại nút bấm của form Confirm cho phù hợp với thông báo lỗi
-        setTimeout(() => {
-            const btnCancel = document.getElementById('confirm-cancel');
-            if (btnCancel) btnCancel.style.display = 'none'; // Ẩn nút "Bỏ qua"
-            
-            const btnOk = document.getElementById('confirm-ok');
-            if (btnOk) {
-                btnOk.innerText = 'Đã hiểu';
-                btnOk.style.background = '#dc3545'; // Đổi nút thành màu đỏ cảnh báo
-            }
-        }, 10);
-        
-        document.getElementById('pos-search-input').value = "";
+        showToast(`Không tìm thấy hàng hóa có mã: ${barcode}`, "error");
+        // Bôi đen lại ô tìm kiếm để người dùng sẵn sàng quét mã khác
+        const sInput = document.getElementById('pos-search-input');
+        if (sInput) {
+            sInput.focus();
+            sInput.select();
+        }
     }
+    
+    // Đóng Dropdown lại cho gọn
+    const dropdown = document.getElementById('pos-search-dropdown');
+    if (dropdown) dropdown.style.display = 'none';
 };
 
 // 4. FIX ĐƠ MÁY CHO CÁC HÀM XỬ LÝ GIỎ HÀNG
@@ -9731,7 +9701,7 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     
     if (dropdown) dropdown.style.display = 'none';
     
-    // TỐI ƯU: Sử dụng dữ liệu trên RAM
+    // Đọc dữ liệu từ RAM để tăng tốc
     const allProds = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
     const p = allProds.find(x => String(x.id) === String(productId));
     if (!p) { showToast("Không tìm thấy hàng hóa!", "error"); return; }
@@ -9739,20 +9709,14 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     const tab = posTabs[activeTabIndex];
     if (!tab) return;
 
-    // ... (Giữ nguyên phần logic tính toán còn lại của bạn) ...
     const unitIdx = forcedUnitIdx !== null ? forcedUnitIdx : 0;
     const productUnits = (p.units && p.units.length > 0) ? p.units : [{ name: 'Cái', rate: 1, price: p.price, isBase: true }];
     const selectedUnit = productUnits[unitIdx];
 
-    let finalPrice = 0;
+    // TỐI ƯU SỬA LỖI BẢNG GIÁ: 
+    // Truyền trực tiếp unitIdx vào hàm getProductPrice để lấy chính xác giá của bảng giá phụ
     const currentPriceBookId = tab.priceBook || 'default';
-
-    if (currentPriceBookId === 'default') {
-        finalPrice = selectedUnit.price || (p.price * (selectedUnit.rate || 1));
-    } else {
-        const basePriceFromBook = window.getProductPrice(p, currentPriceBookId); 
-        finalPrice = basePriceFromBook * (selectedUnit.rate || 1);
-    }
+    const finalPrice = window.getProductPrice(p, currentPriceBookId, unitIdx);
 
     const existingIndex = tab.items.findIndex(x => 
         String(x.productId) === String(productId) && parseInt(x.selectedUnitIdx) === parseInt(unitIdx)
@@ -9760,6 +9724,7 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     
     if (existingIndex !== -1) {
         tab.items[existingIndex].qty += 1;
+        // Sửa lỗi: Cập nhật lại đúng giá trị mới (không bị nhảy về giá chung nữa)
         tab.items[existingIndex].price = finalPrice; 
         const item = tab.items.splice(existingIndex, 1)[0];
         tab.items.unshift(item);
