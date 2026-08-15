@@ -3997,6 +3997,7 @@ window.searchPOSProduct = function(keyword) {
 // Biến đồng hồ để gộp nhịp Enter
 var fastEnterTimer = null;
 
+// Thay thế khối lệnh này trong script.js
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
     const dropdown = document.getElementById('pos-search-dropdown');
     const items = dropdown ? dropdown.querySelectorAll('.pos-item-node') : [];
@@ -4005,21 +4006,66 @@ document.getElementById('pos-search-input').addEventListener('keydown', function
         e.preventDefault(); currentFocus++; addActive(items);
     } else if (e.key === 'ArrowUp') {
         e.preventDefault(); currentFocus--; addActive(items);
-} else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter') {
         e.preventDefault();
         
         const kw = this.value.trim().toLowerCase();
         if (!kw) return;
 
-        // BƯỚC SỬA LỖI: Thêm điều kiện (items.length > 0) 
-        // Chỉ ưu tiên chọn Dropdown nếu Dropdown đang mở VÀ thực sự có chứa mặt hàng
+        // TRƯỜNG HỢP 1: Dropdown đang mở -> Click chọn món trên dropdown
         if (dropdown && dropdown.style.display === 'block' && items.length > 0) {
             if (currentFocus > -1) items[currentFocus].click(); 
             else items[0].click(); 
+            
+            // Xử lý UX: Ẩn dropdown và BÔI ĐEN chữ để sẵn sàng Enter tiếp hoặc quét đè mã mới
+            dropdown.style.display = 'none';
+            this.select();
         } 
-        // Nếu Dropdown không mở, HOẶC Dropdown mở nhưng trống rỗng (khi quét mã sai) -> Bắn ra cảnh báo đỏ
+        // TRƯỜNG HỢP 2: Dropdown đã đóng (Do bấm Enter liên tục để cộng số lượng)
         else {
-            handleDirectEnter(kw); 
+            const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
+            const latestProducts = window.products || JSON.parse(localStorage.getItem('kv_products')) || [];
+            
+            let exactMatch = null;
+            let matchedUnitIdx = 0;
+
+            // Tự động rà soát kho tìm mặt hàng khớp mã
+            for (let p of latestProducts) {
+                if (p.branchId !== currentBranch) continue;
+                
+                // Khớp mã cơ bản
+                if ((p.barcode && p.barcode.toLowerCase() === kw) || (p.code && p.code.toLowerCase() === kw)) {
+                    exactMatch = p;
+                    matchedUnitIdx = 0;
+                    break;
+                }
+                // Khớp mã của đơn vị quy đổi
+                if (p.units && p.units.length > 0) {
+                    let uIdx = p.units.findIndex(u => (u.barcode && u.barcode.toLowerCase() === kw) || (u.code && u.code.toLowerCase() === kw));
+                    if (uIdx !== -1) {
+                        exactMatch = p;
+                        matchedUnitIdx = uIdx;
+                        break;
+                    }
+                }
+            }
+
+            // Nếu tìm thấy -> Đẩy vào giỏ hàng và tiếp tục bôi đen mã
+            if (exactMatch) {
+                if (typeof addPOSItem === 'function') {
+                    addPOSItem(exactMatch.id, true, matchedUnitIdx);
+                }
+                this.select(); // CHÌA KHÓA Ở ĐÂY: Giữ lại mã và bôi đen để Enter liên tục
+                if (dropdown) dropdown.style.display = 'none';
+            } else {
+                // Rơi vào fallback nếu gõ bậy hoặc dùng hàm handleDirectEnter cũ
+                if (typeof handleDirectEnter === 'function') {
+                    handleDirectEnter(kw);
+                } else {
+                    if (typeof showToast === 'function') showToast("Không tìm thấy mặt hàng với mã này!", "error");
+                }
+                this.select();
+            }
         }
     }
 });
