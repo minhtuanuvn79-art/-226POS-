@@ -2578,43 +2578,47 @@ function closeCreateCheckView() {
     document.getElementById('inventory-check-view').style.display = 'none';
 }
 
+let icSearchTimeout = null;
 window.searchICProduct = function(keyword) {
     const dropdown = document.getElementById('ic-search-dropdown');
-    if (!keyword.trim()) { 
+    if (!keyword || !keyword.trim()) { 
         dropdown.style.display = 'none'; 
         return; 
     }
-    
-    const kw = keyword.toLowerCase().trim();
 
-    // Tìm tất cả hàng hóa chứa ký tự bạn vừa gõ (không cần khớp 100%)
-    const searchTerms = kw.split(/\s+/);
-    const matches = products.filter(p => {
-        let fullSearchStr = (p.name || '') + ' ' + (p.code || '') + ' ' + (p.barcode || '');
-        if (p.units && p.units.length > 0) {
-            p.units.forEach(u => fullSearchStr += ' ' + (u.name || '') + ' ' + (u.code || '') + ' ' + (u.barcode || ''));
+    clearTimeout(icSearchTimeout);
+    icSearchTimeout = setTimeout(() => {
+        const kw = keyword.toLowerCase().trim();
+        const searchTerms = kw.split(/\s+/);
+        const latestProducts = window.products || []; // TỐI ƯU: Lấy từ RAM
+        
+        const matches = latestProducts.filter(p => {
+            let fullSearchStr = (p.name || '') + ' ' + (p.code || '') + ' ' + (p.barcode || '');
+            if (p.units && p.units.length > 0) {
+                p.units.forEach(u => fullSearchStr += ' ' + (u.name || '') + ' ' + (u.code || '') + ' ' + (u.barcode || ''));
+            }
+            return searchTerms.every(term => fullSearchStr.toLowerCase().includes(term));
+        });
+
+        if (matches.length > 0) {
+            dropdown.innerHTML = matches.slice(0, 15).map(p => `
+                <div class="ic-dropdown-item" onclick="addICToList('${p.id}')">
+                    <div style="display: flex; flex-direction: column;">
+                        <strong style="color: var(--kv-blue);">${p.code}</strong>
+                        <span style="font-size: 13px;">${p.name}</span>
+                        <small style="color: #888;">Mã vạch: ${p.barcode || '---'}</small>
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="font-weight: bold; color: var(--kv-pink);">${(p.price || 0).toLocaleString()}</span>
+                        <div style="font-size: 11px; color: #555;">Tồn: ${p.stock || 0}</div>
+                    </div>
+                </div>`).join('');
+            dropdown.style.display = 'block';
+        } else {
+            dropdown.innerHTML = '<div style="padding: 10px; color: #888; text-align: center;">Không tìm thấy hàng hóa</div>';
+            dropdown.style.display = 'block';
         }
-        return searchTerms.every(term => fullSearchStr.toLowerCase().includes(term));
-    });
-
-    if (matches.length > 0) {
-        dropdown.innerHTML = matches.map(p => `
-            <div class="ic-dropdown-item" onclick="addICToList('${p.id}')">
-                <div style="display: flex; flex-direction: column;">
-                    <strong style="color: var(--kv-blue);">${p.code}</strong>
-                    <span style="font-size: 13px;">${p.name}</span>
-                    <small style="color: #888;">Mã vạch: ${p.barcode || '---'}</small>
-                </div>
-                <div style="text-align: right;">
-                    <span style="font-weight: bold; color: var(--kv-pink);">${(p.price || 0).toLocaleString()}</span>
-                    <div style="font-size: 11px; color: #555;">Tồn: ${p.stock || 0}</div>
-                </div>
-            </div>`).join('');
-        dropdown.style.display = 'block';
-    } else {
-        dropdown.innerHTML = '<div style="padding: 10px; color: #888; text-align: center;">Không tìm thấy hàng hóa</div>';
-        dropdown.style.display = 'block';
-    }
+    }, 100);
 };
 
 // Bắt sự kiện Enter cho Kiểm kho
@@ -3532,94 +3536,6 @@ function closeCreateImportView() {
 // CẬP NHẬT CHỨC NĂNG TÌM KIẾM VÀ QUÉT MÃ VẠCH (TAB NHẬP HÀNG)
 // =================================================================
 
-window.searchIOProduct = function(keyword) {
-    const dropdown = document.getElementById('io-search-dropdown');
-    if (!keyword || !keyword.trim()) { 
-        dropdown.style.display = 'none'; 
-        return; 
-    }
-    
-    const rawKw = keyword.toLowerCase().trim();
-    // Khử dấu tiếng Việt để tìm kiếm thông minh
-    const cleanKw = window.removeVietnameseTones ? window.removeVietnameseTones(rawKw) : rawKw;
-    const searchTerms = cleanKw.split(/\s+/);
-
-    // Luôn lấy dữ liệu tươi nhất từ bộ nhớ và lọc theo chi nhánh
-    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
-    const latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-
-    // 1. CHẾ ĐỘ QUÉT MÃ VẠCH (Khớp 100% mã hàng hoặc mã vạch)
-    let exactMatch = null;
-    for (let p of latestProducts) {
-        if (p.branchId !== currentBranch) continue;
-        
-        // Xét lớp ngoài
-        if ((p.barcode && p.barcode.toLowerCase() === rawKw) || (p.code && p.code.toLowerCase() === rawKw)) {
-            exactMatch = p; 
-            break;
-        }
-        // Xét các đơn vị tính
-        if (p.units) {
-            let uMatch = p.units.find(u => (u.barcode && u.barcode.toLowerCase() === rawKw) || (u.code && u.code.toLowerCase() === rawKw));
-            if (uMatch) { exactMatch = p; break; }
-        }
-    }
-
-    // Nếu là máy quét mã vạch -> Bắn thẳng vào phiếu nhập, không cần hiện danh sách
-    if (exactMatch) {
-        window.addIOToList(exactMatch.id);
-        document.getElementById('io-search-input').value = '';
-        dropdown.style.display = 'none';
-        return;
-    }
-
-    // 2. CHẾ ĐỘ TÌM KIẾM TƯƠNG ĐỐI (Gõ chữ)
-    let results = [];
-    latestProducts.forEach(p => {
-        if (p.branchId !== currentBranch) return;
-
-        const pName = window.removeVietnameseTones ? window.removeVietnameseTones((p.name || "").toLowerCase()) : (p.name || "").toLowerCase();
-        const pCode = (p.code || "").toLowerCase();
-        const pBarcode = (p.barcode || "").toLowerCase();
-
-        let matchBase = searchTerms.every(term => pName.includes(term) || pCode.includes(term) || pBarcode.includes(term));
-        
-        if (matchBase) {
-            results.push({ ...p, displayCode: p.code });
-        } else if (p.units) {
-            p.units.forEach(u => {
-                const uName = window.removeVietnameseTones ? window.removeVietnameseTones((u.name || "").toLowerCase()) : (u.name || "").toLowerCase();
-                const uCode = (u.code || "").toLowerCase();
-                const uBarcode = (u.barcode || "").toLowerCase();
-                
-                if (searchTerms.every(term => pName.includes(term) || uName.includes(term) || uCode.includes(term) || uBarcode.includes(term))) {
-                    results.push({ ...p, displayCode: u.code || p.code });
-                }
-            });
-        }
-    });
-
-    // Lọc trùng lặp do 1 sản phẩm có thể có nhiều đơn vị tính khớp điều kiện
-    results = results.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
-
-    // 3. Hiển thị Dropdown
-    if (results.length === 0) {
-        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa thuộc chi nhánh này</div>';
-    } else {
-        dropdown.innerHTML = results.slice(0, 15).map(p => `
-            <div class="ic-dropdown-item pos-item-node" onclick="window.addIOToList('${p.id}')" style="padding: 12px 15px; cursor: pointer; border-bottom: 1px solid #f4f4f4; display: flex; justify-content: space-between; align-items: center;" onmouseover="this.style.background='#eef6ff'" onmouseout="this.style.background='transparent'">
-                <div style="flex:1;">
-                    <strong style="color: var(--kv-blue);">${p.displayCode || p.code}</strong> - 
-                    <strong style="color: #333;">${p.name}</strong>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-weight: bold; color: #888;">Giá vốn: ${(p.cost || 0).toLocaleString('vi-VN')}</div>
-                    <div style="font-size: 11px; color: #888; margin-top: 2px;">Tồn kho: ${p.stock || 0}</div>
-                </div>
-            </div>`).join('');
-    }
-    dropdown.style.display = 'block';
-};
 
 // =================================================================
 // 1. FIX: Bắt sự kiện Enter cho thanh tìm kiếm Nhập hàng (Chống quét x2)
@@ -4328,7 +4244,7 @@ window.renderPOSCart = function() {
     }
 
     // Lấy danh sách sản phẩm mới nhất để check tồn kho
-    const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
+    const allProds = window.products || [];
 
     listDiv.innerHTML = tab.items.map((item, index) => {
         const rowTotal = item.qty * item.price;
@@ -4423,7 +4339,7 @@ window.updatePOSUnit = function(index, unitIdx) {
     item.selectedUnitIdx = parseInt(unitIdx);
 
     // Lấy lại sản phẩm gốc từ database để gọi hàm lấy giá
-    const allProds = JSON.parse(localStorage.getItem('kv_products')) || [];
+    const allProds = window.products || [];
     const prod = allProds.find(p => p.id === item.productId);
 
     if (prod) {
@@ -9752,68 +9668,88 @@ window.addPOSItem = function(productId, keepInput = true, forcedUnitIdx = null) 
     }
 };
 
+let ioSearchTimeout = null;
 window.searchIOProduct = function(keyword) {
     const dropdown = document.getElementById('io-search-dropdown');
-    if (!keyword || !keyword.trim()) { dropdown.style.display = 'none'; return; }
-    
-    const rawKw = keyword.toLowerCase().trim();
-    const cleanKw = window.removeVietnameseTones ? window.removeVietnameseTones(rawKw) : rawKw;
-    const searchTerms = cleanKw.split(/\s+/);
-    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
-    
-    const latestProducts = window.products || []; // Lấy từ RAM
-    let exactMatch = null;
-    
-    for (let p of latestProducts) {
-        if (p.branchId !== currentBranch) continue;
-        if ((p.barcode && p.barcode.toLowerCase() === rawKw) || (p.code && p.code.toLowerCase() === rawKw)) {
-            exactMatch = p; break;
-        }
-        if (p.units) {
-            let uMatch = p.units.find(u => (u.barcode && u.barcode.toLowerCase() === rawKw) || (u.code && u.code.toLowerCase() === rawKw));
-            if (uMatch) { exactMatch = p; break; }
-        }
+    if (!keyword || !keyword.trim()) { 
+        dropdown.style.display = 'none'; 
+        return; 
     }
 
-    if (exactMatch) {
-        window.addIOToList(exactMatch.id);
-        document.getElementById('io-search-input').value = '';
-        dropdown.style.display = 'none';
-        return;
-    }
+    clearTimeout(ioSearchTimeout);
+    ioSearchTimeout = setTimeout(() => {
+        const rawKw = keyword.toLowerCase().trim();
+        const cleanKw = window.removeVietnameseTones ? window.removeVietnameseTones(rawKw) : rawKw;
+        const searchTerms = cleanKw.split(/\s+/);
 
-    let results = [];
-    latestProducts.forEach(p => {
-        if (p.branchId !== currentBranch) return;
-        const pName = window.removeVietnameseTones ? window.removeVietnameseTones((p.name || "").toLowerCase()) : (p.name || "").toLowerCase();
-        const pCode = (p.code || "").toLowerCase();
-        const pBarcode = (p.barcode || "").toLowerCase();
+        const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
+        const latestProducts = window.products || []; // TỐI ƯU: Lấy từ RAM
 
-        if (searchTerms.every(term => pName.includes(term) || pCode.includes(term) || pBarcode.includes(term))) {
-            results.push({ ...p, displayCode: p.code });
-        } else if (p.units) {
-            p.units.forEach(u => {
-                const uName = window.removeVietnameseTones ? window.removeVietnameseTones((u.name || "").toLowerCase()) : (u.name || "").toLowerCase();
-                const uCode = (u.code || "").toLowerCase();
-                const uBarcode = (u.barcode || "").toLowerCase();
-                if (searchTerms.every(term => pName.includes(term) || uName.includes(term) || uCode.includes(term) || uBarcode.includes(term))) {
-                    results.push({ ...p, displayCode: u.code || p.code });
-                }
-            });
+        let exactMatch = null;
+        for (let p of latestProducts) {
+            if (p.branchId !== currentBranch) continue;
+            
+            if ((p.barcode && p.barcode.toLowerCase() === rawKw) || (p.code && p.code.toLowerCase() === rawKw)) {
+                exactMatch = p; 
+                break;
+            }
+            if (p.units) {
+                let uMatch = p.units.find(u => (u.barcode && u.barcode.toLowerCase() === rawKw) || (u.code && u.code.toLowerCase() === rawKw));
+                if (uMatch) { exactMatch = p; break; }
+            }
         }
-    });
 
-    results = results.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
-    if (results.length === 0) {
-        dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy</div>';
-    } else {
-        dropdown.innerHTML = results.slice(0, 15).map(p => `
-            <div class="ic-dropdown-item pos-item-node" onclick="window.addIOToList('${p.id}')" style="padding: 12px 15px; cursor: pointer; border-bottom: 1px solid #f4f4f4; display: flex; justify-content: space-between; align-items: center;">
-                <div style="flex:1;"><strong style="color: var(--kv-blue);">${p.displayCode || p.code}</strong> - <strong style="color: #333;">${p.name}</strong></div>
-                <div style="text-align: right;"><div style="font-weight: bold; color: #888;">Giá vốn: ${(p.cost || 0).toLocaleString('vi-VN')}</div></div>
-            </div>`).join('');
-    }
-    dropdown.style.display = 'block';
+        if (exactMatch) {
+            window.addIOToList(exactMatch.id);
+            document.getElementById('io-search-input').value = '';
+            dropdown.style.display = 'none';
+            return;
+        }
+
+        let results = [];
+        latestProducts.forEach(p => {
+            if (p.branchId !== currentBranch) return;
+
+            const pName = window.removeVietnameseTones ? window.removeVietnameseTones((p.name || "").toLowerCase()) : (p.name || "").toLowerCase();
+            const pCode = (p.code || "").toLowerCase();
+            const pBarcode = (p.barcode || "").toLowerCase();
+
+            let matchBase = searchTerms.every(term => pName.includes(term) || pCode.includes(term) || pBarcode.includes(term));
+            
+            if (matchBase) {
+                results.push({ ...p, displayCode: p.code });
+            } else if (p.units) {
+                p.units.forEach(u => {
+                    const uName = window.removeVietnameseTones ? window.removeVietnameseTones((u.name || "").toLowerCase()) : (u.name || "").toLowerCase();
+                    const uCode = (u.code || "").toLowerCase();
+                    const uBarcode = (u.barcode || "").toLowerCase();
+                    
+                    if (searchTerms.every(term => pName.includes(term) || uName.includes(term) || uCode.includes(term) || uBarcode.includes(term))) {
+                        results.push({ ...p, displayCode: u.code || p.code });
+                    }
+                });
+            }
+        });
+
+        results = results.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
+
+        if (results.length === 0) {
+            dropdown.innerHTML = '<div style="padding:15px; color:#888; text-align:center;">Không tìm thấy hàng hóa thuộc chi nhánh này</div>';
+        } else {
+            dropdown.innerHTML = results.slice(0, 15).map(p => `
+                <div class="ic-dropdown-item pos-item-node" onclick="window.addIOToList('${p.id}')" style="padding: 12px 15px; cursor: pointer; border-bottom: 1px solid #f4f4f4; display: flex; justify-content: space-between; align-items: center;" onmouseover="this.style.background='#eef6ff'" onmouseout="this.style.background='transparent'">
+                    <div style="flex:1;">
+                        <strong style="color: var(--kv-blue);">${p.displayCode || p.code}</strong> - 
+                        <strong style="color: #333;">${p.name}</strong>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-weight: bold; color: #888;">Giá vốn: ${(p.cost || 0).toLocaleString('vi-VN')}</div>
+                        <div style="font-size: 11px; color: #888; margin-top: 2px;">Tồn kho: ${p.stock || 0}</div>
+                    </div>
+                </div>`).join('');
+        }
+        dropdown.style.display = 'block';
+    }, 100);
 };
 // ==========================================
 // TÍNH NĂNG: IN HÓA ĐƠN TẠM TÍNH (KHÔNG LƯU VÀO HỆ THỐNG)
