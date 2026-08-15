@@ -1,12 +1,12 @@
 // ==========================================
 // 0. LÕI HỆ THỐNG INDEXEDDB (BỘ NHỚ LƯU TRỮ 500MB+)
 // ==========================================
-window.KV_RAM = {}; // RAM trung gian xử lý siêu tốc
+window.KV_RAM = {}; 
+window.isRAMReady = false; // CỜ BẢO VỆ CHỐNG GHI ĐÈ ẢO
 
 const DB_NAME = '226POS_DB';
 const STORE_NAME = 'kv_store';
 
-// 1. Khởi tạo Database
 window.initDB = function() {
     return new Promise((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, 1);
@@ -19,7 +19,6 @@ window.initDB = function() {
     });
 };
 
-// 2. Tải toàn bộ dữ liệu từ Ổ cứng lên RAM (Chạy lúc khởi động web)
 window.loadDBToRAM = async function() {
     const db = await window.initDB();
     return new Promise((resolve) => {
@@ -44,21 +43,18 @@ window.loadDBToRAM = async function() {
     });
 };
 
-// 3. Lưu ngầm dữ liệu xuống DB mà không làm đơ web
 window.saveDB = async function(key, value) {
     const db = await window.initDB();
     const tx = db.transaction([STORE_NAME], 'readwrite');
     tx.objectStore(STORE_NAME).put(value, key);
 };
 
-// 4. Ghi đè phương thức LocalStorage cũ để nó trỏ vào RAM & IndexedDB
 const oriGet = localStorage.getItem.bind(localStorage);
 const oriSet = localStorage.setItem.bind(localStorage);
 const oriRemove = localStorage.removeItem.bind(localStorage);
 
 localStorage.getItem = function(key) {
     if (key.startsWith('kv_')) {
-        // Nếu có trong RAM -> trả về. Nếu RAM chưa có -> rớt xuống LocalStorage cũ để an toàn
         return window.KV_RAM[key] !== undefined ? window.KV_RAM[key] : oriGet(key);
     }
     return oriGet(key);
@@ -66,9 +62,14 @@ localStorage.getItem = function(key) {
 
 localStorage.setItem = function(key, value) {
     if (key.startsWith('kv_')) {
+        // [QUAN TRỌNG] Chặn đứng mọi lệnh ghi đè khi DB chưa tải xong
+        if (!window.isRAMReady) {
+            console.log("🛡️ Đã chặn lệnh ghi đè rác lên", key);
+            return; 
+        }
         window.KV_RAM[key] = value;
-        window.saveDB(key, value); // Lưu ngầm vô hạn
-        try { oriRemove(key); } catch(e){} // Xóa bản cũ bên LocalStorage đi để dọn sạch rác 5MB
+        window.saveDB(key, value); 
+        try { oriRemove(key); } catch(e){} 
     } else {
         oriSet(key, value);
     }
@@ -84,28 +85,27 @@ localStorage.removeItem = function(key) {
     oriRemove(key);
 };
 
-// 5. Tool Tự động di chuyển dữ liệu (Chỉ chạy 1 lần khi chuyển nhà)
 window.migrateOldData = async function() {
     for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && key.startsWith('kv_')) {
             const val = oriGet(key);
-            await window.saveDB(key, val); // Copy sang nhà mới
-            window.KV_RAM[key] = val;      // Nạp lên RAM
-            oriRemove(key);                // Xóa khỏi nhà cũ
+            await window.saveDB(key, val);
+            window.KV_RAM[key] = val;
+            oriRemove(key);
         }
     }
 };
 
-// 6. Cập nhật lại giao diện ngay khi nạp xong dữ liệu
 window.reloadGlobalsFromRAM = function() {
-    try { accounts = (JSON.parse(localStorage.getItem('kv_accounts')) || []).filter(Boolean); window.accounts = accounts; } catch(e){}
+    try { accounts = (JSON.parse(localStorage.getItem('kv_accounts')) || []).filter(Boolean); if (accounts.length === 0) { accounts.push({ fullname: "Quản trị viên", username: "admin", password: "1", role: "manager" }); localStorage.setItem('kv_accounts', JSON.stringify(accounts)); } window.accounts = accounts; } catch(e){}
     try { products = JSON.parse(localStorage.getItem('kv_products')) || []; window.products = products; } catch(e){}
     try { productGroups = JSON.parse(localStorage.getItem('kv_groups')) || []; window.productGroups = productGroups; } catch(e){}
     try { priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || []; window.priceBooks = priceBooks; } catch(e){}
     try { invoices = JSON.parse(localStorage.getItem('kv_invoices')) || []; window.invoices = invoices; } catch(e){}
     try { importOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || []; window.importOrders = importOrders; } catch(e){}
     try { inventoryChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || []; window.inventoryChecks = inventoryChecks; } catch(e){}
+    try { branches = JSON.parse(localStorage.getItem('kv_branches')) || [{ id: 'CN001', name: 'Chi nhánh 1' }]; window.branches = branches; } catch(e){}
 };
 // ==========================================
 // KẾT THÚC LÕI INDEXEDDB
@@ -6282,14 +6282,15 @@ window.renderICCreatorFilter = function() {
 window.initApp = async function() {
     console.log("🚀 Đang khởi động lõi lưu trữ siêu tốc (IndexedDB)...");
     
-    // 3 lệnh phép thuật giúp nâng cấp hệ thống ngầm mà người dùng không hề hay biết
-    await window.migrateOldData(); // Kéo dữ liệu cũ sang nhà mới
-    await window.loadDBToRAM();    // Nạp dữ liệu vào RAM
-    window.reloadGlobalsFromRAM(); // Cập nhật lại các biến toàn cục cho giao diện
+    await window.migrateOldData(); 
+    await window.loadDBToRAM();    
+    
+    // MỞ KHÓA CHO PHÉP LƯU DỮ LIỆU SAU KHI ĐÃ TẢI XONG
+    window.isRAMReady = true; 
+    window.reloadGlobalsFromRAM(); 
 
     console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ dữ liệu thời gian thực...");
 
-    // 1. Cấu hình đồng bộ dữ liệu từ Firebase Cloud
     if (window.fbDb && window.fbOnValue) {
         const syncPaths = [
             { path: 'products', storageKey: 'kv_products' },
@@ -6306,12 +6307,12 @@ window.initApp = async function() {
             const dbRef = window.fbRef(window.fbDb, item.path);
             window.fbOnValue(dbRef, (snapshot) => {
                 const data = snapshot.val();
-                
                 let dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data).filter(Boolean)) : [];
                 
                 if (item.path === 'products') {
                     if (!window.isSyncLocked) { 
                         dataArray.forEach(p => { if (!p.branchId) p.branchId = 'CN001'; });
+                        products = dataArray; // Đồng bộ ngược biến mảng
                         window.products = dataArray;
                         localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                         if (typeof renderProductList === 'function') renderProductList();
@@ -6319,20 +6320,21 @@ window.initApp = async function() {
                 } 
                 else if (item.path === 'invoices' || item.path === 'import_orders' || item.path === 'inventory_checks') {
                     if (!window.isSyncLocked) {
-                        if (item.path === 'invoices') window.invoices = dataArray;
-                        if (item.path === 'import_orders') window.importOrders = dataArray;
-                        if (item.path === 'inventory_checks') window.inventoryChecks = dataArray;
+                        if (item.path === 'invoices') { invoices = dataArray; window.invoices = dataArray; }
+                        if (item.path === 'import_orders') { importOrders = dataArray; window.importOrders = dataArray; }
+                        if (item.path === 'inventory_checks') { inventoryChecks = dataArray; window.inventoryChecks = dataArray; }
                         localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                     }
                 } 
                 else {
+                    if (item.path === 'pricebooks') { priceBooks = dataArray; window.priceBooks = dataArray; }
+                    if (item.path === 'groups') { productGroups = dataArray; window.productGroups = dataArray; }
+                    if (item.path === 'branches') { branches = dataArray; window.branches = dataArray; }
                     localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
-                    if (item.path === 'pricebooks') window.priceBooks = dataArray;
-                    if (item.path === 'groups') window.productGroups = dataArray;
-                    if (item.path === 'branches') window.branches = dataArray;
                 }
                 
                 if (item.path === 'accounts') {
+                    accounts = dataArray; // Đồng bộ ngược biến mảng
                     window.accounts = dataArray;
                     if (typeof currentUser !== 'undefined' && currentUser) {
                         const updatedMe = dataArray.find(acc => acc && acc.username === currentUser.username);
