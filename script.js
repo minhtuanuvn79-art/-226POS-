@@ -1,4 +1,116 @@
 // ==========================================
+// 0. LÕI HỆ THỐNG INDEXEDDB (BỘ NHỚ LƯU TRỮ 500MB+)
+// ==========================================
+window.KV_RAM = {}; // RAM trung gian xử lý siêu tốc
+
+const DB_NAME = '226POS_DB';
+const STORE_NAME = 'kv_store';
+
+// 1. Khởi tạo Database
+window.initDB = function() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
+        };
+        req.onsuccess = (e) => resolve(e.target.result);
+        req.onerror = (e) => reject(e);
+    });
+};
+
+// 2. Tải toàn bộ dữ liệu từ Ổ cứng lên RAM (Chạy lúc khởi động web)
+window.loadDBToRAM = async function() {
+    const db = await window.initDB();
+    return new Promise((resolve) => {
+        const tx = db.transaction([STORE_NAME], 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAllKeys();
+        
+        req.onsuccess = () => {
+            const keys = req.result;
+            if (keys.length === 0) return resolve();
+            
+            let loaded = 0;
+            keys.forEach(key => {
+                const getReq = store.get(key);
+                getReq.onsuccess = () => {
+                    window.KV_RAM[key] = getReq.result;
+                    loaded++;
+                    if (loaded === keys.length) resolve();
+                };
+            });
+        };
+    });
+};
+
+// 3. Lưu ngầm dữ liệu xuống DB mà không làm đơ web
+window.saveDB = async function(key, value) {
+    const db = await window.initDB();
+    const tx = db.transaction([STORE_NAME], 'readwrite');
+    tx.objectStore(STORE_NAME).put(value, key);
+};
+
+// 4. Ghi đè phương thức LocalStorage cũ để nó trỏ vào RAM & IndexedDB
+const oriGet = localStorage.getItem.bind(localStorage);
+const oriSet = localStorage.setItem.bind(localStorage);
+const oriRemove = localStorage.removeItem.bind(localStorage);
+
+localStorage.getItem = function(key) {
+    if (key.startsWith('kv_')) {
+        // Nếu có trong RAM -> trả về. Nếu RAM chưa có -> rớt xuống LocalStorage cũ để an toàn
+        return window.KV_RAM[key] !== undefined ? window.KV_RAM[key] : oriGet(key);
+    }
+    return oriGet(key);
+};
+
+localStorage.setItem = function(key, value) {
+    if (key.startsWith('kv_')) {
+        window.KV_RAM[key] = value;
+        window.saveDB(key, value); // Lưu ngầm vô hạn
+        try { oriRemove(key); } catch(e){} // Xóa bản cũ bên LocalStorage đi để dọn sạch rác 5MB
+    } else {
+        oriSet(key, value);
+    }
+};
+
+localStorage.removeItem = function(key) {
+    if (key.startsWith('kv_')) {
+        delete window.KV_RAM[key];
+        window.initDB().then(db => {
+            db.transaction([STORE_NAME], 'readwrite').objectStore(STORE_NAME).delete(key);
+        });
+    }
+    oriRemove(key);
+};
+
+// 5. Tool Tự động di chuyển dữ liệu (Chỉ chạy 1 lần khi chuyển nhà)
+window.migrateOldData = async function() {
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('kv_')) {
+            const val = oriGet(key);
+            await window.saveDB(key, val); // Copy sang nhà mới
+            window.KV_RAM[key] = val;      // Nạp lên RAM
+            oriRemove(key);                // Xóa khỏi nhà cũ
+        }
+    }
+};
+
+// 6. Cập nhật lại giao diện ngay khi nạp xong dữ liệu
+window.reloadGlobalsFromRAM = function() {
+    try { accounts = (JSON.parse(localStorage.getItem('kv_accounts')) || []).filter(Boolean); window.accounts = accounts; } catch(e){}
+    try { products = JSON.parse(localStorage.getItem('kv_products')) || []; window.products = products; } catch(e){}
+    try { productGroups = JSON.parse(localStorage.getItem('kv_groups')) || []; window.productGroups = productGroups; } catch(e){}
+    try { priceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || []; window.priceBooks = priceBooks; } catch(e){}
+    try { invoices = JSON.parse(localStorage.getItem('kv_invoices')) || []; window.invoices = invoices; } catch(e){}
+    try { importOrders = JSON.parse(localStorage.getItem('kv_import_orders')) || []; window.importOrders = importOrders; } catch(e){}
+    try { inventoryChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || []; window.inventoryChecks = inventoryChecks; } catch(e){}
+};
+// ==========================================
+// KẾT THÚC LÕI INDEXEDDB
+// ==========================================
+// ==========================================
 // 1. KHỞI TẠO DỮ LIỆU TỪ LOCALSTORAGE
 // ==========================================
 
@@ -587,9 +699,9 @@ window.renderBranchStaff = function(branchId) {
     const tbody = document.getElementById('branch-staff-table-body');
     const allAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || [];
     
-    // [ĐÃ SỬA LỖI TẠI ĐÂY] Lọc nhân viên có chứa mã chi nhánh trong mảng branchIds
+    // ĐÃ SỬA LỖI TẠI ĐÂY: Thêm acc && để lọc bỏ các tài khoản bị rỗng
     const staff = allAccounts.filter(acc => {
-        return (acc.branchIds && acc.branchIds.includes(branchId)) || (acc.branchId === branchId);
+        return acc && ((acc.branchIds && acc.branchIds.includes(branchId)) || (acc.branchId === branchId));
     });
 
     if (staff.length === 0) {
@@ -603,7 +715,7 @@ window.renderBranchStaff = function(branchId) {
             <td>${acc.username}</td>
             <td><span class="badge ${acc.role === 'manager' ? 'badge-manager' : 'badge-staff'}">${acc.role === 'manager' ? 'Quản lý' : 'Nhân viên'}</span></td>
             <td>
-                <button class="btn-action edit" onclick="editAccount('${acc.username}')"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn-action edit" onclick="openEditModal('${acc.username}')"><i class="fa-solid fa-pen"></i></button>
                 <button class="btn-action delete" onclick="deleteAccount('${acc.username}')"><i class="fa-solid fa-trash"></i></button>
             </td>
         </tr>
@@ -6147,19 +6259,15 @@ window.renderICCreatorFilter = function() {
     const allAccounts = JSON.parse(localStorage.getItem('kv_accounts')) || [];
     const allInventoryChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
 
-    // 1. Lọc nhân viên thuộc chi nhánh hiện tại (Hoặc là Admin)
+    // ĐÃ SỬA: Thêm acc && để chống lỗi null object
     const validAccs = allAccounts.filter(acc => 
-        acc.username === 'admin' || 
+        acc && (acc.username === 'admin' || 
         (acc.branchIds && acc.branchIds.includes(currentBranch)) || 
-        (acc.branchId === currentBranch)
+        (acc.branchId === currentBranch))
     ).map(a => a.fullname);
 
-    // 2. Lọc người tạo từ các phiếu kiểm kho của chi nhánh hiện tại
     const validICs = allInventoryChecks.filter(ic => (ic.branchId || 'CN001') === currentBranch).map(ic => ic.creator);
-
-    // 3. Gộp lại và loại bỏ trùng lặp
     const uniqueCreators = [...new Set([...validAccs, ...validICs])].filter(Boolean);
-    
     const currentVal = select.value;
     
     let html = '<option value="">Tất cả người tạo</option>';
@@ -6168,13 +6276,17 @@ window.renderICCreatorFilter = function() {
     });
     
     select.innerHTML = html;
-    
-    if (currentVal && uniqueCreators.includes(currentVal)) {
-        select.value = currentVal;
-    }
+    if (currentVal && uniqueCreators.includes(currentVal)) select.value = currentVal;
 };
 
-window.initApp = function() {
+window.initApp = async function() {
+    console.log("🚀 Đang khởi động lõi lưu trữ siêu tốc (IndexedDB)...");
+    
+    // 3 lệnh phép thuật giúp nâng cấp hệ thống ngầm mà người dùng không hề hay biết
+    await window.migrateOldData(); // Kéo dữ liệu cũ sang nhà mới
+    await window.loadDBToRAM();    // Nạp dữ liệu vào RAM
+    window.reloadGlobalsFromRAM(); // Cập nhật lại các biến toàn cục cho giao diện
+
     console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ dữ liệu thời gian thực...");
 
     // 1. Cấu hình đồng bộ dữ liệu từ Firebase Cloud
@@ -6195,10 +6307,8 @@ window.initApp = function() {
             window.fbOnValue(dbRef, (snapshot) => {
                 const data = snapshot.val();
                 
-                // Chuyển đổi dữ liệu Cloud sang Mảng chuẩn (Trị lỗi lủng mảng do xóa)
                 let dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data).filter(Boolean)) : [];
                 
-                // XỬ LÝ ĐẶC BIỆT CHO TỪNG LOẠI DỮ LIỆU
                 if (item.path === 'products') {
                     if (!window.isSyncLocked) { 
                         dataArray.forEach(p => { if (!p.branchId) p.branchId = 'CN001'; });
@@ -6207,7 +6317,6 @@ window.initApp = function() {
                         if (typeof renderProductList === 'function') renderProductList();
                     }
                 } 
-                // [THÊM MỚI] CHẶN LỖI GHI ĐÈ HÓA ĐƠN / PHIẾU NHẬP / KIỂM KHO KHI ĐANG GIAO DỊCH
                 else if (item.path === 'invoices' || item.path === 'import_orders' || item.path === 'inventory_checks') {
                     if (!window.isSyncLocked) {
                         if (item.path === 'invoices') window.invoices = dataArray;
@@ -6217,40 +6326,30 @@ window.initApp = function() {
                     }
                 } 
                 else {
-                    // Các dữ liệu cấu hình khác (Nhóm hàng, Bảng giá, Chi nhánh...) cập nhật bình thường
                     localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                     if (item.path === 'pricebooks') window.priceBooks = dataArray;
                     if (item.path === 'groups') window.productGroups = dataArray;
                     if (item.path === 'branches') window.branches = dataArray;
                 }
                 
-                // ===============================================
-                // LOGIC BẢO MẬT: XỬ LÝ TÀI KHOẢN (ĐỔI MK / BỊ XÓA)
-                // ===============================================
                 if (item.path === 'accounts') {
                     window.accounts = dataArray;
-                    
-                    // Nếu máy đang có người đăng nhập, tiến hành kiểm tra bảo mật
                     if (typeof currentUser !== 'undefined' && currentUser) {
-                        // Tìm tài khoản này trong danh sách mới nhất từ Server
-                        const updatedMe = dataArray.find(acc => acc.username === currentUser.username);
-                        
+                        const updatedMe = dataArray.find(acc => acc && acc.username === currentUser.username);
                         if (!updatedMe) {
                             alert("Tài khoản của bạn đã bị xóa khỏi hệ thống. Vui lòng liên hệ Quản lý!");
                             if (typeof logout === 'function') logout();
-                        } 
-                        else if (updatedMe.password !== currentUser.password) {
+                        } else if (updatedMe.password !== currentUser.password) {
                             alert("Mật khẩu của bạn vừa được thay đổi. Vui lòng đăng nhập lại bằng mật khẩu mới!");
                             if (typeof logout === 'function') logout();
-                        } 
-                        else {
+                        } else {
                             currentUser = updatedMe;
                             localStorage.setItem('kv_current_user', JSON.stringify(currentUser));
                         }
                     }
                 }
 
-                // 2. CẬP NHẬT GIAO DIỆN SAU KHI DỮ LIỆU VỀ
+                // CẬP NHẬT GIAO DIỆN
                 const currentView = sessionStorage.getItem('kv_current_view');
                 const currentTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
 
@@ -6258,11 +6357,9 @@ window.initApp = function() {
                     if (item.path === 'products' && typeof renderPOSProducts === 'function') renderPOSProducts();
                     if (typeof renderPOSCart === 'function') renderPOSCart();
                 } else if (currentView === 'dashboard-view') {
-                    
-                    if (item.path === 'groups') {
-                        if (typeof window.renderGroupData === 'function') window.renderGroupData();
+                    if (item.path === 'groups' && typeof window.renderGroupData === 'function') {
+                        window.renderGroupData();
                     }
-
                     const tabMapping = {
                         'products': 'tab-danh-sach-hang',
                         'invoices': 'tab-hoa-don',
@@ -6270,7 +6367,6 @@ window.initApp = function() {
                         'inventory_checks': 'tab-kiem-kho',
                         'pricebooks': 'tab-thiet-lap-gia'
                     };
-
                     if (tabMapping[item.path] === currentTab || currentTab === 'tab-tong-quan') {
                         openDashTab(currentTab); 
                     }
@@ -6279,14 +6375,14 @@ window.initApp = function() {
         });
     }
 
-    // 3. KHÔI PHỤC PHIÊN ĐĂNG NHẬP VÀ GIAO DIỆN
+    // 3. KHÔI PHỤC PHIÊN ĐĂNG NHẬP
     const savedUser = localStorage.getItem('kv_current_user');
     const savedView = sessionStorage.getItem('kv_current_view'); 
     
     if (savedUser) {
         try {
             currentUser = JSON.parse(savedUser);
-            window.renderQuickBranchSwitcher();
+            if (typeof window.renderQuickBranchSwitcher === 'function') window.renderQuickBranchSwitcher();
             if (currentUser.branchId && !localStorage.getItem('kv_current_branch')) {
                 localStorage.setItem('kv_current_branch', currentUser.branchId); 
             }
@@ -6311,7 +6407,6 @@ window.initApp = function() {
                     dashView.style.display = 'flex';
                     const nameEl = document.getElementById('dash-user-name');
                     if (nameEl) nameEl.innerText = currentUser.fullname;
-                    
                     const lastTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
                     openDashTab(lastTab); 
                 }
@@ -6327,7 +6422,6 @@ window.initApp = function() {
         if (loginView) loginView.style.display = 'flex';
     }
     
-    // 4. Cập nhật các bộ lọc sau 1 giây
     setTimeout(() => {
         if (typeof renderICCreatorFilter === 'function') renderICCreatorFilter();
         if (typeof renderInvCreatorFilter === 'function') renderInvCreatorFilter();
@@ -6413,28 +6507,22 @@ window.renderInvCreatorFilter = function() {
     const allAccs = JSON.parse(localStorage.getItem('kv_accounts')) || [];
     const allInvs = JSON.parse(localStorage.getItem('kv_invoices')) || [];
     
-    // 1. Lọc nhân viên thuộc chi nhánh hiện tại
+    // ĐÃ SỬA: Thêm acc && để chống lỗi null object
     const validAccs = allAccs.filter(acc => 
-        acc.username === 'admin' || 
+        acc && (acc.username === 'admin' || 
         (acc.branchIds && acc.branchIds.includes(currentBranch)) || 
-        (acc.branchId === currentBranch)
+        (acc.branchId === currentBranch))
     ).map(a => a.fullname);
 
-    // 2. Lọc người bán từ các hóa đơn của chi nhánh hiện tại
     const validInvs = allInvs.filter(inv => (inv.branchId || 'CN001') === currentBranch).map(i => i.creator);
-    
-    // 3. Gộp lại
     const names = [...new Set([...validAccs, ...validInvs])].filter(Boolean);
-    
     const currentVal = select.value;
     
     let html = '<option value="">Tất cả người bán</option>';
     names.sort().forEach(n => { if(n !== "1") html += `<option value="${n}">${n}</option>`; });
     select.innerHTML = html;
 
-    if (currentVal && names.includes(currentVal)) {
-        select.value = currentVal;
-    }
+    if (currentVal && names.includes(currentVal)) select.value = currentVal;
 };
 window.toggleImpDateFilter = function() {
     const type = document.querySelector('input[name="imp-date-type"]:checked').value;
@@ -6464,28 +6552,22 @@ window.renderImpCreatorFilter = function() {
     const allAccs = JSON.parse(localStorage.getItem('kv_accounts')) || [];
     const allImps = JSON.parse(localStorage.getItem('kv_import_orders')) || [];
     
-    // 1. Lọc nhân viên thuộc chi nhánh hiện tại (Hoặc là Admin)
+    // ĐÃ SỬA: Thêm acc && để chống lỗi null object
     const validAccs = allAccs.filter(acc => 
-        acc.username === 'admin' || 
+        acc && (acc.username === 'admin' || 
         (acc.branchIds && acc.branchIds.includes(currentBranch)) || 
-        (acc.branchId === currentBranch)
+        (acc.branchId === currentBranch))
     ).map(a => a.fullname);
 
-    // 2. Lọc người tạo từ các phiếu nhập của chi nhánh hiện tại
     const validImps = allImps.filter(imp => (imp.branchId || 'CN001') === currentBranch).map(i => i.creator);
-    
-    // 3. Gộp lại và loại bỏ trùng lặp
     const names = [...new Set([...validAccs, ...validImps])].filter(Boolean);
-    
-    const currentVal = select.value; // Giữ lại giá trị đang chọn
+    const currentVal = select.value; 
     
     let html = '<option value="">Tất cả người tạo</option>';
     names.sort().forEach(n => { if(n !== "1") html += `<option value="${n}">${n}</option>`; });
     select.innerHTML = html;
 
-    if (currentVal && names.includes(currentVal)) {
-        select.value = currentVal;
-    }
+    if (currentVal && names.includes(currentVal)) select.value = currentVal;
 };
 // ==========================================
 // TÍNH NĂNG CẬP NHẬT HÀNG LOẠT (CÓ SỬA SONG SONG)
@@ -7179,7 +7261,7 @@ window.alert = function(msg) {
 window.showConfirm = function(message, callback) {
     // Tạo phần tử modal
     const modalHtml = `
-    <div id="custom-confirm" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+    <div id="custom-confirm" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100005;">
         <div style="background: white; width: 400px; border-radius: 8px; overflow: hidden; box-shadow: 0 5px 20px rgba(0,0,0,0.3); animation: slideDown 0.2s ease-out;">
             <div style="padding: 20px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 15px;">
                 <i class="fa-solid fa-circle-question" style="font-size: 30px; color: #f8bb86;"></i>
@@ -8564,110 +8646,117 @@ window.clearProductsAndPricesByBranch = function() {
 // TÍNH NĂNG ADMIN: SAO CHÉP HÀNG HÓA GIỮA CÁC CHI NHÁNH
 // ==========================================
 window.openCopyBranchModal = function() {
-    const branches = JSON.parse(localStorage.getItem('kv_branches')) || [{ id: 'CN001', name: 'Chi nhánh 1' }];
-    const sourceSelect = document.getElementById('copy-source-branch');
-    const targetSelect = document.getElementById('copy-target-branch');
+    const branches = JSON.parse(localStorage.getItem('kv_branches')) || [];
     
-    let optionsHtml = '';
+    if (branches.length < 2) {
+        showToast("Bạn cần có ít nhất 2 chi nhánh để thực hiện sao chép!", "warning");
+        return;
+    }
+
+    let optionsHtml = '<option value="">-- Chọn chi nhánh --</option>';
     branches.forEach(b => {
-        optionsHtml += `<option value="${b.id}">${b.name} (${b.id})</option>`;
+        optionsHtml += `<option value="${b.id}">${b.name}</option>`;
     });
-    
-    if (sourceSelect) sourceSelect.innerHTML = optionsHtml;
-    if (targetSelect) targetSelect.innerHTML = optionsHtml;
-    
-    const modal = document.getElementById('copy-branch-modal');
-    if (modal) modal.style.display = 'flex';
+
+    document.getElementById('copy-source-branch').innerHTML = optionsHtml;
+    document.getElementById('copy-target-branch').innerHTML = optionsHtml;
+    document.getElementById('copy-keep-stock').checked = false; // Mặc định không chép tồn kho
+
+    document.getElementById('copy-branch-modal').style.display = 'flex';
 };
 
 window.closeCopyBranchModal = function() {
-    const modal = document.getElementById('copy-branch-modal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('copy-branch-modal').style.display = 'none';
 };
 
 window.processCopyBranch = function() {
     const sourceId = document.getElementById('copy-source-branch').value;
     const targetId = document.getElementById('copy-target-branch').value;
     const keepStock = document.getElementById('copy-keep-stock').checked;
-    
-    if (sourceId === targetId) {
-        showToast("Chi nhánh nguồn và đích không được giống nhau!", "warning");
+
+    if (!sourceId || !targetId) {
+        showToast("Vui lòng chọn đầy đủ chi nhánh Nguồn và Đích!", "warning");
         return;
     }
     
-    showConfirm(`Bạn có chắc muốn nhân bản toàn bộ danh mục từ <b>${sourceId}</b> sang <b>${targetId}</b>?<br><br>Hệ thống sẽ sao chép: <b>Tên hàng, Đơn vị tính, Giá bán, Giá vốn và các Bảng giá đa cột</b>.`, function() {
-        
+    if (sourceId === targetId) {
+        showToast("Chi nhánh Nguồn và Đích không được trùng nhau!", "error");
+        return;
+    }
+
+    showConfirm("Bạn có chắc chắn muốn nhân bản toàn bộ hàng hóa sang chi nhánh mới? Quá trình này không thể hoàn tác.", function() {
         let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
         let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
-        
-        // 1. Lọc ra các sản phẩm thuộc chi nhánh nguồn
+
+        // Lọc lấy danh sách hàng hóa của chi nhánh Nguồn
         const sourceProducts = allProducts.filter(p => (p.branchId || 'CN001') === sourceId);
-        
+
         if (sourceProducts.length === 0) {
-            showToast("Chi nhánh nguồn không có mặt hàng nào để sao chép!", "warning");
+            showToast("Chi nhánh nguồn không có mặt hàng nào để sao chép!", "error");
             return;
         }
-        
+
         let newProducts = [];
-        let idMapping = {}; // Biến này dùng để đối chiếu ID cũ và ID mới (Phục vụ cho Bảng giá)
-        
-        // 2. Chép Hàng hóa và Đơn vị tính
+        let isPriceBookChanged = false;
+
         sourceProducts.forEach((p, index) => {
-            // Tạo một bản sao hoàn toàn tách biệt khỏi bản cũ (Deep Copy)
+            // Deep copy để tách biệt hoàn toàn dữ liệu
             let newP = JSON.parse(JSON.stringify(p));
-            
-            // Tạo ID mới độc lập
+
+            // Tạo ID mới (Thêm index để đảm bảo vòng lặp chạy nhanh không bị trùng ID)
+            const oldId = p.id;
             const newId = 'PROD' + Date.now() + '_' + index;
-            idMapping[p.id] = newId; 
-            
+
             newP.id = newId;
-            newP.branchId = targetId; // Chuyển quyền sở hữu sang chi nhánh đích
-            
-            // Xử lý tồn kho
+            newP.branchId = targetId;
+
+            // Xử lý tồn kho theo Checkbox
             if (!keepStock) {
-                newP.stock = 0; 
+                newP.stock = 0;
             }
-            
+
             newProducts.push(newP);
-        });
-        
-        // 3. Xử lý "Bảng giá đa cột": Chép giá của ID cũ sang ID mới
-        allPriceBooks.forEach(pb => {
-            if (!pb.prices) return;
-            
-            // Lặp qua tất cả giá cũ của bảng giá này
-            Object.keys(pb.prices).forEach(oldKey => {
-                // Key của bảng giá có dạng: "PROD123" hoặc "PROD123_0" (Đơn vị tính)
-                for (let oldId in idMapping) {
-                    if (oldKey === oldId || oldKey.startsWith(oldId + '_')) {
-                        const newKey = oldKey.replace(oldId, idMapping[oldId]);
-                        pb.prices[newKey] = pb.prices[oldKey]; // Gán mức giá tương tự cho mã hàng mới
-                    }
+
+            // Sao chép luôn các thiết lập giá đa cột (nếu có)
+            allPriceBooks.forEach(pb => {
+                if (pb.prices) {
+                    Object.keys(pb.prices).forEach(key => {
+                        // Tìm các giá trị khớp với ID cũ hoặc ID cũ + Đơn vị tính (VD: PROD123_1)
+                        if (key === oldId || key.startsWith(oldId + '_')) {
+                            const newKey = key.replace(oldId, newId);
+                            pb.prices[newKey] = pb.prices[key];
+                            isPriceBookChanged = true;
+                        }
+                    });
                 }
             });
         });
-        
-        // 4. Gộp hàng cũ và hàng mới vào hệ thống
-        allProducts = [...allProducts, ...newProducts];
-        
-        // 5. Lưu dữ liệu
+
+        // Gộp hàng hóa mới vào mảng hệ thống (Đưa lên đầu danh sách)
+        allProducts = [...newProducts, ...allProducts];
+
+        // Lưu vào LocalStorage
         localStorage.setItem('kv_products', JSON.stringify(allProducts));
-        localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
-        
         window.products = allProducts;
-        window.priceBooks = allPriceBooks;
         
-        // 6. Đồng bộ lên Firebase Cloud
+        if (isPriceBookChanged) {
+            localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
+            window.priceBooks = allPriceBooks;
+        }
+
+        // Đồng bộ lên Firebase Cloud
         if (typeof window.uploadToCloud === 'function') {
             window.uploadToCloud('products', allProducts);
-            window.uploadToCloud('pricebooks', allPriceBooks);
+            if (isPriceBookChanged) window.uploadToCloud('pricebooks', allPriceBooks);
         }
-        
+
         closeCopyBranchModal();
-        showToast(`Đã sao chép thành công ${newProducts.length} mặt hàng sang chi nhánh đích!`, "success");
-        
-        // Cập nhật lại màn hình Admin để thấy số đếm tăng lên
-        if (typeof renderBranchList === 'function') renderBranchList();
+        showToast(`Tuyệt vời! Đã sao chép thành công ${newProducts.length} mặt hàng.`, "success");
+
+        // Cập nhật lại giao diện đếm số lượng ngoài trang Admin (nếu đang ở trang đó)
+        if (typeof renderBranchList === 'function') {
+            renderBranchList();
+        }
     });
 };
 // ==========================================
