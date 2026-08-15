@@ -1165,9 +1165,12 @@
                     </div>
                 </div>
                 
-                <div class="pos-checkout-wrapper">
-                    <button class="pos-checkout-btn" onclick="processCheckout()">THANH TOÁN (F9)</button>
-                </div>
+<div class="pos-checkout-wrapper" style="display: flex; gap: 10px;">
+    <button onclick="printTemporaryReceipt()" style="flex: 1; background: white; color: var(--kv-blue); border: 2px solid var(--kv-blue); padding: 15px; font-size: 15px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='var(--kv-blue)'; this.style.color='white'" onmouseout="this.style.background='white'; this.style.color='var(--kv-blue)'">
+        <i class="fa-solid fa-print"></i> IN TẠM
+    </button>
+    <button class="pos-checkout-btn" onclick="processCheckout()" style="flex: 2;">THANH TOÁN (F9)</button>
+</div>
             </div>
         </div>
     </div>
