@@ -1575,23 +1575,21 @@ window.saveProduct = function() {
         // --- SỬA HÀNG HÓA CÓ SẴN ---
         const idx = allProducts.findIndex(p => p.id === editingProductId);
         if (idx !== -1) {
-            let oldPrice = 0;
-            if (allProducts[idx].units && allProducts[idx].units.length > 0) {
-                oldPrice = allProducts[idx].units[0].price || 0;
-            } else {
-                oldPrice = allProducts[idx].price || 0;
-            }
-            const priceDiff = price - oldPrice;
+            // 1. Lấy danh sách đơn vị tính cũ để so sánh trước khi ghi đè
+            const oldUnits = JSON.parse(JSON.stringify(allProducts[idx].units || []));
+            const oldBasePrice = allProducts[idx].price || 0; // Dự phòng cho dữ liệu cũ
 
+            // 2. Cập nhật thông tin cơ bản
             allProducts[idx].name = name;
             allProducts[idx].price = price;
             allProducts[idx].cost = cost;
             allProducts[idx].stock = stock;
-            allProducts[idx].group = document.getElementById('pm-group').value; // Đã fix lưu nhóm
+            allProducts[idx].group = document.getElementById('pm-group').value;
             allProducts[idx].code = code;
             allProducts[idx].barcode = barcode;
-            allProducts[idx].isCombo = isCombo; // Ghi nhận cờ Combo khi sửa
+            allProducts[idx].isCombo = isCombo;
 
+            // 3. Xử lý ghi nhận mảng đơn vị tính mới
             if (currentProductUnits && currentProductUnits.length > 0) {
                 currentProductUnits[0].price = price;
                 currentProductUnits[0].code = code;
@@ -1605,19 +1603,44 @@ window.saveProduct = function() {
                 allProducts[idx].units = [{ name: 'Cái', rate: 1, price: price, code: code, barcode: barcode, isBase: true }];
             }
 
-            // Tự động tính chênh lệch bảng giá phụ cho đơn vị cơ bản
-            if (priceDiff !== 0) {
-                allPriceBooks.forEach(pb => {
-                    if (pb.prices) {
-                        const exactKey = `${editingProductId}_0`;
-                        if (pb.prices[exactKey] !== undefined) {
-                            pb.prices[exactKey] += priceDiff;
-                            if (pb.prices[exactKey] < 0) pb.prices[exactKey] = 0;
-                            isPriceBookChanged = true;
+            // 4. LOGIC MỚI: Tính chênh lệch giá cho TẤT CẢ các đơn vị tính
+            const newUnits = allProducts[idx].units;
+            newUnits.forEach((newUnit, uIdx) => {
+                let oldUnitPrice = 0;
+                
+                // Xác định giá cũ của đơn vị tính này
+                if (oldUnits[uIdx] !== undefined) {
+                    oldUnitPrice = oldUnits[uIdx].price || 0;
+                } else if (uIdx === 0 && oldUnits.length === 0) {
+                    oldUnitPrice = oldBasePrice; 
+                } else {
+                    return; // Nếu đây là đơn vị mới thêm vào, bỏ qua việc tính chênh lệch cũ
+                }
+
+                const priceDiff = newUnit.price - oldUnitPrice;
+
+                // Tự động cộng/trừ chênh lệch vào các bảng giá phụ
+                if (priceDiff !== 0) {
+                    allPriceBooks.forEach(pb => {
+                        if (pb.prices) {
+                            // Cập nhật cho key chính xác (Ví dụ: SP01_0, SP01_1)
+                            const exactKey = `${editingProductId}_${uIdx}`;
+                            if (pb.prices[exactKey] !== undefined) {
+                                pb.prices[exactKey] += priceDiff;
+                                if (pb.prices[exactKey] < 0) pb.prices[exactKey] = 0; // Không cho âm
+                                isPriceBookChanged = true;
+                            }
+                            
+                            // Hỗ trợ tương thích ngược: Cập nhật cho key không có hậu tố (Ví dụ: SP01)
+                            if (uIdx === 0 && pb.prices[editingProductId] !== undefined) {
+                                pb.prices[editingProductId] += priceDiff;
+                                if (pb.prices[editingProductId] < 0) pb.prices[editingProductId] = 0;
+                                isPriceBookChanged = true;
+                            }
                         }
-                    }
-                });
-            }
+                    });
+                }
+            });
         }
     } else {
         // --- THÊM HÀNG HÓA MỚI ---
@@ -4311,36 +4334,47 @@ window.renderPOSCart = function() {
                 <input type="checkbox" ${item.isIce ? 'checked' : ''} onchange="toggleBeerIce(${index}, this.checked)" style="width: 17px; height: 17px; cursor: pointer; accent-color: #00bcd4;">
             </div>` : '';
 
-        return `
+return `
         <div class="cart-item-row" style="display: flex; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f4f4f4; font-size: 14px;">
-            <div style="width: 35px; text-align:center; color: #aaa; font-size: 12px;">${index + 1}</div>
+            
+            <!-- 1. CỘT STT Ở ĐẦU TIÊN -->
+            <div style="width: 35px; text-align:center; color: #888; font-size: 13px; font-weight: bold;">${index + 1}</div>
+
+            <!-- 2. NÚT XÓA Ở BÊN PHẢI STT -->
+            <div style="width: 45px; text-align: center;">
+                <div onclick="window.removePOSItem(${index})" style="width: 32px; height: 32px; margin: 0 auto; background: #fff0f0; color: #d9534f; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; border: 1px solid #ffd6d6;" onmouseover="this.style.background='#ffe0e0'; this.style.borderColor='#ffb3b3';" onmouseout="this.style.background='#fff0f0'; this.style.borderColor='#ffd6d6';" title="Xóa khỏi hóa đơn">
+                    <i class="fa-solid fa-trash-can" style="font-size: 14px;"></i>
+                </div>
+            </div>
+            
+            <!-- 3. TÍNH TIỀN LẠNH -->
             ${iceCheckboxHtml}
-<div style="flex: 1; min-width: 0; padding-right: 10px;">
+            
+            <!-- 4. THÔNG TIN HÀNG HÓA -->
+            <div style="flex: 1; min-width: 0; padding-right: 10px;">
                 <div style="color: var(--kv-pink); font-weight: 600; font-size: 13px;">${item.code}</div>
-                
-                <!-- ĐÃ TĂNG KÍCH THƯỚC CHỮ LÊN 16PX VÀ IN ĐẬM RÕ NÉT HƠN -->
                 <div style="font-weight: bold; font-size: 16px; color: #111; margin-top: 4px; margin-bottom: 4px;">
                     ${item.name} ${item.isIce ? '<i class="fa-solid fa-snowflake" style="color: #00bcd4; font-size: 14px;"></i>' : ''}
                 </div>
-                
-                <!-- Tăng nhẹ cỡ chữ tồn kho cho cân đối -->
                 <div style="font-size: 12px; color:#888;">Tồn chi nhánh: ${currentStock}</div>
             </div>
-            <div style="width: 90px;"><select onchange="updatePOSUnit(${index}, this.value)" style="width: 100%; border: 1px solid #eee; padding: 5px; border-radius: 4px;">${unitOptions}</select></div>
+            
+            <div style="width: 90px;">
+                <select onchange="updatePOSUnit(${index}, this.value)" style="width: 100%; border: 1px solid #eee; padding: 5px; border-radius: 4px; outline: none; cursor: pointer;">
+                    ${unitOptions}
+                </select>
+            </div>
+            
             <div style="width: 100px; display: flex; align-items: center; justify-content: center;">
                 <button type="button" onclick="window.updatePOSQty(${index}, ${item.qty - 1})" style="width: 28px; height: 30px; border: 1px solid #ddd; background: #fdfdfd; border-radius: 4px 0 0 4px; cursor: pointer; color: #555; font-weight: bold; border-right: none; font-size: 16px;">-</button>
-                
                 <input type="text" value="${item.qty}" class="pos-qty-input" 
                     oninput="this.value = this.value.replace(/[^0-9]/g, ''); window.updatePOSQty(${index}, this.value, true)" 
                     style="width: 44px; height: 30px; text-align: center; border: 1px solid #ddd; padding: 0; font-weight: bold; outline: none; border-radius: 0; font-size: 14px; box-sizing: border-box;">
-                
                 <button type="button" onclick="window.updatePOSQty(${index}, ${item.qty + 1})" style="width: 28px; height: 30px; border: 1px solid #ddd; background: #fdfdfd; border-radius: 0 4px 4px 0; cursor: pointer; color: #555; font-weight: bold; border-left: none; font-size: 14px;">+</button>
             </div>
-            <div style="width: 110px; text-align: right;">${item.price.toLocaleString('vi-VN')}</div>
             
-            <div id="pos-row-total-${index}" style="width: 110px; text-align: right; font-weight: bold; color: var(--kv-blue);">${rowTotal.toLocaleString('vi-VN')}</div>
-            
-            <div style="width: 35px; text-align: right;"><i class="fa-solid fa-trash-can" style="color: #ccc; cursor: pointer;" onclick="window.removePOSItem(${index})"></i></div>
+            <div style="width: 120px; text-align: right; font-weight: 500; color: #333;">${item.price.toLocaleString('vi-VN')}</div>
+            <div id="pos-row-total-${index}" style="width: 120px; text-align: right; font-weight: bold; color: var(--kv-blue); font-size: 15px;">${rowTotal.toLocaleString('vi-VN')}</div>
         </div>`;
     }).join('');
 
