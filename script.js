@@ -4600,17 +4600,17 @@ window.processCheckout = function() {
     localStorage.setItem('kv_products', JSON.stringify(latestProds));
     localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
 
-    // KIỂM TRA MẠNG TRƯỚC KHI ĐẨY LÊN CLOUD
+// KIỂM TRA MẠNG TRƯỚC KHI ĐẨY LÊN CLOUD
     if (navigator.onLine) {
         if (typeof window.uploadToCloud === 'function') {
             window.uploadToCloud('invoices', allInvoices);
             window.uploadToCloud('products', latestProds);
         }
     } else {
-        // NẾU OFFLINE: Đưa vào hàng đợi để chờ đồng bộ
-        let pending = JSON.parse(localStorage.getItem('kv_pending_invoices')) || [];
-        pending.push(newInvoice.id);
-        localStorage.setItem('kv_pending_invoices', JSON.stringify(pending));
+        // NẾU OFFLINE: Lưu TOÀN BỘ thông tin hóa đơn vào hàng đợi (Thay vì chỉ lưu ID)
+        let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
+        pendingData.push(newInvoice); // Nhét nguyên cục hóa đơn vào
+        localStorage.setItem('kv_pending_invoices_data', JSON.stringify(pendingData));
         
         showToast("Mất mạng! Hóa đơn đã được lưu an toàn vào máy.", "warning");
     }
@@ -9891,28 +9891,47 @@ window.printTemporaryReceipt = function() {
     window.printReceipt(tempInvoice);
 };
 // ==========================================
-// TÍNH NĂNG ĐỒNG BỘ TỰ ĐỘNG KHI CÓ WIFI LẠI
+// TÍNH NĂNG ĐỒNG BỘ TỰ ĐỘNG (GỘP DỮ LIỆU KHÔNG XUNG ĐỘT)
 // ==========================================
 window.syncOfflineData = function() {
     if (!navigator.onLine) return;
     
-    let pendingInvoices = JSON.parse(localStorage.getItem('kv_pending_invoices')) || [];
+    // Lấy các hóa đơn offline ra
+    let pendingInvoices = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
     
     if (pendingInvoices.length > 0) {
         window.isSyncLocked = true; // Khóa an toàn 
         
-        let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
-        let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+        // 1. Lấy dữ liệu MỚI NHẤT vừa được Firebase tự động tải về từ máy tính
+        let latestInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
+        let latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
         
+        // 2. Tiến hành GỘP (Nhồi hóa đơn offline của điện thoại vào dữ liệu của máy tính)
+        pendingInvoices.forEach(offlineInv => {
+            // Kiểm tra xem hóa đơn này đã tồn tại chưa để tránh bị nhân đôi
+            if (!latestInvoices.some(inv => inv.id === offlineInv.id)) {
+                latestInvoices.unshift(offlineInv);
+                
+                // Trừ lại tồn kho của điện thoại trên nền dữ liệu tồn kho mới nhất của máy tính
+                offlineInv.items.forEach(cartItem => {
+                    const prod = latestProducts.find(p => p.id === cartItem.productId);
+                    if (prod) {
+                        const rate = cartItem.units[cartItem.selectedUnitIdx]?.rate || 1;
+                        prod.stock -= (cartItem.qty * rate);
+                    }
+                });
+            }
+        });
+        
+        // 3. Đẩy dữ liệu đã gộp hoàn chỉnh lên lại Cloud
         if (typeof window.uploadToCloud === 'function') {
-            // Đẩy toàn bộ hóa đơn và tồn kho offline lên Cloud
-            window.uploadToCloud('invoices', allInvoices);
-            window.uploadToCloud('products', allProducts);
+            window.uploadToCloud('invoices', latestInvoices);
+            window.uploadToCloud('products', latestProducts);
             
             showToast(`Đã đồng bộ thành công ${pendingInvoices.length} hóa đơn bán Offline!`, "success");
             
-            // Xóa hàng đợi để Firebase hoạt động bình thường trở lại
-            localStorage.removeItem('kv_pending_invoices'); 
+            // Xóa hàng đợi
+            localStorage.removeItem('kv_pending_invoices_data'); 
         }
         
         setTimeout(() => { window.isSyncLocked = false; }, 3000);
@@ -9921,10 +9940,13 @@ window.syncOfflineData = function() {
 
 // Lắng nghe sự kiện trình duyệt có mạng trở lại
 window.addEventListener('online', function() {
-    let pendingInvoices = JSON.parse(localStorage.getItem('kv_pending_invoices')) || [];
+    let pendingInvoices = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
     if (pendingInvoices.length > 0) {
-        showToast("Đã có mạng trở lại! Đang đồng bộ hóa đơn offline...", "info");
-        // Đợi 2 giây cho kết nối mạng thật sự ổn định rồi mới đẩy
-        setTimeout(window.syncOfflineData, 2000);
+        showToast("Có mạng lại! Đang tải dữ liệu từ máy khác về để gộp...", "info");
+        
+        // ĐIỂM QUAN TRỌNG NHẤT: Bắt buộc đợi 4 giây. 
+        // 4 giây này là để Firebase tự động kéo hóa đơn của máy tính về điện thoại xong xuôi, 
+        // sau đó điện thoại mới bắt đầu gộp hóa đơn offline của nó vào và đẩy lên.
+        setTimeout(window.syncOfflineData, 4000);
     }
 });
