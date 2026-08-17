@@ -1785,14 +1785,35 @@
         </div>
     </div>
 </div>
-<!-- KÍCH HOẠT CHẾ ĐỘ OFFLINE BẰNG SERVICE WORKER -->
+<!-- KÍCH HOẠT CHẾ ĐỘ OFFLINE & TỰ ĐỘNG CẬP NHẬT -->
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
             navigator.serviceWorker.register('./sw.js').then(function(registration) {
-                console.log('✅ Chế độ Offline đã được kích hoạt thành công (Scope: ', registration.scope, ')');
-            }, function(err) {
-                console.log('❌ Lỗi kích hoạt chế độ Offline: ', err);
+                console.log('✅ Chế độ Offline hoạt động.');
+
+                // Lắng nghe sự kiện khi có phiên bản Service Worker mới được phát hiện
+                registration.addEventListener('updatefound', () => {
+                    const newWorker = registration.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        // Nếu bản mới đã tải và cài đặt xong ngầm bên trong
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            
+                            // Hiện thông báo cho người dùng biết
+                            if (typeof showToast === 'function') {
+                                showToast("Đã tải xong bản cập nhật mới! Đang khởi động lại hệ thống...", "info");
+                            }
+                            
+                            // Đợi 2 giây cho Toast hiện rõ rồi tự động tải lại trang để áp dụng code mới
+                            setTimeout(() => {
+                                window.location.reload(true);
+                            }, 2000);
+                        }
+                    });
+                });
+
+            }).catch(function(err) {
+                console.log('❌ Lỗi kích hoạt Offline: ', err);
             });
         });
     }
