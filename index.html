@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>226 POS - Hệ Thống Quản Lý & Bán Hàng</title>
+    <!-- KÍCH HOẠT PWA TRÊN ĐIỆN THOẠI -->
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#d41a73">
+    
+    <!-- HỖ TRỢ RIÊNG CHO IOS/SAFARI -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="226 POS">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3081/3081840.png">
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -1776,7 +1785,18 @@
         </div>
     </div>
 </div>
-
+<!-- KÍCH HOẠT CHẾ ĐỘ OFFLINE BẰNG SERVICE WORKER -->
+<script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+            navigator.serviceWorker.register('./sw.js').then(function(registration) {
+                console.log('✅ Chế độ Offline đã được kích hoạt thành công (Scope: ', registration.scope, ')');
+            }, function(err) {
+                console.log('❌ Lỗi kích hoạt chế độ Offline: ', err);
+            });
+        });
+    }
+</script>
 <script type="module">
     // 1. Nhập các thư viện cần thiết từ CDN của Firebase
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
