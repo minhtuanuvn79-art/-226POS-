@@ -224,6 +224,9 @@
         <div class="kv-topbar">
             <div class="kv-logo-small"><i class="fa-solid fa-store"></i> 226 <span>POS</span></div>
 <div class="topbar-right">
+    <div id="dash-offline-indicator" class="offline-indicator" style="display:none;" onclick="syncOfflineData()" title="Có đơn hàng chưa đồng bộ. Bấm để thử lại.">
+        <i class="fa-solid fa-cloud-arrow-up"></i> <span class="offline-count">0</span>
+    </div>
     <!-- GIAO DIỆN CHỌN CHI NHÁNH HIỆN ĐẠI (DASHBOARD) -->
     <div class="kv-branch-selector" id="dash-branch-selector" style="display: none;">
         <div class="branch-trigger" onclick="toggleBranchDropdown('dash-branch-dropdown')">
@@ -1062,6 +1065,9 @@
             </div>
             
 <div class="pos-header-right">
+    <div id="pos-offline-indicator" class="offline-indicator" style="display:none;" onclick="syncOfflineData()" title="Có đơn hàng chưa đồng bộ. Bấm để thử lại.">
+        <i class="fa-solid fa-cloud-arrow-up"></i> <span class="offline-count">0</span>
+    </div>
     <!-- GIAO DIỆN CHỌN CHI NHÁNH HIỆN ĐẠI (POS) -->
     <div class="kv-branch-selector pos-branch-selector" id="pos-branch-selector" style="display: none; margin-right: 15px;">
         <div class="branch-trigger" onclick="toggleBranchDropdown('pos-branch-dropdown')">

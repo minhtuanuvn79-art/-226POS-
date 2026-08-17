@@ -9950,3 +9950,22 @@ window.addEventListener('online', function() {
         setTimeout(window.syncOfflineData, 4000);
     }
 });
+// Hàm kiểm tra và cập nhật giao diện nút cảnh báo Offline
+window.updateOfflineIndicator = function() {
+    // Đọc số lượng đơn đang chờ trong ổ cứng
+    const pendingInvoices = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
+    const count = pendingInvoices.length;
+
+    const dashInd = document.getElementById('dash-offline-indicator');
+    const posInd = document.getElementById('pos-offline-indicator');
+
+    // Nếu có đơn bị kẹt -> Hiện nút và đếm số
+    if (count > 0) {
+        if (dashInd) { dashInd.style.display = 'flex'; dashInd.querySelector('.offline-count').innerText = count; }
+        if (posInd) { posInd.style.display = 'flex'; posInd.querySelector('.offline-count').innerText = count; }
+    } else {
+        // Nếu không có đơn kẹt -> Ẩn đi
+        if (dashInd) dashInd.style.display = 'none';
+        if (posInd) posInd.style.display = 'none';
+    }
+};
