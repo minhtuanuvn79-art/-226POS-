@@ -9894,48 +9894,48 @@ window.printTemporaryReceipt = function() {
 // TÍNH NĂNG ĐỒNG BỘ TỰ ĐỘNG (GỘP DỮ LIỆU KHÔNG XUNG ĐỘT)
 // ==========================================
 window.syncOfflineData = function() {
-    if (!navigator.onLine) return;
-    
-    // Lấy các hóa đơn offline ra
-    let pendingInvoices = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
-    
-    if (pendingInvoices.length > 0) {
-        window.isSyncLocked = true; // Khóa an toàn 
-        
-        // 1. Lấy dữ liệu MỚI NHẤT vừa được Firebase tự động tải về từ máy tính
-        let latestInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
-        let latestProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
-        
-        // 2. Tiến hành GỘP (Nhồi hóa đơn offline của điện thoại vào dữ liệu của máy tính)
-        pendingInvoices.forEach(offlineInv => {
-            // Kiểm tra xem hóa đơn này đã tồn tại chưa để tránh bị nhân đôi
-            if (!latestInvoices.some(inv => inv.id === offlineInv.id)) {
-                latestInvoices.unshift(offlineInv);
-                
-                // Trừ lại tồn kho của điện thoại trên nền dữ liệu tồn kho mới nhất của máy tính
-                offlineInv.items.forEach(cartItem => {
-                    const prod = latestProducts.find(p => p.id === cartItem.productId);
-                    if (prod) {
-                        const rate = cartItem.units[cartItem.selectedUnitIdx]?.rate || 1;
-                        prod.stock -= (cartItem.qty * rate);
-                    }
-                });
-            }
-        });
-        
-        // 3. Đẩy dữ liệu đã gộp hoàn chỉnh lên lại Cloud
-        if (typeof window.uploadToCloud === 'function') {
-            window.uploadToCloud('invoices', latestInvoices);
-            window.uploadToCloud('products', latestProducts);
-            
-            showToast(`Đã đồng bộ thành công ${pendingInvoices.length} hóa đơn bán Offline!`, "success");
-            
-            // Xóa hàng đợi
-            localStorage.removeItem('kv_pending_invoices_data'); 
+    // Kiểm tra xem đã kết nối mạng chưa
+    if (!navigator.onLine) {
+        if (typeof showToast === 'function') {
+            showToast("Vẫn chưa có mạng (WiFi/4G)! Vui lòng kiểm tra lại.", "error");
+        } else {
+            alert("Vẫn chưa có mạng (WiFi/4G)! Vui lòng kiểm tra lại.");
         }
-        
-        setTimeout(() => { window.isSyncLocked = false; }, 3000);
+        return;
     }
+
+    // Kiểm tra xem có dữ liệu cần đồng bộ không
+    const pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
+    if (pendingData.length === 0) {
+        window.updateOfflineIndicator(); // Chắc chắn nút được ẩn
+        return;
+    }
+
+    if (typeof showToast === 'function') {
+        showToast(`Đang đồng bộ ${pendingData.length} hóa đơn lên hệ thống...`, "info");
+    }
+
+    // 1. Lấy dữ liệu tổng mới nhất từ máy (Các đơn này đã nằm sẵn trong kho tổng lúc thanh toán)
+    const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
+    const allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+
+    // 2. Bơm toàn bộ lên hệ thống Cloud Firebase
+    if (typeof window.uploadToCloud === 'function') {
+        window.uploadToCloud('invoices', allInvoices);
+        window.uploadToCloud('products', allProducts);
+    }
+
+    // 3. Xóa sổ danh sách chờ sau khi đã đẩy thành công
+    localStorage.removeItem('kv_pending_invoices_data');
+
+    // 4. Báo cáo thành công và cập nhật ẩn nút đi
+    if (typeof showToast === 'function') {
+        showToast(`Đã đồng bộ thành công ${pendingData.length} hóa đơn offline!`, "success");
+    } else {
+        alert(`Đã đồng bộ thành công ${pendingData.length} hóa đơn offline!`);
+    }
+
+    window.updateOfflineIndicator();
 };
 
 // Lắng nghe sự kiện trình duyệt có mạng trở lại
@@ -9950,22 +9950,43 @@ window.addEventListener('online', function() {
         setTimeout(window.syncOfflineData, 4000);
     }
 });
-// Hàm kiểm tra và cập nhật giao diện nút cảnh báo Offline
+// ==========================================
+// TÍNH NĂNG: ĐỒNG BỘ HÓA ĐƠN OFFLINE THỦ CÔNG
+// ==========================================
+
 window.updateOfflineIndicator = function() {
-    // Đọc số lượng đơn đang chờ trong ổ cứng
-    const pendingInvoices = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
-    const count = pendingInvoices.length;
+    // Đọc danh sách hóa đơn đang đợi đồng bộ
+    const pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
+    const count = pendingData.length;
 
-    const dashInd = document.getElementById('dash-offline-indicator');
-    const posInd = document.getElementById('pos-offline-indicator');
+    // Lấy các nút bấm trên giao diện
+    const dashIndicator = document.getElementById('dash-offline-indicator');
+    const posIndicator = document.getElementById('pos-offline-indicator');
 
-    // Nếu có đơn bị kẹt -> Hiện nút và đếm số
     if (count > 0) {
-        if (dashInd) { dashInd.style.display = 'flex'; dashInd.querySelector('.offline-count').innerText = count; }
-        if (posInd) { posInd.style.display = 'flex'; posInd.querySelector('.offline-count').innerText = count; }
+        // Nếu có đơn bị kẹt -> Hiện nút lên và cập nhật con số
+        if (dashIndicator) {
+            dashIndicator.style.display = 'flex';
+            const dashCount = dashIndicator.querySelector('.offline-count');
+            if (dashCount) dashCount.innerText = count;
+        }
+        if (posIndicator) {
+            posIndicator.style.display = 'flex';
+            const posCount = posIndicator.querySelector('.offline-count');
+            if (posCount) posCount.innerText = count;
+        }
     } else {
-        // Nếu không có đơn kẹt -> Ẩn đi
-        if (dashInd) dashInd.style.display = 'none';
-        if (posInd) posInd.style.display = 'none';
+        // Nếu không có đơn nào -> Ẩn nút đi
+        if (dashIndicator) dashIndicator.style.display = 'none';
+        if (posIndicator) posIndicator.style.display = 'none';
     }
 };
+// Cập nhật ngay khi trang web vừa tải xong
+window.updateOfflineIndicator();
+
+// Thiết lập đồng hồ quét tự động: Cứ 3 giây kiểm tra lại một lần
+setInterval(window.updateOfflineIndicator, 3000);
+
+// Lắng nghe sự kiện hệ thống có mạng / mất mạng để tự động cập nhật
+window.addEventListener('online', window.updateOfflineIndicator);
+window.addEventListener('offline', window.updateOfflineIndicator);
