@@ -4440,24 +4440,25 @@ function calcPOSTotals() {
     let totalQty = 0, totalGoods = 0;
     tab.items.forEach(item => { totalQty += item.qty; totalGoods += (item.qty * item.price); });
 
+    // === CHUYỂN BƯỚC NÀY LÊN TRƯỚC ĐỂ LẤY DỮ LIỆU LÀM TRÒN ===
+    tab.discount = window.parseCurrency(document.getElementById('pos-discount').value) || 0;
+    tab.extraFee = window.parseCurrency(document.getElementById('pos-extra-fee').value) || 0;
+
     // Tính tiền lạnh (chỉ tính nếu bật nút gạt)
     const iceAmount = isFeatureEnabled ? calculateManualBeerIce() : 0;
+    
     const iceDisplay = document.getElementById('pos-beer-ice-amount');
     if (iceDisplay) iceDisplay.innerText = iceAmount.toLocaleString('vi-VN');
 
-    tab.discount = window.parseCurrency(document.getElementById('pos-discount').value) || 0;
-    tab.extraFee = window.parseCurrency(document.getElementById('pos-extra-fee').value) || 0;
-    
     // Tổng thanh toán = Tiền hàng - Giảm giá + Phí khác + Tiền bia lạnh (nếu có)
     const mustPay = totalGoods - tab.discount + tab.extraFee + iceAmount;
 
     document.getElementById('pos-total-qty').innerText = totalQty;
     document.getElementById('pos-total-goods').innerText = totalGoods.toLocaleString('vi-VN');
     document.getElementById('pos-total-goods').dataset.val = totalGoods;
-document.getElementById('pos-must-pay').innerText = mustPay.toLocaleString('vi-VN');
+    document.getElementById('pos-must-pay').innerText = mustPay.toLocaleString('vi-VN');
     
-    // ==========================================
-    // ĐOẠN MÃ MỚI: TỰ ĐỘNG ẨN/HIỆN KHU VỰC THANH TOÁN
+    // MỚI: TỰ ĐỘNG ẨN/HIỆN KHU VỰC THANH TOÁN
     const paymentSection = document.getElementById('pos-payment-section');
     if (paymentSection) {
         if (tab.items.length === 0) {
@@ -4466,7 +4467,6 @@ document.getElementById('pos-must-pay').innerText = mustPay.toLocaleString('vi-V
             paymentSection.style.display = 'block'; // Có hàng -> Hiện lên
         }
     }
-    // ==========================================
 
     // GỌI HÀM VẼ NÚT GỢI Ý & TÍNH TIỀN THỪA KHÁCH ĐƯA
     if (typeof window.renderQuickMoneySuggestions === 'function') {
@@ -7218,8 +7218,7 @@ window.toggleBeerIce = function(index, isChecked) {
     }
 };
 
-// Hàm tính toán số tiền lạnh dựa trên các món được tích
-// Hàm tính toán số tiền lạnh bằng cách CỘNG DỒN TỔNG số lượng các món được tick
+// Hàm tính toán số tiền lạnh dựa trên số lượng tick và tự làm tròn tổng hóa đơn
 function calculateManualBeerIce() {
     const tab = posTabs[activeTabIndex];
     if (!tab) return 0;
@@ -7227,23 +7226,45 @@ function calculateManualBeerIce() {
     let totalBeerQty = 0;
     let details = [];
 
-    // Bước 1: Duyệt qua giỏ hàng để cộng dồn tổng số lượng của các món được tick
+    // Bước 1: Đếm tổng số lượng lon/chai được tick làm lạnh
     tab.items.forEach(item => {
         if (item.isIce) {
-            totalBeerQty += (parseFloat(item.qty) || 0); // Cộng dồn số lượng
+            totalBeerQty += (parseFloat(item.qty) || 0);
             details.push(`${item.name} (${item.qty})`);
         }
     });
 
-    // Bước 2: Tính tiền dựa trên TỔNG số lượng đã gom được
-    // Ví dụ: 3 lon hàng 1 + 1 lon hàng 2 = 4 lon -> 4 / 2 = 2k[cite: 2]
-    let totalIceMoney = Math.floor(totalBeerQty / 2) * 1000;
+    // Bước 2: Mỗi lon mặc định cộng 500 đồng
+    let baseIceMoney = totalBeerQty * 500;
+    
+    if (baseIceMoney === 0) {
+        tab.beerIceAmount = 0;
+        tab.beerIceNote = "";
+        return 0;
+    }
 
-    // Lưu kết quả vào tab để in hóa đơn[cite: 2]
-    tab.beerIceAmount = totalIceMoney;
+    // Bước 3: Thu thập dữ liệu để tính tổng hóa đơn nháp
+    let totalGoods = 0;
+    tab.items.forEach(item => { totalGoods += (item.qty * item.price); });
+    
+    let discount = tab.discount || 0;
+    let extraFee = tab.extraFee || 0;
+
+    // Tổng tiền nháp (nếu chỉ cộng đúng 500đ/lon)
+    let rawTotal = totalGoods - discount + extraFee + baseIceMoney;
+    
+    // Làm tròn tổng tiền nháp lên hàng nghìn (VD: 13,500 -> 14,000)
+    let roundedTotal = Math.ceil(rawTotal / 1000) * 1000;
+    
+    // Lấy phần chênh lệch (nếu có lẻ 500đ) cộng luôn vào tiền đá 
+    // Việc này giúp hóa đơn in ra cho khách tính nhẩm vẫn khớp 100%
+    let finalIceMoney = baseIceMoney + (roundedTotal - rawTotal);
+
+    // Lưu kết quả vào tab để in hóa đơn
+    tab.beerIceAmount = finalIceMoney;
     tab.beerIceNote = details.join(", ");
     
-    return totalIceMoney;
+    return finalIceMoney;
 }
 window.toggleBeerIceFeature = function(isEnabled) {
     const amountEl = document.getElementById('pos-beer-ice-amount');
