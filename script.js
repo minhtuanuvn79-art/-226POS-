@@ -4538,30 +4538,18 @@ window.processCheckout = function() {
     // ========================================================
     let invoiceIdToSave = 'HD' + Date.now().toString().slice(-6); // Mã mặc định nếu tạo mới
     let originalInvoiceDate = new Date().toLocaleString('vi-VN'); // Giờ mặc định nếu tạo mới
+    let oldInvIndex = -1;
+    let oldInv = null;
 
     // Nếu hệ thống nhận diện đây là Tab đang sửa hóa đơn
     if (tab.isEditing && tab.oldInvId) {
         invoiceIdToSave = tab.oldInvId; // Lấy lại mã hóa đơn cũ để ghi đè
         
         // Tìm hóa đơn cũ trong dữ liệu
-        const oldInvIndex = allInvoices.findIndex(x => x.id === tab.oldInvId);
+        oldInvIndex = allInvoices.findIndex(x => x.id === tab.oldInvId);
         if (oldInvIndex !== -1) {
-            const oldInv = allInvoices[oldInvIndex];
+            oldInv = allInvoices[oldInvIndex];
             originalInvoiceDate = oldInv.createdAt; // Giữ nguyên giờ bán ban đầu của khách
-            
-            // QUAN TRỌNG: Hoàn trả lại tồn kho của hóa đơn cũ trước khi trừ tồn kho mới
-            if (oldInv.status === 'done') {
-                oldInv.items.forEach(oldItem => {
-                    const prod = latestProds.find(p => p.id === oldItem.productId);
-                    if (prod) {
-                        const oldRate = oldItem.units && oldItem.units[oldItem.selectedUnitIdx] ? (oldItem.units[oldItem.selectedUnitIdx].rate || 1) : 1;
-                        prod.stock = (parseFloat(prod.stock) || 0) + (oldItem.qty * oldRate);
-                    }
-                });
-            }
-            
-            // Xóa bản gốc cũ đi để lát nữa chèn bản mới vào thế chỗ
-            allInvoices.splice(oldInvIndex, 1);
         }
     }
     // ========================================================
@@ -4581,45 +4569,69 @@ window.processCheckout = function() {
         status: 'done'
     };
 
-    // Bật cờ khóa đồng bộ để Firebase không đè dữ liệu cũ xuống
-    window.isSyncLocked = true;
-
-    // 1. Trừ tồn kho theo số lượng hàng hóa mới cập nhật
-    tab.items.forEach(cartItem => {
-        const prod = latestProds.find(p => p.id === cartItem.productId);
-        if (prod) {
-            const rate = cartItem.units[cartItem.selectedUnitIdx]?.rate || 1;
-            prod.stock -= (cartItem.qty * rate);
-        }
-    });
-
-    // 2. Chèn hóa đơn (vừa sửa hoặc tạo mới) lên đầu danh sách
-    allInvoices.unshift(newInvoice);
-
-// 3. Lưu dữ liệu cục bộ và đồng bộ Cloud
-    localStorage.setItem('kv_products', JSON.stringify(latestProds));
-    localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
-
-// KIỂM TRA MẠNG TRƯỚC KHI ĐẨY LÊN CLOUD
+    // BƯỚC QUAN TRỌNG: PHÂN LUỒNG ONLINE / OFFLINE
     if (navigator.onLine) {
+        // --- LUỒNG ONLINE: CÓ MẠNG THÌ XỬ LÝ NHƯ BÌNH THƯỜNG ---
+        window.isSyncLocked = true;
+
+        // Xử lý hoàn trả tồn kho nếu đang sửa hóa đơn cũ
+        if (oldInv && oldInv.status === 'done') {
+            oldInv.items.forEach(oldItem => {
+                const prod = latestProds.find(p => p.id === oldItem.productId);
+                if (prod) {
+                    const oldRate = oldItem.units && oldItem.units[oldItem.selectedUnitIdx] ? (oldItem.units[oldItem.selectedUnitIdx].rate || 1) : 1;
+                    prod.stock = (parseFloat(prod.stock) || 0) + (oldItem.qty * oldRate);
+                }
+            });
+            allInvoices.splice(oldInvIndex, 1); // Xóa hóa đơn cũ
+        }
+
+        // 1. Trừ tồn kho theo số lượng hàng hóa mới cập nhật
+        tab.items.forEach(cartItem => {
+            const prod = latestProds.find(p => p.id === cartItem.productId);
+            if (prod) {
+                const rate = cartItem.units[cartItem.selectedUnitIdx]?.rate || 1;
+                prod.stock -= (cartItem.qty * rate);
+            }
+        });
+
+        // 2. Chèn hóa đơn lên đầu danh sách doanh thu
+        allInvoices.unshift(newInvoice);
+
+        // 3. Lưu cục bộ và đẩy lên Cloud
+        localStorage.setItem('kv_products', JSON.stringify(latestProds));
+        localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
+        
         if (typeof window.uploadToCloud === 'function') {
             window.uploadToCloud('invoices', allInvoices);
             window.uploadToCloud('products', latestProds);
         }
+
+        if (window.autoPrintMode) window.printReceipt(newInvoice);
+        else showToast(tab.isEditing ? "Cập nhật hóa đơn thành công!" : "Thanh toán thành công!", "success");
+
+        setTimeout(() => { window.isSyncLocked = false; }, 3000);
+
     } else {
-        // NẾU OFFLINE: Lưu TOÀN BỘ thông tin hóa đơn vào hàng đợi (Thay vì chỉ lưu ID)
+        // --- LUỒNG OFFLINE: CHỈ CẤT VÀO KÉT SẮT CHỜ, KHÔNG TRỪ KHO, KHÔNG TÍNH DOANH THU ---
         let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
-        pendingData.push(newInvoice); // Nhét nguyên cục hóa đơn vào
+        
+        // Đánh dấu cờ sửa hóa đơn để lát có mạng đồng bộ sẽ xử lý riêng
+        if (tab.isEditing && tab.oldInvId) {
+            newInvoice.isEditing = true;
+            newInvoice.oldInvId = tab.oldInvId;
+        }
+        
+        pendingData.push(newInvoice); 
         localStorage.setItem('kv_pending_invoices_data', JSON.stringify(pendingData));
         
-        showToast("Mất mạng! Hóa đơn đã được lưu an toàn vào máy.", "warning");
-    }
-    
-    // 4. Xử lý in hóa đơn và thông báo
-    if (window.autoPrintMode) {
-        window.printReceipt(newInvoice);
-    } else {
-        showToast(tab.isEditing ? "Cập nhật hóa đơn thành công!" : "Thanh toán thành công!", "success");
+        // Bật đèn chớp nháy màu cam thông báo có hóa đơn chờ
+        if (typeof window.updateOfflineIndicator === 'function') {
+            window.updateOfflineIndicator();
+        }
+        
+        if (window.autoPrintMode) window.printReceipt(newInvoice); // Vẫn cho phép in hóa đơn đưa khách
+        showToast("Mất mạng! Hóa đơn đã được lưu an toàn vào máy chờ đồng bộ.", "warning");
     }
     
     // 5. Dọn dẹp Tab sau khi thanh toán/lưu xong
@@ -4638,9 +4650,6 @@ window.processCheckout = function() {
         const searchInput = document.getElementById('pos-search-input');
         if (searchInput) searchInput.value = '';
     }, 200);
-
-    // Mở khóa đồng bộ sau 3 giây để hệ thống ổn định lại
-    setTimeout(() => { window.isSyncLocked = false; }, 3000);
 };
 window.clearPOS = function() {
     // 1. Lấy bảng giá đang được chọn trên giao diện (nếu có), nếu không có mới dùng 'default'
@@ -5179,10 +5188,13 @@ window.generateEndOfDayReport = function() {
         if (seller !== 'all' && inv.creator !== seller.split(' (')[0]) return;
 
         // Xử lý chuỗi thời gian
-        let invDateStr = '';
-        const dateMatch = inv.createdAt.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-        if (dateMatch) {
-            const d = dateMatch[1].padStart(2, '0');
+// Xử lý chuỗi thời gian
+let invDateStr = '';
+// Dọn dẹp ký tự ẩn của iOS trước khi trích xuất
+const cleanTimeStr = inv.createdAt.replace(/[\u200E\u200F\u202F\u00A0]/g, ' ');
+const dateMatch = cleanTimeStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+if (dateMatch) {
+    const d = dateMatch[1].padStart(2, '0');
             const m = dateMatch[2].padStart(2, '0');
             const y = dateMatch[3];
             
@@ -5268,12 +5280,14 @@ window.renderDashboardSummary = function() {
     const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
     const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
 
-    const extractDate = (timeStr) => {
-        if (!timeStr) return null;
-        const match = timeStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-        if (match) return { d: parseInt(match[1]), m: parseInt(match[2]), y: parseInt(match[3]) };
-        return null;
-    };
+const extractDate = (timeStr) => {
+    if (!timeStr) return null;
+    // Dọn dẹp ký tự ẩn của iOS
+    const cleanStr = timeStr.replace(/[\u200E\u200F\u202F\u00A0]/g, ' ');
+    const match = cleanStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (match) return { d: parseInt(match[1]), m: parseInt(match[2]), y: parseInt(match[3]) };
+    return null;
+};
 
     const today = new Date();
     const yesterday = new Date(today.getTime() - 86400000);
@@ -5345,12 +5359,14 @@ function render7DaysChart(invoices, today) {
     let days = [];
     let maxRev = 0;
 
-    const extractDate = (timeStr) => {
-        if (!timeStr) return null;
-        const match = timeStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-        if (match) return { d: parseInt(match[1]), m: parseInt(match[2]), y: parseInt(match[3]) };
-        return null;
-    };
+const extractDate = (timeStr) => {
+    if (!timeStr) return null;
+    // Dọn dẹp ký tự ẩn của iOS
+    const cleanStr = timeStr.replace(/[\u200E\u200F\u202F\u00A0]/g, ' ');
+    const match = cleanStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (match) return { d: parseInt(match[1]), m: parseInt(match[2]), y: parseInt(match[3]) };
+    return null;
+};
 
     const isSameDay = (dateObj1, dateObj2) => {
         if (!dateObj1 || !dateObj2) return false;
@@ -6174,12 +6190,12 @@ window.initApp = async function() {
             { path: 'branches', storageKey: 'kv_branches' }
         ];
 
-syncPaths.forEach(item => {
+        syncPaths.forEach(item => {
             const dbRef = window.fbRef(window.fbDb, item.path);
             window.fbOnValue(dbRef, (snapshot) => {
                 const data = snapshot.val();
                 let dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data).filter(Boolean)) : [];
-                                const hasPending = (JSON.parse(localStorage.getItem('kv_pending_invoices')) || []).length > 0;
+                const hasPending = (JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || []).length > 0;
                 if (hasPending && (item.path === 'invoices' || item.path === 'products')) return;
                 
                 if (item.path === 'products') {
@@ -6300,6 +6316,11 @@ syncPaths.forEach(item => {
     setTimeout(() => {
         if (typeof renderICCreatorFilter === 'function') renderICCreatorFilter();
         if (typeof renderInvCreatorFilter === 'function') renderInvCreatorFilter();
+        
+        // THÊM DÒNG NÀY ĐỂ VỪA F5/TẢI TRANG LÀ CẬP NHẬT UI NÚT OFFLINE LUÔN
+        if (typeof window.updateOfflineIndicator === 'function') {
+            window.updateOfflineIndicator();
+        }
     }, 1000);
 };
 // ==========================================
@@ -9915,48 +9936,45 @@ window.printTemporaryReceipt = function() {
 // TÍNH NĂNG ĐỒNG BỘ TỰ ĐỘNG (GỘP DỮ LIỆU KHÔNG XUNG ĐỘT)
 // ==========================================
 window.syncOfflineData = function() {
-    // Kiểm tra xem đã kết nối mạng chưa
     if (!navigator.onLine) {
-        if (typeof showToast === 'function') {
-            showToast("Vẫn chưa có mạng (WiFi/4G)! Vui lòng kiểm tra lại.", "error");
-        } else {
-            alert("Vẫn chưa có mạng (WiFi/4G)! Vui lòng kiểm tra lại.");
-        }
+        showToast("Máy vẫn đang mất mạng. Vui lòng kiểm tra lại kết nối Wifi/4G!", "error");
         return;
     }
 
-    // Kiểm tra xem có dữ liệu cần đồng bộ không
-    const pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
+    let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
     if (pendingData.length === 0) {
-        window.updateOfflineIndicator(); // Chắc chắn nút được ẩn
+        showToast("Không có hóa đơn nào cần đồng bộ.", "info");
         return;
     }
 
-    if (typeof showToast === 'function') {
-        showToast(`Đang đồng bộ ${pendingData.length} hóa đơn lên hệ thống...`, "info");
-    }
+    let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
+    
+    // Đẩy toàn bộ các đơn kẹt vào mảng chính thức (kiểm tra trùng lặp)
+    pendingData.forEach(offlineInv => {
+        const exists = allInvoices.find(inv => inv.id === offlineInv.id);
+        if (!exists) {
+            allInvoices.unshift(offlineInv);
+        }
+    });
 
-    // 1. Lấy dữ liệu tổng mới nhất từ máy (Các đơn này đã nằm sẵn trong kho tổng lúc thanh toán)
-    const allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
-    const allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    // Lưu vào máy và đồng bộ Firebase
+    localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
 
-    // 2. Bơm toàn bộ lên hệ thống Cloud Firebase
     if (typeof window.uploadToCloud === 'function') {
         window.uploadToCloud('invoices', allInvoices);
-        window.uploadToCloud('products', allProducts);
+        
+        // Thành công -> Quét sạch mảng lưu nháp offline
+        localStorage.removeItem('kv_pending_invoices_data');
+        
+        showToast(`Đã đồng bộ thành công ${pendingData.length} hóa đơn lên hệ thống!`, "success");
+        
+        // Cập nhật bảng và tắt đèn nhấp nháy
+        window.updateOfflineIndicator();
+        openOfflineInvoicesModal(); 
+        
+        // Load lại danh sách hóa đơn trong thẻ Quản lý nếu đang mở
+        if (typeof renderInvoices === 'function') renderInvoices();
     }
-
-    // 3. Xóa sổ danh sách chờ sau khi đã đẩy thành công
-    localStorage.removeItem('kv_pending_invoices_data');
-
-    // 4. Báo cáo thành công và cập nhật ẩn nút đi
-    if (typeof showToast === 'function') {
-        showToast(`Đã đồng bộ thành công ${pendingData.length} hóa đơn offline!`, "success");
-    } else {
-        alert(`Đã đồng bộ thành công ${pendingData.length} hóa đơn offline!`);
-    }
-
-    window.updateOfflineIndicator();
 };
 
 // Lắng nghe sự kiện trình duyệt có mạng trở lại
@@ -9976,31 +9994,22 @@ window.addEventListener('online', function() {
 // ==========================================
 
 window.updateOfflineIndicator = function() {
-    // Đọc danh sách hóa đơn đang đợi đồng bộ
-    const pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
+    let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
     const count = pendingData.length;
-
-    // Lấy các nút bấm trên giao diện
-    const dashIndicator = document.getElementById('dash-offline-indicator');
-    const posIndicator = document.getElementById('pos-offline-indicator');
-
-    if (count > 0) {
-        // Nếu có đơn bị kẹt -> Hiện nút lên và cập nhật con số
-        if (dashIndicator) {
-            dashIndicator.style.display = 'flex';
-            const dashCount = dashIndicator.querySelector('.offline-count');
-            if (dashCount) dashCount.innerText = count;
+    
+    // Cập nhật con số
+    document.querySelectorAll('.offline-count').forEach(el => el.innerText = count);
+    
+    // Thêm/bớt hiệu ứng nhấp nháy màu cam
+    document.querySelectorAll('.offline-indicator').forEach(el => {
+        if (count > 0) {
+            el.classList.add('has-pending');
+            el.title = `Có ${count} đơn hàng chờ đồng bộ. Bấm để xem chi tiết.`;
+        } else {
+            el.classList.remove('has-pending');
+            el.title = "Không có đơn hàng chờ đồng bộ.";
         }
-        if (posIndicator) {
-            posIndicator.style.display = 'flex';
-            const posCount = posIndicator.querySelector('.offline-count');
-            if (posCount) posCount.innerText = count;
-        }
-    } else {
-        // Nếu không có đơn nào -> Ẩn nút đi
-        if (dashIndicator) dashIndicator.style.display = 'none';
-        if (posIndicator) posIndicator.style.display = 'none';
-    }
+    });
 };
 // Cập nhật ngay khi trang web vừa tải xong
 window.updateOfflineIndicator();
@@ -10011,3 +10020,102 @@ setInterval(window.updateOfflineIndicator, 3000);
 // Lắng nghe sự kiện hệ thống có mạng / mất mạng để tự động cập nhật
 window.addEventListener('online', window.updateOfflineIndicator);
 window.addEventListener('offline', window.updateOfflineIndicator);
+// ==========================================
+// QUẢN LÝ DANH SÁCH HÓA ĐƠN OFFLINE
+// ==========================================
+
+// ==========================================
+// CẬP NHẬT TRẠNG THÁI KẾT NỐI MẠNG (ONLINE / OFFLINE)
+// ==========================================
+window.updateNetworkStatusUI = function() {
+    const banner = document.getElementById('network-status-banner');
+    const dot = document.getElementById('network-status-dot');
+    const text = document.getElementById('network-status-text');
+    const btnSync = document.getElementById('btn-sync-offline');
+
+    if (!banner) return;
+
+    if (navigator.onLine) {
+        // CÓ MẠNG: Xanh lá cây, mở khóa nút Đồng bộ
+        banner.style.backgroundColor = '#e8f5e9';
+        dot.style.background = '#28a745';
+        dot.style.boxShadow = '0 0 5px rgba(40, 167, 69, 0.5)';
+        text.style.color = '#28a745';
+        text.innerHTML = 'Hệ thống đang Online (Kết nối ổn định, sẵn sàng đồng bộ)';
+        
+        if (btnSync) {
+            btnSync.disabled = false;
+            btnSync.style.opacity = '1';
+            btnSync.style.cursor = 'pointer';
+        }
+    } else {
+        // MẤT MẠNG: Đỏ, khóa nút Đồng bộ lại
+        banner.style.backgroundColor = '#ffebee';
+        dot.style.background = '#dc3545';
+        dot.style.boxShadow = '0 0 5px rgba(220, 53, 69, 0.5)';
+        text.style.color = '#dc3545';
+        text.innerHTML = 'Đang mất kết nối mạng! (Vui lòng kiểm tra lại Wifi/4G)';
+        
+        if (btnSync) {
+            btnSync.disabled = true;
+            btnSync.style.opacity = '0.5';
+            btnSync.style.cursor = 'not-allowed';
+        }
+    }
+};
+
+// Lắng nghe sự kiện cắm/rút dây mạng hoặc bật/tắt Wifi của thiết bị
+window.addEventListener('online', window.updateNetworkStatusUI);
+window.addEventListener('offline', window.updateNetworkStatusUI);
+
+// 2. Mở cửa sổ Danh sách Hóa đơn đang kẹt (Đã cập nhật gọi kiểm tra mạng)
+window.openOfflineInvoicesModal = function() {
+    const tbody = document.getElementById('offline-invoices-tbody');
+    const countEl = document.getElementById('offline-total-count');
+    
+    // Gọi hàm cập nhật tình trạng mạng để hiển thị ngay
+    window.updateNetworkStatusUI();
+    
+    let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
+    if (countEl) countEl.innerText = pendingData.length;
+
+    if (pendingData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 40px; color: #888;">Không có hóa đơn offline nào đang tồn đọng.</td></tr>`;
+    } else {
+        tbody.innerHTML = pendingData.map((inv, index) => {
+            return `
+                <tr style="border-bottom: 1px dashed #eee; transition: 0.2s;" onmouseover="this.style.background='#fdfdfd'" onmouseout="this.style.background='white'">
+                    <td style="color: var(--kv-blue); font-weight: bold; padding: 12px 15px;">${inv.id}</td>
+                    <td style="padding: 12px 15px; color: #555;">${inv.createdAt}</td>
+                    <td style="text-align: right; font-weight: bold; color: var(--kv-pink); padding: 12px 15px;">${(inv.totalAmount || 0).toLocaleString('vi-VN')}</td>
+                    <td style="text-align: center; padding: 12px 15px;">
+                        <button onclick="deleteOfflineInvoice(${index})" style="background: white; border: 1px solid #d9534f; color: #d9534f; padding: 6px 10px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#fff0f0'" onmouseout="this.style.background='white'" title="Xóa bỏ hóa đơn này khỏi máy">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+    
+    document.getElementById('offline-invoices-modal').style.display = 'flex';
+};
+
+window.closeOfflineInvoicesModal = function() {
+    document.getElementById('offline-invoices-modal').style.display = 'none';
+};
+
+window.deleteOfflineInvoice = function(index) {
+    showConfirm("Bạn có chắc chắn muốn <b>XÓA BỎ</b> hóa đơn offline này không?<br>Dữ liệu sẽ mất vĩnh viễn và không được đẩy lên hệ thống nữa.", function() {
+        let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
+        
+        pendingData.splice(index, 1); // Xóa khỏi mảng
+        localStorage.setItem('kv_pending_invoices_data', JSON.stringify(pendingData));
+        
+        showToast("Đã xóa hóa đơn offline khỏi hàng đợi", "success");
+        
+        // Cập nhật lại UI lập tức
+        openOfflineInvoicesModal(); 
+        window.updateOfflineIndicator();
+    });
+};

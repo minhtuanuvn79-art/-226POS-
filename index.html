@@ -224,9 +224,9 @@
         <div class="kv-topbar">
             <div class="kv-logo-small"><i class="fa-solid fa-store"></i> 226 <span>POS</span></div>
 <div class="topbar-right">
-    <div id="dash-offline-indicator" class="offline-indicator" style="display:none;" onclick="syncOfflineData()" title="Có đơn hàng chưa đồng bộ. Bấm để thử lại.">
-        <i class="fa-solid fa-cloud-arrow-up"></i> <span class="offline-count">0</span>
-    </div>
+<div id="dash-offline-indicator" class="offline-indicator" onclick="openOfflineInvoicesModal()" title="Danh sách hóa đơn chờ đồng bộ">
+    <i class="fa-solid fa-cloud-arrow-up"></i> <span class="offline-count">0</span>
+</div>
     <!-- GIAO DIỆN CHỌN CHI NHÁNH HIỆN ĐẠI (DASHBOARD) -->
     <div class="kv-branch-selector" id="dash-branch-selector" style="display: none;">
         <div class="branch-trigger" onclick="toggleBranchDropdown('dash-branch-dropdown')">
@@ -1065,9 +1065,9 @@
             </div>
             
 <div class="pos-header-right">
-    <div id="pos-offline-indicator" class="offline-indicator" style="display:none;" onclick="syncOfflineData()" title="Có đơn hàng chưa đồng bộ. Bấm để thử lại.">
-        <i class="fa-solid fa-cloud-arrow-up"></i> <span class="offline-count">0</span>
-    </div>
+<div id="pos-offline-indicator" class="offline-indicator" onclick="openOfflineInvoicesModal()" title="Danh sách hóa đơn chờ đồng bộ">
+    <i class="fa-solid fa-cloud-arrow-up"></i> <span class="offline-count">0</span>
+</div>
     <!-- GIAO DIỆN CHỌN CHI NHÁNH HIỆN ĐẠI (POS) -->
     <div class="kv-branch-selector pos-branch-selector" id="pos-branch-selector" style="display: none; margin-right: 15px;">
         <div class="branch-trigger" onclick="toggleBranchDropdown('pos-branch-dropdown')">
@@ -1305,7 +1305,51 @@
             </div>
     </div>
 </div>
+<!-- MODAL DANH SÁCH HÓA ĐƠN OFFLINE -->
+<!-- MODAL DANH SÁCH HÓA ĐƠN OFFLINE -->
+<div id="offline-invoices-modal" class="modal-overlay" style="z-index: 10005; display: none;">
+    <div class="modal-box" style="width: 750px; padding: 0; background: #f4f6f9; display: flex; flex-direction: column; max-height: 85vh;">
+        <div style="padding: 15px 20px; background: #ff9800; color: white; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0;">
+            <div>
+                <h3 style="margin: 0; font-size: 16px;"><i class="fa-solid fa-wifi-slash"></i> Danh sách Hóa đơn chờ Đồng bộ</h3>
+                <span style="font-size: 13px; opacity: 0.9;">Dữ liệu đang được lưu tạm trên máy (Offline)</span>
+            </div>
+            <i class="fa-solid fa-xmark" onclick="closeOfflineInvoicesModal()" style="cursor: pointer; font-size: 18px;"></i>
+        </div>
+        
+        <!-- THANH TRẠNG THÁI MẠNG ĐƯỢC THÊM VÀO ĐÂY -->
+        <div id="network-status-banner" style="padding: 10px 20px; font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 8px; background: #e8f5e9; border-bottom: 1px solid #ddd;">
+            <div id="network-status-dot" style="width: 12px; height: 12px; border-radius: 50%; background: #28a745; box-shadow: 0 0 5px rgba(40, 167, 69, 0.5);"></div>
+            <span id="network-status-text" style="color: #28a745;">Đang kiểm tra kết nối...</span>
+        </div>
+        
+        <div style="flex: 1; overflow-y: auto; padding: 15px; background: white;">
+            <table class="kv-table" style="width: 100%; border-collapse: collapse;">
+                <thead style="background: #f9f9f9; position: sticky; top: 0; z-index: 1;">
+                    <tr>
+                        <th style="text-align: left; padding: 12px 15px; border-bottom: 1px solid #eee;">Mã HĐ</th>
+                        <th style="text-align: left; padding: 12px 15px; border-bottom: 1px solid #eee;">Thời gian bán</th>
+                        <th style="text-align: right; padding: 12px 15px; border-bottom: 1px solid #eee;">Tổng tiền</th>
+                        <th style="text-align: center; padding: 12px 15px; border-bottom: 1px solid #eee;">Thao tác</th>
+                    </tr>
+                </thead>
+                <tbody id="offline-invoices-tbody">
+                    <!-- Dữ liệu render bằng JS -->
+                </tbody>
+            </table>
+        </div>
 
+        <div style="padding: 15px 20px; background: white; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 13px; color: #555;">Đang tồn đọng: <b id="offline-total-count" style="color: #ff9800; font-size: 16px;">0</b> hóa đơn</div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="closeOfflineInvoicesModal()" style="padding: 8px 15px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; cursor: pointer; color: #555; font-weight: 500;">Đóng lại</button>
+                <button id="btn-sync-offline" onclick="syncOfflineData()" style="background: var(--kv-blue); color: white; border: none; padding: 8px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: 0.2s;">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> Bắt đầu đồng bộ
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
         <div id="add-product-modal" class="modal-overlay">
         <div class="product-modal-box">
             <div class="product-modal-header">
