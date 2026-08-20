@@ -10152,3 +10152,109 @@ window.deleteOfflineInvoice = function(index) {
         window.updateOfflineIndicator();
     });
 };
+// ==========================================
+// TÍNH NĂNG SAO CHÉP HÀNG HÓA GIỮA CÁC CHI NHÁNH
+// ==========================================
+
+// 1. Hàm mở hộp thoại và nạp danh sách chi nhánh
+window.openCopyBranchModal = function() {
+    const sourceSelect = document.getElementById('copy-source-branch');
+    const targetSelect = document.getElementById('copy-target-branch');
+    const currentBranches = JSON.parse(localStorage.getItem('kv_branches')) || [];
+
+    let optionsHtml = '';
+    currentBranches.forEach(br => {
+        optionsHtml += `<option value="${br.id}">${br.name}</option>`;
+    });
+
+    if (sourceSelect) sourceSelect.innerHTML = optionsHtml;
+    if (targetSelect) targetSelect.innerHTML = optionsHtml;
+
+    const modal = document.getElementById('copy-branch-modal');
+    if (modal) modal.style.display = 'flex';
+};
+
+// 2. Hàm đóng hộp thoại
+window.closeCopyBranchModal = function() {
+    const modal = document.getElementById('copy-branch-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+// 3. Hàm xử lý logic sao chép dữ liệu
+window.processCopyBranch = function() {
+    const sourceId = document.getElementById('copy-source-branch').value;
+    const targetId = document.getElementById('copy-target-branch').value;
+    const keepStock = document.getElementById('copy-keep-stock').checked;
+
+    if (sourceId === targetId) {
+        showToast("Vui lòng chọn 2 chi nhánh khác nhau!", "error");
+        return;
+    }
+
+    let allProducts = JSON.parse(localStorage.getItem('kv_products')) || [];
+    let allPriceBooks = JSON.parse(localStorage.getItem('kv_pricebooks')) || [];
+
+    // Lọc lấy danh sách hàng hóa thuộc chi nhánh nguồn
+    const sourceProducts = allProducts.filter(p => (p.branchId || 'CN001') === sourceId);
+
+    if (sourceProducts.length === 0) {
+        showToast("Chi nhánh nguồn không có hàng hóa nào để sao chép!", "warning");
+        return;
+    }
+
+    showConfirm(`Hệ thống sẽ nhân bản ${sourceProducts.length} mặt hàng sang chi nhánh đích. Bạn có chắc chắn?`, function() {
+        let copiedCount = 0;
+
+        sourceProducts.forEach((p, index) => {
+            // Tách bản sao độc lập (Deep Copy) để không bị dính líu dữ liệu với chi nhánh cũ
+            let newP = JSON.parse(JSON.stringify(p));
+
+            const oldId = p.id;
+            const newId = 'PROD' + Date.now() + '_' + index; // Tạo mã ID hệ thống duy nhất
+
+            newP.id = newId;
+            newP.branchId = targetId; // Chuyển quyền sở hữu sang chi nhánh mới
+
+            // Xử lý Tồn kho
+            if (!keepStock) {
+                newP.stock = 0; // Mặc định là reset tồn kho về 0
+            }
+
+            allProducts.unshift(newP);
+            copiedCount++;
+
+            // Xử lý chép Bảng giá đa cột (nếu có)
+            allPriceBooks.forEach(pb => {
+                if (pb.prices) {
+                    Object.keys(pb.prices).forEach(oldKey => {
+                        // Chép giá của đơn vị cơ bản và các đơn vị quy đổi (Vd: PROD123_0, PROD123_1)
+                        if (oldKey === oldId || oldKey.startsWith(oldId + '_')) {
+                            const newKey = oldKey.replace(oldId, newId);
+                            pb.prices[newKey] = pb.prices[oldKey];
+                        }
+                    });
+                }
+            });
+        });
+
+        // Lưu vào LocalStorage
+        localStorage.setItem('kv_products', JSON.stringify(allProducts));
+        localStorage.setItem('kv_pricebooks', JSON.stringify(allPriceBooks));
+        window.products = allProducts;
+        window.priceBooks = allPriceBooks;
+
+        // Đồng bộ lên Cloud
+        if (typeof window.uploadToCloud === 'function') {
+            window.uploadToCloud('products', allProducts);
+            window.uploadToCloud('pricebooks', allPriceBooks);
+        }
+
+        closeCopyBranchModal();
+        showToast(`Đã sao chép thành công ${copiedCount} mặt hàng!`, "success");
+
+        // Tự động cập nhật lại số đếm trên giao diện thẻ Chi nhánh
+        if (typeof renderBranchList === 'function') {
+            renderBranchList();
+        }
+    });
+};
