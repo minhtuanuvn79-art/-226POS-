@@ -5135,6 +5135,9 @@ window.renderPaginationControls = function(containerId, currentPage, totalPages,
 // 1. Xóa số 0 khi click chuột (hoặc dùng phím Tab) vào ô nhập liệu
 document.addEventListener('focusin', function(e) {
     if (e.target.tagName === 'INPUT') {
+        // [FIX] Loại trừ các ô tìm kiếm ra khỏi tính năng này
+        if (e.target.id && e.target.id.toLowerCase().includes('search')) return;
+
         // Nếu ô đang chứa đúng số 0 thì xóa trắng để gõ luôn
         if (e.target.value === '0') {
             e.target.value = '';
@@ -5146,6 +5149,12 @@ document.addEventListener('focusin', function(e) {
 // 2. Điền lại số 0 nếu click chuột ra ngoài mà để trống
 document.addEventListener('focusout', function(e) {
     if (e.target.tagName === 'INPUT') {
+        // [FIX] Loại trừ các ô tìm kiếm, xóa cờ autoZero nếu lỡ bị dính
+        if (e.target.id && e.target.id.toLowerCase().includes('search')) {
+            delete e.target.dataset.autoZero;
+            return;
+        }
+
         // Kiểm tra xem đây có phải là ô chuyên nhập số lượng / tiền tệ không
         const isNumericInput = e.target.type === 'number' || 
                                (e.target.getAttribute('oninput') || '').includes('formatCurrency') || 
@@ -10317,12 +10326,27 @@ window.addEventListener('beforeunload', function(e) {
     }
 });
 // ==========================================
-// ĐỒNG BỘ ĐĂNG XUẤT GIỮA CÁC TAB
+// TỰ ĐỘNG ĐÓNG DANH SÁCH TÌM KIẾM KHI CLICK RA NGOÀI
 // ==========================================
-window.addEventListener('storage', function(e) {
-    if (e.key === 'kv_current_user' && !e.newValue) {
-        if (document.getElementById('login-view').style.display === 'none') {
-            window.location.reload();
+document.addEventListener('click', function(e) {
+    // Danh sách các cặp [Ô nhập liệu, Bảng sổ xuống] trên toàn hệ thống
+    const searchPairs = [
+        { input: 'pos-search-input', dropdown: 'pos-search-dropdown' },     // Màn hình Bán hàng
+        { input: 'ic-search-input', dropdown: 'ic-search-dropdown' },       // Màn hình Kiểm kho
+        { input: 'io-search-input', dropdown: 'io-search-dropdown' },       // Màn hình Nhập hàng
+        { input: 'combo-search-input', dropdown: 'combo-search-dropdown' }  // Modal Đóng thùng Mix
+    ];
+
+    searchPairs.forEach(pair => {
+        const inputEl = document.getElementById(pair.input);
+        const dropdownEl = document.getElementById(pair.dropdown);
+        
+        // Nếu bảng dropdown đang mở
+        if (dropdownEl && dropdownEl.style.display === 'block') {
+            // Kiểm tra: Nếu vị trí click không nằm trong ô tìm kiếm VÀ không nằm trong bảng dropdown
+            if (inputEl && !inputEl.contains(e.target) && !dropdownEl.contains(e.target)) {
+                dropdownEl.style.display = 'none'; // Ẩn bảng đi
+            }
         }
-    }
+    });
 });
