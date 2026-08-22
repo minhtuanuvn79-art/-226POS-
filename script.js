@@ -3113,13 +3113,25 @@ window.getFilterTimeRange = function(prefix) {
 window.parseVNTime = function(timeStr) {
     if(!timeStr) return 0;
     try {
-        // Dọn dẹp ký tự ẩn của Apple và cắt bằng biểu thức \s+ (mọi loại khoảng trắng)
-        const cleanStr = timeStr.replace(/[\u200E\u200F\u202F\u00A0]/g, ' ');
-        const parts = cleanStr.replace(/,/g, '').trim().split(/\s+/);
-        let dateStr = parts.find(p => p.includes('/')); 
-        if (!dateStr) return 0;
-        const dateParts = dateStr.split('/');
-        return new Date(dateParts[2], dateParts[1] - 1, dateParts[0]).getTime();
+        let y, m, d, hh = 0, mm = 0, ss = 0;
+        const match = timeStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (match) {
+            d = parseInt(match[1]); m = parseInt(match[2]); y = parseInt(match[3]);
+        } else {
+            // Bắt mọi chữ số nếu iPhone dùng chữ "thg"
+            const nums = timeStr.match(/\d+/g);
+            if (nums && nums.length >= 3) {
+                const yIdx = nums.findIndex(p => p.length === 4);
+                if (yIdx >= 2) { d = parseInt(nums[yIdx-2]); m = parseInt(nums[yIdx-1]); y = parseInt(nums[yIdx]); }
+                else if (yIdx === 0) { y = parseInt(nums[0]); m = parseInt(nums[1]); d = parseInt(nums[2]); }
+            }
+        }
+        
+        const timeMatch = timeStr.match(/(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+        if (timeMatch) { hh = parseInt(timeMatch[1]); mm = parseInt(timeMatch[2]); ss = parseInt(timeMatch[3] || 0); }
+        
+        if (y && m && d) return new Date(y, m - 1, d, hh, mm, ss).getTime();
+        return 0;
     } catch(e) { return 0; }
 };
 window.currentInvoicePage = 1;
@@ -5225,7 +5237,6 @@ window.toggleReportDateInput = function() {
     
     window.generateEndOfDayReport();
 };
-
 window.generateEndOfDayReport = function() {
     const type = document.getElementById('report-filter-type').value;
     const seller = document.getElementById('report-seller-filter').value;
@@ -5257,19 +5268,26 @@ window.generateEndOfDayReport = function() {
         // Lọc theo nhân viên
         if (seller !== 'all' && inv.creator !== seller.split(' (')[0]) return;
 
-        // Xử lý chuỗi thời gian
-// Xử lý chuỗi thời gian
-let invDateStr = '';
-// Dọn dẹp ký tự ẩn của iOS trước khi trích xuất
-const cleanTimeStr = inv.createdAt.replace(/[\u200E\u200F\u202F\u00A0]/g, ' ');
-const dateMatch = cleanTimeStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-if (dateMatch) {
-    const d = dateMatch[1].padStart(2, '0');
-            const m = dateMatch[2].padStart(2, '0');
-            const y = dateMatch[3];
-            
-            if (type === 'day') invDateStr = `${y}-${m}-${d}`;
-            else if (type === 'month') invDateStr = `${y}-${m}`;
+        // Xử lý chuỗi thời gian chống lỗi iPhone
+        let invDateStr = '';
+        let y, m, d;
+        const match = inv.createdAt.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (match) {
+            d = match[1]; m = match[2]; y = match[3];
+        } else {
+            const parts = inv.createdAt.match(/\d+/g);
+            if (parts && parts.length >= 3) {
+                const yIdx = parts.findIndex(p => p.length === 4);
+                if (yIdx >= 2) { d = parts[yIdx-2]; m = parts[yIdx-1]; y = parts[yIdx]; }
+                else if (yIdx === 0) { y = parts[0]; m = parts[1]; d = parts[2]; }
+            }
+        }
+
+        if (y && m && d) {
+            const dd = String(d).padStart(2, '0');
+            const mm = String(m).padStart(2, '0');
+            if (type === 'day') invDateStr = `${y}-${mm}-${dd}`;
+            else if (type === 'month') invDateStr = `${y}-${mm}`;
             else if (type === 'year') invDateStr = `${y}`;
         }
 
@@ -5352,10 +5370,16 @@ window.renderDashboardSummary = function() {
 
 const extractDate = (timeStr) => {
     if (!timeStr) return null;
-    // Dọn dẹp ký tự ẩn của iOS
-    const cleanStr = timeStr.replace(/[\u200E\u200F\u202F\u00A0]/g, ' ');
-    const match = cleanStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    const match = timeStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
     if (match) return { d: parseInt(match[1]), m: parseInt(match[2]), y: parseInt(match[3]) };
+    
+    // Vá lỗi iPhone dùng chữ "thg" hoặc "tháng" (VD: 22 thg 8, 2026)
+    const parts = timeStr.match(/\d+/g);
+    if (parts && parts.length >= 3) {
+        const yIdx = parts.findIndex(p => p.length === 4);
+        if (yIdx >= 2) return { d: parseInt(parts[yIdx-2]), m: parseInt(parts[yIdx-1]), y: parseInt(parts[yIdx]) };
+        else if (yIdx === 0) return { y: parseInt(parts[0]), m: parseInt(parts[1]), d: parseInt(parts[2]) };
+    }
     return null;
 };
 
@@ -5431,10 +5455,16 @@ function render7DaysChart(invoices, today) {
 
 const extractDate = (timeStr) => {
     if (!timeStr) return null;
-    // Dọn dẹp ký tự ẩn của iOS
-    const cleanStr = timeStr.replace(/[\u200E\u200F\u202F\u00A0]/g, ' ');
-    const match = cleanStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    const match = timeStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
     if (match) return { d: parseInt(match[1]), m: parseInt(match[2]), y: parseInt(match[3]) };
+    
+    // Vá lỗi iPhone dùng chữ "thg" hoặc "tháng" (VD: 22 thg 8, 2026)
+    const parts = timeStr.match(/\d+/g);
+    if (parts && parts.length >= 3) {
+        const yIdx = parts.findIndex(p => p.length === 4);
+        if (yIdx >= 2) return { d: parseInt(parts[yIdx-2]), m: parseInt(parts[yIdx-1]), y: parseInt(parts[yIdx]) };
+        else if (yIdx === 0) return { y: parseInt(parts[0]), m: parseInt(parts[1]), d: parseInt(parts[2]) };
+    }
     return null;
 };
 
@@ -5506,22 +5536,9 @@ window.renderActivityFeed = function() {
     const allInventoryChecks = JSON.parse(localStorage.getItem('kv_inventory_checks')) || [];
 
     let activities = [];
-const parseVNTime = (timeStr) => {
-    if(!timeStr) return 0;
     
-    // Dọn dẹp ký tự ẩn
-    const cleanStr = timeStr.replace(/[\u200E\u200F\u202F\u00A0]/g, ' ');
-    const parts = cleanStr.replace(/,/g, '').trim().split(/\s+/);
-    
-    // Tìm kiếm cụm giờ và cụm ngày bất chấp thứ tự do Safari đảo lộn
-    const timeStrPart = parts.find(p => p.includes(':')) || '00:00:00';
-    const dateStrPart = parts.find(p => p.includes('/')) || '01/01/2000';
-    
-    const timeParts = timeStrPart.split(':');
-    const dateParts = dateStrPart.split('/');
-    
-    return new Date(dateParts[2], dateParts[1]-1, dateParts[0], timeParts[0], timeParts[1], timeParts[2]||0).getTime();
-};
+    // Dùng chung hàm parseVNTime đã được vá lỗi iPhone
+    const parseVNTime = window.parseVNTime;
 
     // Lọc Hóa đơn
     allInvoices.filter(inv => (inv.branchId || 'CN001') === currentBranch).forEach(inv => {
