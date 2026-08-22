@@ -1,5 +1,5 @@
 // QUY TẮC VÀNG: Mỗi khi bạn sửa code HTML/CSS/JS, hãy đổi tên phiên bản ở đây (ví dụ: v2 -> v3 -> v4)
-const CACHE_NAME = 'pos-cache-v7';
+const CACHE_NAME = 'pos-cache-v8';
 
 const urlsToCache = [
     './',
