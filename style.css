@@ -10,7 +10,11 @@
 body, html { height: 100%; width: 100%; background-color: var(--kv-bg); overflow: hidden; color: var(--text-main); }
 ul { list-style: none; }
 a { text-decoration: none; color: inherit; }
-button, input, select, textarea { outline: none; font-family: inherit; }
+button, input, select, textarea { 
+    outline: none; 
+    font-family: inherit; 
+    touch-action: manipulation; /* Chặn hành vi bấm đúp để zoom trên điện thoại */
+}
 
 /* =========================================
    1. GIAO DIỆN ĐĂNG NHẬP
@@ -133,8 +137,7 @@ button, input, select, textarea { outline: none; font-family: inherit; }
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     z-index: 10;
 }
-.pos-header-left { display: flex; flex: 1; height: 100%; align-items: center; } /* ĐÃ BỎ OVERFLOW: HIDDEN TẠI ĐÂY */
-
+.pos-header-left { display: flex; flex: 1; height: 100%; align-items: center; min-width: 0; }
 /* Thanh Tìm Kiếm POS */
 .pos-search-area { position: relative; width: 380px; display: flex; align-items: center; background: white; border-radius: 6px; flex-shrink: 0; } /* ĐÃ THÊM FLEX-SHRINK VÀ Z-INDEX */
 .pos-search-area i.fa-magnifying-glass { padding: 0 15px; color: #888; }
@@ -151,19 +154,51 @@ button, input, select, textarea { outline: none; font-family: inherit; }
     background: #9a1353; /* Màu hồng tối hơn khi hover */
 }
 /* Giao diện Đa Tab (Hóa Đơn 1, 2...) */
-.pos-tabs { display: flex; align-items: flex-end; margin-left: 20px; flex: 1; overflow-x: auto; height: 100%; padding-top: 15px;}
-.pos-tab { background: #df67cd; color: white; padding: 10px 20px; border-radius: 8px 8px 0 0; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 10px; margin-right: 5px; cursor: pointer; transition: 0.2s; height: 40px;}
+.pos-tabs { 
+    display: flex; 
+    align-items: flex-end; 
+    margin-left: 20px; 
+    flex: 1; 
+    overflow-x: auto; 
+    height: 100%; 
+    padding-top: 15px;
+    min-width: 0; /* Chỉ cần dòng này là đủ để giữ khung không bị trôi */
+}
+.pos-tab { background: #df67cd; color: white; padding: 10px 20px; border-radius: 8px 8px 0 0; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 10px; margin-right: 5px; cursor: pointer; transition: 0.2s; height: 40px; flex-shrink: 0; white-space: nowrap; }
 .pos-tab.active { background: #eaedf2; color: #333; height: 45px; font-weight: bold; border: 1px solid #eaedf2; border-bottom: none;}
 .pos-tab:hover:not(.active) { background: #0056b3; }
 .pos-tab i.fa-xmark { font-size: 12px; padding: 3px; border-radius: 50%; transition: 0.2s; }
 .pos-tab i.fa-xmark:hover { background: rgba(0,0,0,0.1); color: #d9534f; }
 
-.pos-tab-add { padding: 0 15px; color: white; cursor: pointer; display: flex; align-items: center; height: 40px; font-size: 16px;}
+.pos-tab-add { padding: 0 15px; color: white; cursor: pointer; display: flex; align-items: center; height: 40px; font-size: 16px; flex-shrink: 0; }
 .pos-tab-add i { padding: 6px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.5); transition: 0.2s;}
 .pos-tab-add:hover i { background: rgba(255,255,255,0.2); }
-
+/* Làm đẹp thanh cuộn cho khu vực Tab Hóa Đơn */
+.pos-tabs {
+    scroll-behavior: smooth;
+}
+.pos-tabs::-webkit-scrollbar {
+    height: 6px;
+}
+.pos-tabs::-webkit-scrollbar-track {
+    background: transparent;
+}
+.pos-tabs::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.4);
+    border-radius: 3px;
+}
+.pos-tabs::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.7);
+}
 /* Header bên phải */
-.pos-header-right { display: flex; align-items: center; font-size: 14px;}
+/* Header bên phải */
+.pos-header-right { 
+    display: flex; 
+    align-items: center; 
+    font-size: 14px;
+    /* Thêm dòng này để ngăn khối này bị ép nhỏ lại hoặc đẩy ra ngoài */
+    flex-shrink: 0; 
+}
 .pos-header-right i { cursor: pointer; transition: 0.2s;}
 .pos-header-right i:hover { color: #d0e5ff; }
 
@@ -994,7 +1029,16 @@ input#enable-beer-ice {
     .pos-header-left { width: 100%; flex-direction: column; gap: 10px; }
     .pos-search-area { width: 100%; }
     .pos-search-area input { width: 100%; min-width: 0; }
-    .pos-tabs { width: 100vw; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-left: -10px; padding-left: 10px; padding-top: 5px; padding-bottom: 5px; }
+.pos-tabs { 
+        width: 100vw; 
+        max-width: 100vw; /* Thêm dòng này để ép ưu tiên hiển thị full màn hình đth */
+        overflow-x: auto; 
+        -webkit-overflow-scrolling: touch; 
+        margin-left: -10px; 
+        padding-left: 10px; 
+        padding-top: 5px; 
+        padding-bottom: 5px; 
+    }
     .pos-tab { white-space: nowrap; }
 
     /* -----------------------------------------
