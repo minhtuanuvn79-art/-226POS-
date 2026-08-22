@@ -7,18 +7,23 @@ window.isRAMReady = false; // CỜ BẢO VỆ CHỐNG GHI ĐÈ ẢO
 const DB_NAME = '226POS_DB';
 const STORE_NAME = 'kv_store';
 
+let appDB = null; // Biến giữ kết nối DB
+
 window.initDB = function() {
     return new Promise((resolve, reject) => {
+        if (appDB) return resolve(appDB); // Tái sử dụng nếu đã mở
         const req = indexedDB.open(DB_NAME, 1);
         req.onupgradeneeded = (e) => {
             const db = e.target.result;
             if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
         };
-        req.onsuccess = (e) => resolve(e.target.result);
+        req.onsuccess = (e) => {
+            appDB = e.target.result;
+            resolve(appDB);
+        };
         req.onerror = (e) => reject(e);
     });
 };
-
 window.loadDBToRAM = async function() {
     const db = await window.initDB();
     return new Promise((resolve) => {
@@ -44,7 +49,7 @@ window.loadDBToRAM = async function() {
 };
 
 window.saveDB = async function(key, value) {
-    const db = await window.initDB();
+    const db = await window.initDB(); // Giờ đây thao tác này cực nhanh vì trả về appDB ngay lập tức
     const tx = db.transaction([STORE_NAME], 'readwrite');
     tx.objectStore(STORE_NAME).put(value, key);
 };
@@ -1884,7 +1889,7 @@ if (matchStock) {
         });
     });
 
-    // 5. Vẽ dữ liệu ra bảng
+// 5. Vẽ dữ liệu ra bảng
     if (flatProducts.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 50px; color: #aaa;">Không có hàng hóa nào thuộc chi nhánh này</td></tr>`;
         return;
@@ -1895,11 +1900,13 @@ if (matchStock) {
     const startIndex = (window.currentProductPage - 1) * itemsPerPage;
     const paginatedItems = flatProducts.slice(startIndex, startIndex + itemsPerPage);
 
+    let htmlContent = ''; // Tạo chuỗi rỗng
+
     paginatedItems.forEach((item) => {
         const groupObj = savedGroups.find(g => g.id === item.group);
         const groupName = groupObj ? groupObj.name : 'Chưa phân nhóm';
 
-        tbody.innerHTML += `
+        htmlContent += `
             <tr onclick="openEditProductModal('${item.id}')" style="cursor:pointer;">
                 <td style="text-align: center;"><input type="checkbox" class="product-item-check" data-id="${item.id}"></td>
                 <td style="color:var(--kv-blue); font-weight:bold;">${item.displayCode}</td>
@@ -1911,12 +1918,14 @@ if (matchStock) {
                 <td style="text-align: right; color: var(--kv-pink); font-weight: bold;">${(item.displayUnit.price || 0).toLocaleString()}</td>
                 <td style="text-align: right;">${(item.cost * item.displayUnit.rate || 0).toLocaleString()}</td>
                 <td style="text-align: center;">${item.displayStock}</td>
-<td style="text-align: center;">
+                <td style="text-align: center;">
                     <button onclick="event.stopPropagation(); deleteProductUnit('${item.id}', ${item.uIdx}, '${item.name}', '${item.displayUnit.name}')" style="background: white; border: 1px solid #d9534f; color: #d9534f; padding: 4px 8px; border-radius: 4px; cursor: pointer;"><i class="fa-solid fa-trash"></i></button>
                 </td>
             </tr>
         `;
     });
+
+    tbody.innerHTML = htmlContent; // Gán 1 lần duy nhất ở cuối
 
     window.renderPaginationControls('product-pagination', window.currentProductPage, totalPages, 'changeProductPage');
 };
@@ -2735,7 +2744,8 @@ window.renderICItemsTable = function() {
         return;
     }
 
-    tbody.innerHTML = '';
+    let htmlContent = ''; // Tạo chuỗi rỗng
+
     currentICItems.forEach(item => {
         sumActual += item.realQty;
         const diff = item.realQty - item.sysStock;
@@ -2745,7 +2755,7 @@ window.renderICItemsTable = function() {
             `<option value="${idx}" ${item.selectedUnitIdx === idx ? 'selected' : ''}>${u.name}</option>`
         ).join('');
         
-        tbody.innerHTML += `
+        htmlContent += `
             <tr style="border-bottom: 1px solid #eee;">
                 <td style="text-align:center;"><i class="fa-solid fa-trash" style="color:#d9534f; cursor:pointer;" onclick="removeICItem('${item.productId}')"></i></td>
                 <td style="color:var(--kv-blue); font-weight:bold;">${item.code}</td>
@@ -2757,7 +2767,6 @@ window.renderICItemsTable = function() {
                 </td>
                 <td style="text-align:center;">${item.sysStock}</td>
                 <td style="text-align:center;">
-                    <!-- ĐIỂM SỬA LỖI QUAN TRỌNG: Thêm dấu nháy đơn vào updateICRealQty('${item.productId}') -->
                     <input type="number" value="${item.realQty}" onchange="window.updateICRealQty('${item.productId}', this.value)" style="width: 80px; text-align: center; padding: 5px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-weight: bold;">
                 </td>
                 <td style="text-align:center; font-weight:bold; color:${diff < 0 ? 'red' : 'green'};">${diff}</td>
@@ -2766,6 +2775,7 @@ window.renderICItemsTable = function() {
         `;
     });
     
+    tbody.innerHTML = htmlContent; // Gán 1 lần
     document.getElementById('ic-total-actual-qty').innerText = sumActual;
 };
 
@@ -3938,6 +3948,8 @@ var currentFocus = -1; // Biến theo dõi vị trí đang chọn trong dropdown
 let posSearchTimeout = null; // Biến giữ nhịp thời gian
 
 window.searchPOSProduct = function(keyword) {
+    if (window.isProcessingCheckout) return; // CHẶN KHI ĐANG THANH TOÁN
+
     const dropdown = document.getElementById('pos-search-dropdown');
     
     if (!keyword || !keyword.trim()) { 
@@ -3948,7 +3960,7 @@ window.searchPOSProduct = function(keyword) {
     // Xóa bộ đếm cũ nếu có phím mới được gõ vào
     clearTimeout(posSearchTimeout);
 
-    // Đợi 100ms (súng quét mã vạch thường chỉ tốn 20-30ms để bắn xong 1 mã)
+    // Đợi 250ms
     posSearchTimeout = setTimeout(() => {
         // 1. Chuẩn hóa từ khóa
         const rawKw = keyword.toLowerCase().trim();
@@ -4014,9 +4026,8 @@ window.searchPOSProduct = function(keyword) {
         }
         dropdown.style.display = 'block';
         window.currentFocus = -1;
-    }, 50); // 100ms Debounce
+    }, 250); 
 };
-
 // Biến đồng hồ để gộp nhịp Enter
 var fastEnterTimer = null;
 
@@ -4024,6 +4035,13 @@ var fastEnterTimer = null;
 var posLastEnterTime = 0; 
 
 document.getElementById('pos-search-input').addEventListener('keydown', function(e) {
+    // CHẶN NGAY LẬP TỨC NẾU ĐANG THANH TOÁN
+    if (window.isProcessingCheckout) {
+        e.preventDefault();
+        showToast("Đang xử lý thanh toán, vui lòng đợi!", "warning");
+        return;
+    }
+
     const dropdown = document.getElementById('pos-search-dropdown');
     const items = dropdown ? dropdown.querySelectorAll('.pos-item-node') : [];
     
@@ -4037,11 +4055,10 @@ document.getElementById('pos-search-input').addEventListener('keydown', function
         const kw = this.value.trim().toLowerCase();
         if (!kw) return;
 
-        // Chống nhảy 2 lần do súng quét
-// Chống nhảy 2 lần do súng quét (đã giảm xuống 50ms để Enter nhạy hơn)
-const now = Date.now();
-if (now - posLastEnterTime < 100) return; 
-posLastEnterTime = now;
+        // Chống nhảy 2 lần do súng quét (đã giảm xuống 50ms để Enter nhạy hơn)
+        const now = Date.now();
+        if (now - posLastEnterTime < 100) return; 
+        posLastEnterTime = now;
         
         // Hủy luôn hẹn giờ mở bảng Dropdown (Tránh việc chọn xong bảng gợi ý vẫn tự bật lên)
         if (typeof posSearchTimeout !== 'undefined') clearTimeout(posSearchTimeout); 
@@ -4409,6 +4426,8 @@ return `
 };
 
 window.removePOSItem = function(index) { 
+    if (window.isProcessingCheckout) return; // CHẶN KHI ĐANG THANH TOÁN
+
     if (posTabs[activeTabIndex] && posTabs[activeTabIndex].items[index]) {
         posTabs[activeTabIndex].items.splice(index, 1); 
         renderPOSCart(); 
@@ -4417,6 +4436,8 @@ window.removePOSItem = function(index) {
 };
 
 window.updatePOSQty = function(index, val, isRealTime = false) {
+    if (window.isProcessingCheckout) return; // CHẶN KHI ĐANG THANH TOÁN
+
     const tab = posTabs[activeTabIndex];
     if (!tab || !tab.items[index]) return;
 
@@ -4431,19 +4452,19 @@ window.updatePOSQty = function(index, val, isRealTime = false) {
 
     if (isRealTime) {
         // [CẬP NHẬT TỨC THỜI] Chỉ tính lại tiền của dòng này và gắn lên màn hình
-        // Không tải lại toàn bộ bảng để tránh bị mất con trỏ chuột khi đang gõ
         const rowTotal = tab.items[index].qty * tab.items[index].price;
         const rowTotalEl = document.getElementById(`pos-row-total-${index}`);
         if (rowTotalEl) rowTotalEl.innerText = rowTotal.toLocaleString('vi-VN');
         
-        // Gọi hàm tính tổng tiền của cả hóa đơn (Hàm này cũng chạy ngầm không load lại trang)
+        // Gọi hàm tính tổng tiền của cả hóa đơn
         if (typeof calcPOSTotals === 'function') calcPOSTotals();
     } else {
-        // Nếu bấm bằng nút [+] [-] thì cứ tải lại bảng bình thường
         renderPOSCart();
     }
 };
 window.updatePOSUnit = function(index, unitIdx) {
+    if (window.isProcessingCheckout) return; // CHẶN KHI ĐANG THANH TOÁN
+
     const tab = posTabs[activeTabIndex];
     const item = tab.items[index];
     item.selectedUnitIdx = parseInt(unitIdx);
@@ -4536,147 +4557,160 @@ window.changePOSPriceBook = function(pbId) {
     if (typeof focusPOSSearch === 'function') focusPOSSearch();
 };
 
+// Khai báo cờ khóa toàn cục cho hệ thống POS
+window.isProcessingCheckout = false;
+
 window.processCheckout = function() {
-    const tab = posTabs[activeTabIndex];
-    if (!tab || tab.items.length === 0) { 
-        showToast("Giỏ hàng trống!", "error"); 
-        return; 
+    // 1. Nếu đang xử lý rồi thì chặn đứng mọi luồng gọi lại
+    if (window.isProcessingCheckout) return;
+
+    const checkoutBtn = document.querySelector('.pos-checkout-btn');
+    if (checkoutBtn && checkoutBtn.disabled) return;
+
+    // 2. BẬT CỜ KHÓA HỆ THỐNG
+    window.isProcessingCheckout = true;
+
+    // Khóa nút UI
+    if (checkoutBtn) {
+        checkoutBtn.disabled = true;
+        checkoutBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xử lý...';
+        checkoutBtn.style.opacity = '0.7';
+        checkoutBtn.style.pointerEvents = 'none';
     }
 
-    // Xác định chi nhánh và lấy dữ liệu
-    const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
-    const latestProds = JSON.parse(localStorage.getItem('kv_products')) || [];
-    let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
-    const totalAmount = parseFloat(document.getElementById('pos-total-goods').dataset.val) || 0;
-    
-    // Tính toán tiền bia lạnh nếu có tính năng này
-    const isFeatureEnabled = document.getElementById('enable-beer-ice')?.checked;
-    const iceAmount = isFeatureEnabled ? calculateManualBeerIce() : 0;
-    
-    const mustPay = totalAmount - (tab.discount || 0) + (tab.extraFee || 0) + iceAmount;
-
-    // Lấy số tiền thực tế khách đưa (Đã xử lý việc nhập rút gọn 3 số 0)
-    const actualPaidStr = document.getElementById('pos-customer-paid')?.value || '0';
-    // NHÂN 1000 ĐỂ LƯU CHUẨN VÀO HÓA ĐƠN
-    const actualPaid = (window.parseCurrency(actualPaidStr) * 1000) || mustPay;
-
-    // ========================================================
-    // BẮT ĐẦU ĐOẠN MÃ XỬ LÝ RIÊNG CHO SỬA HÓA ĐƠN
-    // ========================================================
-    let invoiceIdToSave = 'HD' + Date.now().toString().slice(-6); // Mã mặc định nếu tạo mới
-    let originalInvoiceDate = new Date().toLocaleString('vi-VN'); // Giờ mặc định nếu tạo mới
-    let oldInvIndex = -1;
-    let oldInv = null;
-
-    // Nếu hệ thống nhận diện đây là Tab đang sửa hóa đơn
-    if (tab.isEditing && tab.oldInvId) {
-        invoiceIdToSave = tab.oldInvId; // Lấy lại mã hóa đơn cũ để ghi đè
-        
-        // Tìm hóa đơn cũ trong dữ liệu
-        oldInvIndex = allInvoices.findIndex(x => x.id === tab.oldInvId);
-        if (oldInvIndex !== -1) {
-            oldInv = allInvoices[oldInvIndex];
-            originalInvoiceDate = oldInv.createdAt; // Giữ nguyên giờ bán ban đầu của khách
-        }
-    }
-    // ========================================================
-
-    const newInvoice = {
-        id: invoiceIdToSave,
-        branchId: currentBranch,
-        createdAt: originalInvoiceDate,
-        items: JSON.parse(JSON.stringify(tab.items)),
-        totalAmount: totalAmount,
-        invoiceDiscount: tab.discount || 0,
-        extraFee: tab.extraFee || 0,
-        beerIceAmount: iceAmount,
-        beerIceNote: tab.beerIceNote || "",
-        customerPaid: actualPaid, // Lưu đúng số tiền khách thanh toán
-        creator: currentUser.fullname,
-        status: 'done'
-    };
-
-    // BƯỚC QUAN TRỌNG: PHÂN LUỒNG ONLINE / OFFLINE
-    if (navigator.onLine) {
-        // --- LUỒNG ONLINE: CÓ MẠNG THÌ XỬ LÝ NHƯ BÌNH THƯỜNG ---
-        window.isSyncLocked = true;
-
-        // Xử lý hoàn trả tồn kho nếu đang sửa hóa đơn cũ
-        if (oldInv && oldInv.status === 'done') {
-            oldInv.items.forEach(oldItem => {
-                const prod = latestProds.find(p => p.id === oldItem.productId);
-                if (prod) {
-                    const oldRate = oldItem.units && oldItem.units[oldItem.selectedUnitIdx] ? (oldItem.units[oldItem.selectedUnitIdx].rate || 1) : 1;
-                    prod.stock = (parseFloat(prod.stock) || 0) + (oldItem.qty * oldRate);
-                }
-            });
-            allInvoices.splice(oldInvIndex, 1); // Xóa hóa đơn cũ
-        }
-
-        // 1. Trừ tồn kho theo số lượng hàng hóa mới cập nhật
-        tab.items.forEach(cartItem => {
-            const prod = latestProds.find(p => p.id === cartItem.productId);
-            if (prod) {
-                const rate = cartItem.units[cartItem.selectedUnitIdx]?.rate || 1;
-                prod.stock -= (cartItem.qty * rate);
-            }
-        });
-
-        // 2. Chèn hóa đơn lên đầu danh sách doanh thu
-        allInvoices.unshift(newInvoice);
-
-        // 3. Lưu cục bộ và đẩy lên Cloud
-        localStorage.setItem('kv_products', JSON.stringify(latestProds));
-        localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
-        
-        if (typeof window.uploadToCloud === 'function') {
-            window.uploadToCloud('invoices', allInvoices);
-            window.uploadToCloud('products', latestProds);
-        }
-
-        if (window.autoPrintMode) window.printReceipt(newInvoice);
-        else showToast(tab.isEditing ? "Cập nhật hóa đơn thành công!" : "Thanh toán thành công!", "success");
-
-        setTimeout(() => { window.isSyncLocked = false; }, 3000);
-
-    } else {
-        // --- LUỒNG OFFLINE: CHỈ CẤT VÀO KÉT SẮT CHỜ, KHÔNG TRỪ KHO, KHÔNG TÍNH DOANH THU ---
-        let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
-        
-        // Đánh dấu cờ sửa hóa đơn để lát có mạng đồng bộ sẽ xử lý riêng
-        if (tab.isEditing && tab.oldInvId) {
-            newInvoice.isEditing = true;
-            newInvoice.oldInvId = tab.oldInvId;
-        }
-        
-        pendingData.push(newInvoice); 
-        localStorage.setItem('kv_pending_invoices_data', JSON.stringify(pendingData));
-        
-        // Bật đèn chớp nháy màu cam thông báo có hóa đơn chờ
-        if (typeof window.updateOfflineIndicator === 'function') {
-            window.updateOfflineIndicator();
-        }
-        
-        if (window.autoPrintMode) window.printReceipt(newInvoice); // Vẫn cho phép in hóa đơn đưa khách
-        showToast("Mất mạng! Hóa đơn đã được lưu an toàn vào máy chờ đồng bộ.", "warning");
-    }
-    
-    // 5. Dọn dẹp Tab sau khi thanh toán/lưu xong
-    posTabs.splice(activeTabIndex, 1); 
-
-    if (posTabs.length === 0) {
-        window.clearPOS();
-    } else {
-        activeTabIndex = Math.max(0, posTabs.length - 1);
-        switchPOSTab(activeTabIndex);
-        window.savePOSState();
-    }
-    
-    if (typeof focusPOSSearch === 'function') focusPOSSearch();
     setTimeout(() => {
-        const searchInput = document.getElementById('pos-search-input');
-        if (searchInput) searchInput.value = '';
-    }, 200);
+        try {
+            const tab = posTabs[activeTabIndex];
+            if (!tab || tab.items.length === 0) { 
+                showToast("Giỏ hàng trống!", "error"); 
+                return; 
+            }
+
+            const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
+            const latestProds = JSON.parse(localStorage.getItem('kv_products')) || [];
+            let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
+            const totalAmount = parseFloat(document.getElementById('pos-total-goods').dataset.val) || 0;
+            
+            const isFeatureEnabled = document.getElementById('enable-beer-ice')?.checked;
+            const iceAmount = isFeatureEnabled ? calculateManualBeerIce() : 0;
+            
+            const mustPay = totalAmount - (tab.discount || 0) + (tab.extraFee || 0) + iceAmount;
+
+            const actualPaidStr = document.getElementById('pos-customer-paid')?.value || '0';
+            const actualPaid = (window.parseCurrency(actualPaidStr) * 1000) || mustPay;
+
+            let invoiceIdToSave = 'HD' + Date.now().toString().slice(-6);
+            let originalInvoiceDate = new Date().toLocaleString('vi-VN');
+            let oldInvIndex = -1;
+            let oldInv = null;
+
+            if (tab.isEditing && tab.oldInvId) {
+                invoiceIdToSave = tab.oldInvId; 
+                oldInvIndex = allInvoices.findIndex(x => x.id === tab.oldInvId);
+                if (oldInvIndex !== -1) {
+                    oldInv = allInvoices[oldInvIndex];
+                    originalInvoiceDate = oldInv.createdAt; 
+                }
+            }
+
+            const newInvoice = {
+                id: invoiceIdToSave,
+                branchId: currentBranch,
+                createdAt: originalInvoiceDate,
+                items: JSON.parse(JSON.stringify(tab.items)),
+                totalAmount: totalAmount,
+                invoiceDiscount: tab.discount || 0,
+                extraFee: tab.extraFee || 0,
+                beerIceAmount: iceAmount,
+                beerIceNote: tab.beerIceNote || "",
+                customerPaid: actualPaid, 
+                creator: currentUser.fullname,
+                status: 'done'
+            };
+
+            if (navigator.onLine) {
+                window.isSyncLocked = true;
+
+                if (oldInv && oldInv.status === 'done') {
+                    oldInv.items.forEach(oldItem => {
+                        const prod = latestProds.find(p => p.id === oldItem.productId);
+                        if (prod) {
+                            const oldRate = oldItem.units && oldItem.units[oldItem.selectedUnitIdx] ? (oldItem.units[oldItem.selectedUnitIdx].rate || 1) : 1;
+                            prod.stock = (parseFloat(prod.stock) || 0) + (oldItem.qty * oldRate);
+                        }
+                    });
+                    allInvoices.splice(oldInvIndex, 1);
+                }
+
+                tab.items.forEach(cartItem => {
+                    const prod = latestProds.find(p => p.id === cartItem.productId);
+                    if (prod) {
+                        const rate = cartItem.units[cartItem.selectedUnitIdx]?.rate || 1;
+                        prod.stock -= (cartItem.qty * rate);
+                    }
+                });
+
+                allInvoices.unshift(newInvoice);
+
+                localStorage.setItem('kv_products', JSON.stringify(latestProds));
+                localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
+                
+                if (typeof window.uploadToCloud === 'function') {
+                    window.uploadToCloud('invoices', allInvoices);
+                    window.uploadToCloud('products', latestProds);
+                }
+
+                if (window.autoPrintMode) window.printReceipt(newInvoice);
+                else showToast(tab.isEditing ? "Cập nhật hóa đơn thành công!" : "Thanh toán thành công!", "success");
+
+                setTimeout(() => { window.isSyncLocked = false; }, 3000);
+
+            } else {
+                let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
+                if (tab.isEditing && tab.oldInvId) {
+                    newInvoice.isEditing = true;
+                    newInvoice.oldInvId = tab.oldInvId;
+                }
+                pendingData.push(newInvoice); 
+                localStorage.setItem('kv_pending_invoices_data', JSON.stringify(pendingData));
+                
+                if (typeof window.updateOfflineIndicator === 'function') window.updateOfflineIndicator();
+                
+                if (window.autoPrintMode) window.printReceipt(newInvoice); 
+                showToast("Mất mạng! Hóa đơn đã được lưu an toàn vào máy chờ đồng bộ.", "warning");
+            }
+            
+            posTabs.splice(activeTabIndex, 1); 
+
+            if (posTabs.length === 0) {
+                window.clearPOS();
+            } else {
+                activeTabIndex = Math.max(0, posTabs.length - 1);
+                switchPOSTab(activeTabIndex);
+                window.savePOSState();
+            }
+            
+            if (typeof focusPOSSearch === 'function') focusPOSSearch();
+            setTimeout(() => {
+                const searchInput = document.getElementById('pos-search-input');
+                if (searchInput) searchInput.value = '';
+            }, 200);
+
+        } catch (error) {
+            console.error("Lỗi khi xử lý thanh toán:", error);
+            showToast("Có lỗi xảy ra, vui lòng thử lại!", "error");
+        } finally {
+            // 3. TẮT CỜ KHÓA SAU KHI XỬ LÝ XONG (HOẶC LỖI)
+            window.isProcessingCheckout = false; 
+            
+            if (checkoutBtn) {
+                checkoutBtn.disabled = false;
+                checkoutBtn.innerHTML = 'THANH TOÁN (F9)';
+                checkoutBtn.style.opacity = '1';
+                checkoutBtn.style.pointerEvents = 'auto';
+            }
+        }
+    }, 50);
 };
 window.clearPOS = function() {
     // 1. Lấy bảng giá đang được chọn trên giao diện (nếu có), nếu không có mới dùng 'default'
@@ -5660,10 +5694,6 @@ window.updatePrintStatusUI = function() {
     }
 };
 
-// ==========================================
-// HỆ THỐNG PHÍM TẮT TOÀN CỤC (GLOBAL SHORTCUTS)
-// ==========================================
-// Hệ thống phím tắt toàn cục (Global Shortcuts)
 document.addEventListener('keydown', function(e) {
     // 1. Chặn phím F11 (Toàn màn hình) và phím F12 (Nếu muốn chặn mở Code)
     if (e.key === 'F11') {
@@ -5692,57 +5722,64 @@ document.addEventListener('keydown', function(e) {
     const posView = document.getElementById('pos-view');
     if (posView && posView.style.display === 'flex') {
         
+        // --- CHẶN TẤT CẢ PHÍM TẮT TRONG LÚC ĐANG THANH TOÁN ---
+        if (window.isProcessingCheckout) {
+            const blockedKeys = ['F1', 'F2', 'F3', 'F4', 'F8', 'F9', 'Home', 'Enter'];
+            if (blockedKeys.includes(e.key)) {
+                e.preventDefault();
+                return; // Ngắt ngang, không cho chạy bất cứ lệnh F nào
+            }
+        }
+
         switch (e.key) {
             case 'F1':
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    addPOSTab();
-    // Hàm addPOSTab đã có focusPOSSearch bên trong nên không cần gọi lại ở đây
-    break;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                addPOSTab();
+                break;
 
-case 'F2':
-    e.preventDefault();
-    // Đảo trạng thái bật/tắt[cite: 2]
-    window.autoPrintMode = !window.autoPrintMode; 
-    
-    // Hiện thông báo nhanh để bạn biết đã thao tác thành công[cite: 2]
-    if (window.autoPrintMode) {
-        showToast("Đã BẬT chế độ tự động in hóa đơn", "success");
-    } else {
-        showToast("Đã TẮT chế độ tự động in hóa đơn", "info");
-    }
-    
-    // Cập nhật việc ẩn/hiện cái khung ở góc màn hình[cite: 2]
-    if (typeof window.updatePrintStatusUI === 'function') window.updatePrintStatusUI();
-    break;
+            case 'F2':
+                e.preventDefault();
+                // Đảo trạng thái bật/tắt
+                window.autoPrintMode = !window.autoPrintMode; 
+                
+                // Hiện thông báo nhanh để bạn biết đã thao tác thành công
+                if (window.autoPrintMode) {
+                    showToast("Đã BẬT chế độ tự động in hóa đơn", "success");
+                } else {
+                    showToast("Đã TẮT chế độ tự động in hóa đơn", "info");
+                }
+                
+                // Cập nhật việc ẩn/hiện cái khung ở góc màn hình
+                if (typeof window.updatePrintStatusUI === 'function') window.updatePrintStatusUI();
+                break;
 
-case 'F3':
-    e.preventDefault();
-    const searchInput = document.getElementById('pos-search-input');
-    if (searchInput) {
-        searchInput.focus();
-        searchInput.select(); // Bôi đen để quét mã mới sẽ ghi đè mã cũ
-    }
-    break;
-case 'F4':
-    e.preventDefault();
-    openAddProductModal();
-    break;
-case 'F8':
+            case 'F3':
+                e.preventDefault();
+                const searchInput = document.getElementById('pos-search-input');
+                if (searchInput) {
+                    searchInput.focus();
+                    searchInput.select(); // Bôi đen để quét mã mới sẽ ghi đè mã cũ
+                }
+                break;
+            case 'F4':
+                e.preventDefault();
+                openAddProductModal();
+                break;
+            case 'F8':
                 e.preventDefault();
                 const customerPaidInput = document.getElementById('pos-customer-paid');
                 if (customerPaidInput) {
-                    customerPaidInput.focus();   // Trỏ chuột vào ô
-                    customerPaidInput.select();  // Bôi đen số tiền hiện tại để gõ đè lên
+                    customerPaidInput.focus();   
+                    customerPaidInput.select(); 
                 }
-break;
+                break;
             case 'F9':
                 e.preventDefault();
                 if (typeof processCheckout === 'function') processCheckout();
                 break;
 
             case 'Home':
-                // Phím tắt nhảy xuống chỉnh số lượng hàng gần nhất (Như đã làm ở bước trước)
                 e.preventDefault();
                 const qtyInputs = document.querySelectorAll('.pos-qty-input');
                 if (qtyInputs.length > 0) {
@@ -5755,6 +5792,12 @@ break;
 
     // 4. Khi đang ở ô số lượng, nhấn Enter để quay lại ô tìm kiếm
     if (e.key === 'Enter' && e.target.classList.contains('pos-qty-input')) {
+        // CŨNG CHẶN KHI ĐANG THANH TOÁN
+        if (window.isProcessingCheckout) {
+            e.preventDefault();
+            return;
+        }
+
         e.preventDefault();
         const searchInput = document.getElementById('pos-search-input');
         if (searchInput) {
@@ -10258,3 +10301,18 @@ window.processCopyBranch = function() {
         }
     });
 };
+// =======================================================
+// CHẶN NGƯỜI DÙNG F5 HOẶC TẮT TRÌNH DUYỆT KHI ĐANG THANH TOÁN
+// =======================================================
+window.addEventListener('beforeunload', function(e) {
+    if (window.isProcessingCheckout) {
+        // Hầu hết các trình duyệt hiện đại đều bỏ qua nội dung chuỗi này 
+        // và tự hiển thị thông báo mặc định của hệ thống để chống Spam
+        const confirmationMessage = "Đang trong quá trình xử lý thanh toán. Dữ liệu có thể bị mất nếu bạn tải lại trang ngay bây giờ!";
+        
+        // Chuẩn tương thích cho các trình duyệt
+        e.preventDefault();
+        (e || window.event).returnValue = confirmationMessage; // IE, Firefox
+        return confirmationMessage; // Safari, Chrome, Edge
+    }
+});
