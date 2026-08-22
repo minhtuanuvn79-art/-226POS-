@@ -10316,3 +10316,13 @@ window.addEventListener('beforeunload', function(e) {
         return confirmationMessage; // Safari, Chrome, Edge
     }
 });
+// ==========================================
+// ĐỒNG BỘ ĐĂNG XUẤT GIỮA CÁC TAB
+// ==========================================
+window.addEventListener('storage', function(e) {
+    if (e.key === 'kv_current_user' && !e.newValue) {
+        if (document.getElementById('login-view').style.display === 'none') {
+            window.location.reload();
+        }
+    }
+});
