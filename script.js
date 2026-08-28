@@ -65,11 +65,13 @@ localStorage.getItem = function(key) {
     return oriGet(key);
 };
 
+let ramQueue = []; // Tạo hàng đợi
 localStorage.setItem = function(key, value) {
     if (key.startsWith('kv_')) {
-        // [QUAN TRỌNG] Chặn đứng mọi lệnh ghi đè khi DB chưa tải xong
+        // [QUAN TRỌNG] Đưa vào hàng đợi nếu RAM chưa tải xong
         if (!window.isRAMReady) {
-            console.log("🛡️ Đã chặn lệnh ghi đè rác lên", key);
+            console.log("⏳ RAM chưa sẵn sàng, đưa vào hàng đợi: ", key);
+            ramQueue.push({key, value});
             return; 
         }
         window.KV_RAM[key] = value;
@@ -2035,11 +2037,15 @@ window.openQuickPriceSetup = function(unitIdx = 0) {
             const placeholderStr = systemVal !== '' ? Number(systemVal).toLocaleString('vi-VN') : 'Giá tự động';
             const formattedDisplayVal = displayVal !== '' ? Number(displayVal).toLocaleString('vi-VN') : '';
             
+            // --- THÊM MỚI: Bắt sự kiện onkeydown để nhảy ô bằng nút Enter ---
             html += `
                 <tr style="border-bottom: 1px solid #eee;">
                     <td style="padding: 10px;">${pb.name}</td>
                     <td style="padding: 10px; text-align:right;">
-                        <input type="text" class="quick-price-input" data-pbid="${pb.id}" value="${formattedDisplayVal}" placeholder="${placeholderStr}" oninput="window.formatCurrency(this)" style="width: 130px; text-align: right; padding: 6px 10px; border: 1px solid #007bff; border-radius: 4px; outline: none;">
+                        <input type="text" class="quick-price-input" data-pbid="${pb.id}" value="${formattedDisplayVal}" placeholder="${placeholderStr}" 
+                            oninput="window.formatCurrency(this)" 
+                            onkeydown="window.moveNextOnEnter(event, this, 'quick-price-input')"
+                            style="width: 130px; text-align: right; padding: 6px 10px; border: 1px solid #007bff; border-radius: 4px; outline: none;">
                     </td>
                 </tr>
             `;
@@ -2048,6 +2054,15 @@ window.openQuickPriceSetup = function(unitIdx = 0) {
     }
 
     document.getElementById('quick-price-modal').style.display = 'flex';
+
+    // --- THÊM MỚI: Tự động trỏ chuột và bôi đen ô đầu tiên ---
+    setTimeout(() => {
+        const firstInput = document.querySelector('.quick-price-input');
+        if (firstInput) {
+            firstInput.focus();
+            firstInput.select();
+        }
+    }, 50);
 };
 function closeQuickPriceSetup() {
     document.getElementById('quick-price-modal').style.display = 'none';
@@ -4362,12 +4377,23 @@ window.renderPOSCart = function() {
     const tab = posTabs[activeTabIndex];
     if (!listDiv || !tab) return;
     
+    // --- BƯỚC 1: GHI NHỚ VỊ TRÍ NÚT XÓA ĐANG ĐƯỢC CHỌN ---
+    let focusedIndex = null;
+    if (document.activeElement && document.activeElement.classList.contains('pos-trash-btn')) {
+        focusedIndex = parseInt(document.activeElement.getAttribute('data-index'));
+    }
+
     const isFeatureEnabled = document.getElementById('enable-beer-ice')?.checked;
     const currentBranch = localStorage.getItem('kv_current_branch');
 
     if (tab.items.length === 0) {
         listDiv.innerHTML = `<div style="text-align:center; margin-top:50px; color:#ccc;">Hóa đơn trống</div>`;
         if (typeof calcPOSTotals === 'function') calcPOSTotals();
+        
+        // Nếu giỏ hàng trống, tự động trả con trỏ về ô tìm kiếm
+        if (focusedIndex !== null) {
+            setTimeout(() => { if (typeof focusPOSSearch === 'function') focusPOSSearch(); }, 10);
+        }
         return;
     }
 
@@ -4377,7 +4403,6 @@ window.renderPOSCart = function() {
     listDiv.innerHTML = tab.items.map((item, index) => {
         const rowTotal = item.qty * item.price;
         
-        // Tìm sản phẩm gốc và phải khớp đúng chi nhánh
         const pOriginal = allProds.find(x => x.id === item.productId && x.branchId === currentBranch);
         const currentStock = pOriginal ? (parseFloat(pOriginal.stock) || 0) : 0;
         
@@ -4385,28 +4410,38 @@ window.renderPOSCart = function() {
             `<option value="${idx}" ${item.selectedUnitIdx === idx ? 'selected' : ''}>${u.name}</option>`
         ).join('');
 
+        // THÊM TABINDEX="-1" VÀO NÚT BIA LẠNH ĐỂ PHÍM TAB BỎ QUA NÓ
         const iceCheckboxHtml = isFeatureEnabled ? 
             `<div style="width: 35px; text-align: center;">
-                <input type="checkbox" ${item.isIce ? 'checked' : ''} onchange="toggleBeerIce(${index}, this.checked)" style="width: 17px; height: 17px; cursor: pointer; accent-color: #00bcd4;">
+                <input type="checkbox" tabindex="-1" ${item.isIce ? 'checked' : ''} onchange="toggleBeerIce(${index}, this.checked)" style="width: 17px; height: 17px; cursor: pointer; accent-color: #00bcd4;">
             </div>` : '';
 
-return `
+        // TẠO VÒNG LẶP TAB: Bắt sự kiện nếu là mục cuối cùng thì trỏ chuột ngược lên đầu tiên
+        const isLastItem = index === tab.items.length - 1;
+        const tabLoopLogic = isLastItem ? `if(event.key === 'Tab' && !event.shiftKey) { event.preventDefault(); const firstBtn = document.querySelector('.pos-trash-btn'); if(firstBtn) firstBtn.focus(); }` : '';
+
+        return `
         <div class="cart-item-row" style="display: flex; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f4f4f4; font-size: 14px;">
             
-            <!-- 1. CỘT STT Ở ĐẦU TIÊN -->
             <div style="width: 35px; text-align:center; color: #888; font-size: 13px; font-weight: bold;">${index + 1}</div>
 
-            <!-- 2. NÚT XÓA Ở BÊN PHẢI STT -->
+            <!-- NÚT XÓA ĐƯỢC GẮN THÊM DATA-INDEX VÀ CLASS POS-TRASH-BTN -->
             <div style="width: 45px; text-align: center;">
-                <div onclick="window.removePOSItem(${index})" style="width: 32px; height: 32px; margin: 0 auto; background: #fff0f0; color: #d9534f; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; border: 1px solid #ffd6d6;" onmouseover="this.style.background='#ffe0e0'; this.style.borderColor='#ffb3b3';" onmouseout="this.style.background='#fff0f0'; this.style.borderColor='#ffd6d6';" title="Xóa khỏi hóa đơn">
+                <div tabindex="0" class="pos-trash-btn" data-index="${index}"
+                     onclick="window.removePOSItem(${index})" 
+                     onkeydown="if(event.key === 'Enter') { window.removePOSItem(${index}); } ${tabLoopLogic}" 
+                     style="width: 32px; height: 32px; margin: 0 auto; background: #fff0f0; color: #d9534f; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; border: 1px solid #ffd6d6; outline: none;" 
+                     onmouseover="this.style.background='#ffe0e0'; this.style.borderColor='#ffb3b3';" 
+                     onmouseout="this.style.background='#fff0f0'; this.style.borderColor='#ffd6d6';" 
+                     onfocus="this.style.boxShadow='0 0 0 3px #007bff'; this.style.borderColor='#007bff';" 
+                     onblur="this.style.boxShadow='none'; this.style.borderColor='#ffd6d6';" 
+                     title="Xóa (Phím Tab để chọn + Enter)">
                     <i class="fa-solid fa-trash-can" style="font-size: 14px;"></i>
                 </div>
             </div>
             
-            <!-- 3. TÍNH TIỀN LẠNH -->
             ${iceCheckboxHtml}
             
-            <!-- 4. THÔNG TIN HÀNG HÓA -->
             <div style="flex: 1; min-width: 0; padding-right: 10px;">
                 <div style="color: var(--kv-pink); font-weight: 600; font-size: 13px;">${item.code}</div>
                 <div style="font-weight: bold; font-size: 16px; color: #111; margin-top: 4px; margin-bottom: 4px;">
@@ -4415,18 +4450,24 @@ return `
                 <div style="font-size: 12px; color:#888;">Tồn chi nhánh: ${currentStock}</div>
             </div>
             
+<!-- THÊM TABINDEX="-1" ĐỂ BỎ QUA Ô CHỌN ĐƠN VỊ -->
             <div style="width: 90px;">
-                <select onchange="updatePOSUnit(${index}, this.value)" style="width: 100%; border: 1px solid #eee; padding: 5px; border-radius: 4px; outline: none; cursor: pointer;">
+                <select tabindex="-1" 
+                    onclick="if(this.dataset.opened === '1') { this.blur(); this.dataset.opened = '0'; } else { this.dataset.opened = '1'; }"
+                    onchange="this.dataset.opened = '0'; updatePOSUnit(${index}, this.value);"
+                    onblur="this.dataset.opened = '0'; setTimeout(() => { if(document.activeElement && document.activeElement.tagName === 'INPUT') return; if (typeof focusPOSSearch === 'function') focusPOSSearch(); }, 50);"
+                    style="width: 100%; border: 1px solid #eee; padding: 5px; border-radius: 4px; outline: none; cursor: pointer;">
                     ${unitOptions}
                 </select>
             </div>
             
+<!-- THÊM TABINDEX="-1" ĐỂ BỎ QUA CỤM CHỈNH SỐ LƯỢNG KHI BẤM TAB -->
             <div style="width: 100px; display: flex; align-items: center; justify-content: center;">
-                <button type="button" onclick="window.updatePOSQty(${index}, ${item.qty - 1})" style="width: 28px; height: 30px; border: 1px solid #ddd; background: #fdfdfd; border-radius: 4px 0 0 4px; cursor: pointer; color: #555; font-weight: bold; border-right: none; font-size: 16px;">-</button>
-                <input type="text" value="${item.qty}" class="pos-qty-input" 
+                <button tabindex="-1" type="button" onclick="window.updatePOSQty(${index}, ${item.qty - 1})" style="width: 28px; height: 30px; border: 1px solid #ddd; background: #fdfdfd; border-radius: 4px 0 0 4px; cursor: pointer; color: #555; font-weight: bold; border-right: none; font-size: 16px;">-</button>
+                <input tabindex="-1" type="text" value="${item.qty}" class="pos-qty-input" 
                     oninput="this.value = this.value.replace(/[^0-9]/g, ''); window.updatePOSQty(${index}, this.value, true)" 
                     style="width: 44px; height: 30px; text-align: center; border: 1px solid #ddd; padding: 0; font-weight: bold; outline: none; border-radius: 0; font-size: 14px; box-sizing: border-box;">
-                <button type="button" onclick="window.updatePOSQty(${index}, ${item.qty + 1})" style="width: 28px; height: 30px; border: 1px solid #ddd; background: #fdfdfd; border-radius: 0 4px 4px 0; cursor: pointer; color: #555; font-weight: bold; border-left: none; font-size: 14px;">+</button>
+                <button tabindex="-1" type="button" onclick="window.updatePOSQty(${index}, ${item.qty + 1})" style="width: 28px; height: 30px; border: 1px solid #ddd; background: #fdfdfd; border-radius: 0 4px 4px 0; cursor: pointer; color: #555; font-weight: bold; border-left: none; font-size: 14px;">+</button>
             </div>
             
             <div style="width: 120px; text-align: right; font-weight: 500; color: #333;">${item.price.toLocaleString('vi-VN')}</div>
@@ -4435,15 +4476,48 @@ return `
     }).join('');
 
     if (typeof calcPOSTotals === 'function') calcPOSTotals();
+
+    // --- BƯỚC 2: PHỤC HỒI LẠI TRẠNG THÁI FOCUS SAU KHI VẼ XONG ---
+    if (focusedIndex !== null && !isNaN(focusedIndex)) {
+        setTimeout(() => {
+            const btns = listDiv.querySelectorAll('.pos-trash-btn');
+            if (btns.length > 0) {
+                // Trỏ vào nút ở vị trí cũ. Nếu món đó vừa bị xóa, trỏ vào món bị đẩy lên thế chỗ nó
+                const newFocusIdx = Math.min(focusedIndex, btns.length - 1);
+                btns[newFocusIdx].focus();
+            }
+        }, 10);
+    }
 };
 
 window.removePOSItem = function(index) { 
-    if (window.isProcessingCheckout) return; // CHẶN KHI ĐANG THANH TOÁN
+    if (window.isProcessingCheckout) return; // Chặn nếu đang thanh toán
 
     if (posTabs[activeTabIndex] && posTabs[activeTabIndex].items[index]) {
+        // 1. Xóa mặt hàng khỏi giỏ
         posTabs[activeTabIndex].items.splice(index, 1); 
+        
+        // 2. Ngắt focus hiện tại ở thùng rác để hàm renderPOSCart không tự kéo focus lại
+        if (document.activeElement) {
+            document.activeElement.blur();
+        }
+
+        // 3. Vẽ lại giao diện giỏ hàng mới
         renderPOSCart(); 
         savePOSState(); 
+        
+        // 4. Nhảy nảy chuột lên ô tìm kiếm ngay lập tức
+        setTimeout(() => {
+            if (typeof focusPOSSearch === 'function') {
+                focusPOSSearch();
+            } else {
+                const searchInput = document.getElementById('pos-search-input');
+                if (searchInput) {
+                    searchInput.focus();
+                    searchInput.select(); // Bôi đen chữ sẵn sàng
+                }
+            }
+        }, 10); // Phản hồi cực nhanh chỉ 10ms
     }
 };
 
@@ -4463,7 +4537,7 @@ window.updatePOSQty = function(index, val, isRealTime = false) {
     savePOSState();
 
     if (isRealTime) {
-        // [CẬP NHẬT TỨC THỜI] Chỉ tính lại tiền của dòng này và gắn lên màn hình
+        // [CẬP NHẬT TỨC THỜI KHI ĐANG GÕ SỐ] Chỉ tính lại tiền của dòng này và gắn lên màn hình
         const rowTotal = tab.items[index].qty * tab.items[index].price;
         const rowTotalEl = document.getElementById(`pos-row-total-${index}`);
         if (rowTotalEl) rowTotalEl.innerText = rowTotal.toLocaleString('vi-VN');
@@ -4471,7 +4545,21 @@ window.updatePOSQty = function(index, val, isRealTime = false) {
         // Gọi hàm tính tổng tiền của cả hóa đơn
         if (typeof calcPOSTotals === 'function') calcPOSTotals();
     } else {
+        // [KHI BẤM NÚT CỘNG/TRỪ] Vẽ lại giỏ hàng
         renderPOSCart();
+        
+        // --- THÊM MỚI: Tự động nhảy lên ô tìm kiếm ---
+        setTimeout(() => {
+            if (typeof focusPOSSearch === 'function') {
+                focusPOSSearch();
+            } else {
+                const searchInput = document.getElementById('pos-search-input');
+                if (searchInput) {
+                    searchInput.focus();
+                    searchInput.select();
+                }
+            }
+        }, 50); // Độ trễ 50ms chờ giỏ hàng vẽ xong
     }
 };
 window.updatePOSUnit = function(index, unitIdx) {
@@ -4491,6 +4579,19 @@ window.updatePOSUnit = function(index, unitIdx) {
 
     renderPOSCart();
     savePOSState();
+
+    // --- THÊM MỚI: Tự động nhảy lên ô tìm kiếm sau khi đổi đơn vị ---
+    setTimeout(() => {
+        if (typeof focusPOSSearch === 'function') {
+            focusPOSSearch();
+        } else {
+            const searchInput = document.getElementById('pos-search-input');
+            if (searchInput) {
+                searchInput.focus();
+                searchInput.select();
+            }
+        }
+    }, 50);
 };
 function calcPOSTotals() {
     const tab = posTabs[activeTabIndex];
@@ -4667,15 +4768,13 @@ window.processCheckout = function() {
                 localStorage.setItem('kv_products', JSON.stringify(latestProds));
                 localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
                 
-                if (typeof window.uploadToCloud === 'function') {
-                    window.uploadToCloud('invoices', allInvoices);
+if (typeof window.uploadToCloud === 'function') {
+                    window.uploadSingleInvoice(newInvoice);
                     window.uploadToCloud('products', latestProds);
                 }
 
                 if (window.autoPrintMode) window.printReceipt(newInvoice);
                 else showToast(tab.isEditing ? "Cập nhật hóa đơn thành công!" : "Thanh toán thành công!", "success");
-
-                setTimeout(() => { window.isSyncLocked = false; }, 3000);
 
             } else {
                 let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
@@ -4896,8 +4995,28 @@ window.uploadToCloud = function(path, data) {
 
     if (window.fbSet && window.fbDb) {
         window.fbSet(window.fbRef(window.fbDb, path), data)
-            .then(() => showToast(`Đã đồng bộ ${path} lên Cloud thành công`, "success"))
-            .catch((err) => showToast("Lỗi Firebase: " + err.message, "error"));
+            .then(() => {
+                window.isSyncLocked = false;
+                showToast(`Đã đồng bộ ${path} lên Cloud thành công`, "success");
+            })
+            .catch((err) => {
+                window.isSyncLocked = false;
+                showToast("Lỗi Firebase: " + err.message, "error");
+            });
+    }
+};
+
+window.uploadSingleInvoice = function(invoice) {
+    if (!navigator.onLine) return;
+    if (window.fbSet && window.fbDb && window.fbRef) {
+        window.fbSet(window.fbRef(window.fbDb, 'invoices/' + invoice.id), invoice)
+            .then(() => {
+                window.isSyncLocked = false;
+            })
+            .catch(err => {
+                window.isSyncLocked = false;
+                console.error("Lỗi đồng bộ Firebase:", err);
+            });
     }
 };
 
@@ -5805,12 +5924,15 @@ document.addEventListener('keydown', function(e) {
                 if (typeof processCheckout === 'function') processCheckout();
                 break;
 
-            case 'Home':
+case 'Home':
                 e.preventDefault();
                 const qtyInputs = document.querySelectorAll('.pos-qty-input');
                 if (qtyInputs.length > 0) {
-                    qtyInputs[0].focus();
-                    qtyInputs[0].select();
+                    // Nhảy vòng lặp các ô số lượng khi bấm phím Home liên tục
+                    let currentIdx = Array.from(qtyInputs).indexOf(document.activeElement);
+                    let nextIdx = (currentIdx + 1) % qtyInputs.length;
+                    qtyInputs[nextIdx].focus();
+                    qtyInputs[nextIdx].select(); // Tự động bôi đen để gõ đè số mới
                 }
                 break;
         }
@@ -6276,9 +6398,13 @@ window.initApp = async function() {
     await window.migrateOldData(); 
     await window.loadDBToRAM();    
     
-    // MỞ KHÓA CHO PHÉP LƯU DỮ LIỆU SAU KHI ĐÃ TẢI XONG
+// MỞ KHÓA CHO PHÉP LƯU DỮ LIỆU SAU KHI ĐÃ TẢI XONG
     window.isRAMReady = true; 
     window.reloadGlobalsFromRAM(); 
+    
+    // Rải lại dữ liệu bị kẹt trong lúc chờ
+    ramQueue.forEach(item => localStorage.setItem(item.key, item.value));
+    ramQueue = [];
 
     console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ dữ liệu thời gian thực...");
 
@@ -7000,8 +7126,14 @@ window.moveNextOnEnter = function(event, currentInput, className) {
         // Nếu chưa phải là ô cuối cùng, tự động nhảy xuống ô dưới
         if (currentIndex !== -1 && currentIndex < inputs.length - 1) {
             const nextInput = inputs[currentIndex + 1];
-            nextInput.focus();   // Trỏ chuột vào ô dưới
-            nextInput.select();  // Tự động bôi đen để gõ đè số luôn cho nhanh
+            nextInput.focus();   
+            nextInput.select();  
+        } 
+        // --- THÊM MỚI: Nếu là ô cuối cùng, Enter sẽ tự bấm XONG ---
+        else if (currentIndex === inputs.length - 1) {
+            if (className === 'quick-price-input' && typeof saveQuickPriceSetup === 'function') {
+                saveQuickPriceSetup(); // Tự động lưu bảng thiết lập giá
+            }
         }
     }
 };
