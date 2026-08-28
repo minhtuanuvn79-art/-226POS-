@@ -4674,154 +4674,144 @@ window.changePOSPriceBook = function(pbId) {
 window.isProcessingCheckout = false;
 
 window.processCheckout = function() {
-    // 1. Nếu đang xử lý rồi thì chặn đứng mọi luồng gọi lại
     if (window.isProcessingCheckout) return;
 
     const checkoutBtn = document.querySelector('.pos-checkout-btn');
     if (checkoutBtn && checkoutBtn.disabled) return;
 
-    // 2. BẬT CỜ KHÓA HỆ THỐNG
     window.isProcessingCheckout = true;
 
-    // Khóa nút UI
     if (checkoutBtn) {
         checkoutBtn.disabled = true;
         checkoutBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xử lý...';
-        checkoutBtn.style.opacity = '0.7';
-        checkoutBtn.style.pointerEvents = 'none';
     }
 
-    setTimeout(() => {
-        try {
-            const tab = posTabs[activeTabIndex];
-            if (!tab || tab.items.length === 0) { 
-                showToast("Giỏ hàng trống!", "error"); 
-                return; 
-            }
+    // ĐÃ GỠ BỎ HOÀN TOÀN SETTIMEOUT ĐỂ LƯU NGAY LẬP TỨC (CHỐNG F5)
+    try {
+        const tab = posTabs[activeTabIndex];
+        if (!tab || tab.items.length === 0) { 
+            showToast("Giỏ hàng trống!", "error"); 
+            return; 
+        }
 
-            const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
-            const latestProds = JSON.parse(localStorage.getItem('kv_products')) || [];
-            let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
-            const totalAmount = parseFloat(document.getElementById('pos-total-goods').dataset.val) || 0;
-            
-            const isFeatureEnabled = document.getElementById('enable-beer-ice')?.checked;
-            const iceAmount = isFeatureEnabled ? calculateManualBeerIce() : 0;
-            
-            const mustPay = totalAmount - (tab.discount || 0) + (tab.extraFee || 0) + iceAmount;
+        const currentBranch = localStorage.getItem('kv_current_branch') || 'CN001';
+        const latestProds = JSON.parse(localStorage.getItem('kv_products')) || [];
+        let allInvoices = JSON.parse(localStorage.getItem('kv_invoices')) || [];
+        const totalAmount = parseFloat(document.getElementById('pos-total-goods').dataset.val) || 0;
+        
+        const isFeatureEnabled = document.getElementById('enable-beer-ice')?.checked;
+        const iceAmount = isFeatureEnabled ? calculateManualBeerIce() : 0;
+        
+        const mustPay = totalAmount - (tab.discount || 0) + (tab.extraFee || 0) + iceAmount;
 
-            const actualPaidStr = document.getElementById('pos-customer-paid')?.value || '0';
-            const actualPaid = (window.parseCurrency(actualPaidStr) * 1000) || mustPay;
+        const actualPaidStr = document.getElementById('pos-customer-paid')?.value || '0';
+        const actualPaid = (window.parseCurrency(actualPaidStr) * 1000) || mustPay;
 
-            let invoiceIdToSave = 'HD' + Date.now().toString().slice(-6);
-            let originalInvoiceDate = new Date().toLocaleString('vi-VN');
-            let oldInvIndex = -1;
-            let oldInv = null;
+        let invoiceIdToSave = 'HD' + Date.now().toString().slice(-6);
+        let originalInvoiceDate = new Date().toLocaleString('vi-VN');
+        let oldInvIndex = -1;
+        let oldInv = null;
 
-            if (tab.isEditing && tab.oldInvId) {
-                invoiceIdToSave = tab.oldInvId; 
-                oldInvIndex = allInvoices.findIndex(x => x.id === tab.oldInvId);
-                if (oldInvIndex !== -1) {
-                    oldInv = allInvoices[oldInvIndex];
-                    originalInvoiceDate = oldInv.createdAt; 
-                }
-            }
-
-            const newInvoice = {
-                id: invoiceIdToSave,
-                branchId: currentBranch,
-                createdAt: originalInvoiceDate,
-                items: JSON.parse(JSON.stringify(tab.items)),
-                totalAmount: totalAmount,
-                invoiceDiscount: tab.discount || 0,
-                extraFee: tab.extraFee || 0,
-                beerIceAmount: iceAmount,
-                beerIceNote: tab.beerIceNote || "",
-                customerPaid: actualPaid, 
-                creator: currentUser.fullname,
-                status: 'done'
-            };
-
-            if (navigator.onLine) {
-                window.isSyncLocked = true;
-
-                if (oldInv && oldInv.status === 'done') {
-                    oldInv.items.forEach(oldItem => {
-                        const prod = latestProds.find(p => p.id === oldItem.productId);
-                        if (prod) {
-                            const oldRate = oldItem.units && oldItem.units[oldItem.selectedUnitIdx] ? (oldItem.units[oldItem.selectedUnitIdx].rate || 1) : 1;
-                            prod.stock = (parseFloat(prod.stock) || 0) + (oldItem.qty * oldRate);
-                        }
-                    });
-                    allInvoices.splice(oldInvIndex, 1);
-                }
-
-                tab.items.forEach(cartItem => {
-                    const prod = latestProds.find(p => p.id === cartItem.productId);
-                    if (prod) {
-                        const rate = cartItem.units[cartItem.selectedUnitIdx]?.rate || 1;
-                        prod.stock -= (cartItem.qty * rate);
-                    }
-                });
-
-                allInvoices.unshift(newInvoice);
-
-                localStorage.setItem('kv_products', JSON.stringify(latestProds));
-                localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
-                
-if (typeof window.uploadToCloud === 'function') {
-                    window.uploadSingleInvoice(newInvoice);
-                    window.uploadToCloud('products', latestProds);
-                }
-
-                if (window.autoPrintMode) window.printReceipt(newInvoice);
-                else showToast(tab.isEditing ? "Cập nhật hóa đơn thành công!" : "Thanh toán thành công!", "success");
-
-            } else {
-                let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
-                if (tab.isEditing && tab.oldInvId) {
-                    newInvoice.isEditing = true;
-                    newInvoice.oldInvId = tab.oldInvId;
-                }
-                pendingData.push(newInvoice); 
-                localStorage.setItem('kv_pending_invoices_data', JSON.stringify(pendingData));
-                
-                if (typeof window.updateOfflineIndicator === 'function') window.updateOfflineIndicator();
-                
-                if (window.autoPrintMode) window.printReceipt(newInvoice); 
-                showToast("Mất mạng! Hóa đơn đã được lưu an toàn vào máy chờ đồng bộ.", "warning");
-            }
-            
-            posTabs.splice(activeTabIndex, 1); 
-
-            if (posTabs.length === 0) {
-                window.clearPOS();
-            } else {
-                activeTabIndex = Math.max(0, posTabs.length - 1);
-                switchPOSTab(activeTabIndex);
-                window.savePOSState();
-            }
-            
-            if (typeof focusPOSSearch === 'function') focusPOSSearch();
-            setTimeout(() => {
-                const searchInput = document.getElementById('pos-search-input');
-                if (searchInput) searchInput.value = '';
-            }, 200);
-
-        } catch (error) {
-            console.error("Lỗi khi xử lý thanh toán:", error);
-            showToast("Có lỗi xảy ra, vui lòng thử lại!", "error");
-        } finally {
-            // 3. TẮT CỜ KHÓA SAU KHI XỬ LÝ XONG (HOẶC LỖI)
-            window.isProcessingCheckout = false; 
-            
-            if (checkoutBtn) {
-                checkoutBtn.disabled = false;
-                checkoutBtn.innerHTML = 'THANH TOÁN (F9)';
-                checkoutBtn.style.opacity = '1';
-                checkoutBtn.style.pointerEvents = 'auto';
+        if (tab.isEditing && tab.oldInvId) {
+            invoiceIdToSave = tab.oldInvId; 
+            oldInvIndex = allInvoices.findIndex(x => x.id === tab.oldInvId);
+            if (oldInvIndex !== -1) {
+                oldInv = allInvoices[oldInvIndex];
+                originalInvoiceDate = oldInv.createdAt; 
             }
         }
-    }, 50);
+
+        const newInvoice = {
+            id: invoiceIdToSave,
+            branchId: currentBranch,
+            createdAt: originalInvoiceDate,
+            items: JSON.parse(JSON.stringify(tab.items)),
+            totalAmount: totalAmount,
+            invoiceDiscount: tab.discount || 0,
+            extraFee: tab.extraFee || 0,
+            beerIceAmount: iceAmount,
+            beerIceNote: tab.beerIceNote || "",
+            customerPaid: actualPaid, 
+            creator: currentUser.fullname,
+            status: 'done'
+        };
+
+        if (navigator.onLine) {
+            window.isSyncLocked = true;
+
+            if (oldInv && oldInv.status === 'done') {
+                oldInv.items.forEach(oldItem => {
+                    const prod = latestProds.find(p => p.id === oldItem.productId);
+                    if (prod) {
+                        const oldRate = oldItem.units && oldItem.units[oldItem.selectedUnitIdx] ? (oldItem.units[oldItem.selectedUnitIdx].rate || 1) : 1;
+                        prod.stock = (parseFloat(prod.stock) || 0) + (oldItem.qty * oldRate);
+                    }
+                });
+                allInvoices.splice(oldInvIndex, 1);
+            }
+
+            tab.items.forEach(cartItem => {
+                const prod = latestProds.find(p => p.id === cartItem.productId);
+                if (prod) {
+                    const rate = cartItem.units[cartItem.selectedUnitIdx]?.rate || 1;
+                    prod.stock -= (cartItem.qty * rate);
+                }
+            });
+
+            allInvoices.unshift(newInvoice);
+
+            // LƯU NGAY LẬP TỨC VÀO TRONG MÁY (ĐỒNG BỘ 100% CÙNG LÚC NHẤN NÚT)
+            localStorage.setItem('kv_products', JSON.stringify(latestProds));
+            localStorage.setItem('kv_invoices', JSON.stringify(allInvoices));
+            
+            // ĐẨY TOÀN BỘ DANH SÁCH LÊN CLOUD ĐỂ ĐỒNG NHẤT
+            if (typeof window.uploadToCloud === 'function') {
+                window.uploadToCloud('invoices', allInvoices);
+                window.uploadToCloud('products', latestProds);
+            }
+
+            if (window.autoPrintMode) window.printReceipt(newInvoice);
+            else showToast(tab.isEditing ? "Cập nhật hóa đơn thành công!" : "Thanh toán thành công!", "success");
+
+        } else {
+            let pendingData = JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || [];
+            if (tab.isEditing && tab.oldInvId) {
+                newInvoice.isEditing = true;
+                newInvoice.oldInvId = tab.oldInvId;
+            }
+            pendingData.push(newInvoice); 
+            localStorage.setItem('kv_pending_invoices_data', JSON.stringify(pendingData));
+            
+            if (typeof window.updateOfflineIndicator === 'function') window.updateOfflineIndicator();
+            
+            if (window.autoPrintMode) window.printReceipt(newInvoice); 
+            showToast("Mất mạng! Hóa đơn đã được lưu an toàn vào máy chờ đồng bộ.", "warning");
+        }
+        
+        posTabs.splice(activeTabIndex, 1); 
+
+        if (posTabs.length === 0) {
+            window.clearPOS();
+        } else {
+            activeTabIndex = Math.max(0, posTabs.length - 1);
+            switchPOSTab(activeTabIndex);
+            window.savePOSState();
+        }
+        
+        if (typeof focusPOSSearch === 'function') focusPOSSearch();
+        const searchInput = document.getElementById('pos-search-input');
+        if (searchInput) searchInput.value = '';
+
+    } catch (error) {
+        console.error("Lỗi khi xử lý thanh toán:", error);
+        showToast("Có lỗi xảy ra, vui lòng thử lại!", "error");
+    } finally {
+        window.isProcessingCheckout = false; 
+        if (checkoutBtn) {
+            checkoutBtn.disabled = false;
+            checkoutBtn.innerHTML = 'THANH TOÁN (F9)';
+        }
+    }
 };
 window.clearPOS = function() {
     // 1. Lấy bảng giá đang được chọn trên giao diện (nếu có), nếu không có mới dùng 'default'
@@ -6392,21 +6382,22 @@ window.renderICCreatorFilter = function() {
     if (currentVal && uniqueCreators.includes(currentVal)) select.value = currentVal;
 };
 
+window.migrateOldData = async function() { return Promise.resolve(); };
+
 window.initApp = async function() {
-    console.log("🚀 Đang khởi động lõi lưu trữ siêu tốc (IndexedDB)...");
+    console.log("🚀 Đang khởi động lõi lưu trữ...");
+    try {
+        if (typeof window.migrateOldData === 'function') await window.migrateOldData(); 
+        await window.loadDBToRAM();    
+    } catch (error) { console.error("Lỗi DB:", error); }
     
-    await window.migrateOldData(); 
-    await window.loadDBToRAM();    
-    
-// MỞ KHÓA CHO PHÉP LƯU DỮ LIỆU SAU KHI ĐÃ TẢI XONG
     window.isRAMReady = true; 
     window.reloadGlobalsFromRAM(); 
     
-    // Rải lại dữ liệu bị kẹt trong lúc chờ
-    ramQueue.forEach(item => localStorage.setItem(item.key, item.value));
-    ramQueue = [];
-
-    console.log("🚀 226 POS: Đang khởi tạo hệ thống và đồng bộ dữ liệu thời gian thực...");
+    if (typeof ramQueue !== 'undefined' && ramQueue.length > 0) {
+        ramQueue.forEach(item => localStorage.setItem(item.key, item.value));
+        ramQueue = [];
+    }
 
     if (window.fbDb && window.fbOnValue) {
         const syncPaths = [
@@ -6425,13 +6416,22 @@ window.initApp = async function() {
             window.fbOnValue(dbRef, (snapshot) => {
                 const data = snapshot.val();
                 let dataArray = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data).filter(Boolean)) : [];
+                
                 const hasPending = (JSON.parse(localStorage.getItem('kv_pending_invoices_data')) || []).length > 0;
                 if (hasPending && (item.path === 'invoices' || item.path === 'products')) return;
-                
+
+                // KHÓA CHỐNG GHI ĐÈ: Cứu tinh khi F5 ngắt mạng giữa chừng
+                let localData = JSON.parse(localStorage.getItem(item.storageKey)) || [];
+                if (localData.length > dataArray.length && !window.isSyncLocked) {
+                    console.log(`[Bảo vệ] Máy có ${localData.length} > Cloud có ${dataArray.length}. Đẩy ngược lên Cloud!`);
+                    if (typeof window.uploadToCloud === 'function') window.uploadToCloud(item.path, localData);
+                    return; // Chặn Cloud ghi đè xuống máy
+                }
+
                 if (item.path === 'products') {
                     if (!window.isSyncLocked) { 
                         dataArray.forEach(p => { if (!p.branchId) p.branchId = 'CN001'; });
-                        products = dataArray; // Đồng bộ ngược biến mảng
+                        products = dataArray; 
                         window.products = dataArray;
                         localStorage.setItem(item.storageKey, JSON.stringify(dataArray));
                         if (typeof renderProductList === 'function') renderProductList();
@@ -6453,24 +6453,17 @@ window.initApp = async function() {
                 }
                 
                 if (item.path === 'accounts') {
-                    accounts = dataArray; // Đồng bộ ngược biến mảng
+                    accounts = dataArray; 
                     window.accounts = dataArray;
                     if (typeof currentUser !== 'undefined' && currentUser) {
                         const updatedMe = dataArray.find(acc => acc && acc.username === currentUser.username);
-                        if (!updatedMe) {
-                            alert("Tài khoản của bạn đã bị xóa khỏi hệ thống. Vui lòng liên hệ Quản lý!");
-                            if (typeof logout === 'function') logout();
-                        } else if (updatedMe.password !== currentUser.password) {
-                            alert("Mật khẩu của bạn vừa được thay đổi. Vui lòng đăng nhập lại bằng mật khẩu mới!");
-                            if (typeof logout === 'function') logout();
-                        } else {
+                        if (updatedMe) {
                             currentUser = updatedMe;
                             localStorage.setItem('kv_current_user', JSON.stringify(currentUser));
                         }
                     }
                 }
 
-                // CẬP NHẬT GIAO DIỆN
                 const currentView = sessionStorage.getItem('kv_current_view');
                 const currentTab = localStorage.getItem('kv_current_tab') || 'tab-tong-quan';
 
@@ -6478,9 +6471,7 @@ window.initApp = async function() {
                     if (item.path === 'products' && typeof renderPOSProducts === 'function') renderPOSProducts();
                     if (typeof renderPOSCart === 'function') renderPOSCart();
                 } else if (currentView === 'dashboard-view') {
-                    if (item.path === 'groups' && typeof window.renderGroupData === 'function') {
-                        window.renderGroupData();
-                    }
+                    if (item.path === 'groups' && typeof window.renderGroupData === 'function') window.renderGroupData();
                     const tabMapping = {
                         'products': 'tab-danh-sach-hang',
                         'invoices': 'tab-hoa-don',
@@ -6488,15 +6479,12 @@ window.initApp = async function() {
                         'inventory_checks': 'tab-kiem-kho',
                         'pricebooks': 'tab-thiet-lap-gia'
                     };
-                    if (tabMapping[item.path] === currentTab || currentTab === 'tab-tong-quan') {
-                        openDashTab(currentTab); 
-                    }
+                    if (tabMapping[item.path] === currentTab || currentTab === 'tab-tong-quan') openDashTab(currentTab); 
                 }
             });
         });
     }
 
-    // 3. KHÔI PHỤC PHIÊN ĐĂNG NHẬP
     const savedUser = localStorage.getItem('kv_current_user');
     const savedView = sessionStorage.getItem('kv_current_view'); 
     
@@ -6507,21 +6495,13 @@ window.initApp = async function() {
             if (currentUser.branchId && !localStorage.getItem('kv_current_branch')) {
                 localStorage.setItem('kv_current_branch', currentUser.branchId); 
             }
-
             hideAll(); 
-
             if (savedView === 'pos-view') {
                 const posView = document.getElementById('pos-view');
-                if (posView) {
-                    posView.style.display = 'flex';
-                    if (typeof initPOSData === 'function') initPOSData();
-                }
+                if (posView) { posView.style.display = 'flex'; if (typeof initPOSData === 'function') initPOSData(); }
             } else if (savedView === 'admin-settings-view') {
                 const adminView = document.getElementById('admin-settings-view');
-                if (adminView) {
-                    adminView.style.display = 'flex';
-                    if (typeof switchAdminTab === 'function') switchAdminTab('list');
-                }
+                if (adminView) { adminView.style.display = 'flex'; if (typeof switchAdminTab === 'function') switchAdminTab('list'); }
             } else {
                 const dashView = document.getElementById('dashboard-view');
                 if (dashView) {
@@ -6533,7 +6513,6 @@ window.initApp = async function() {
                 }
             }
         } catch (e) {
-            console.error("Lỗi khôi phục phiên:", e);
             localStorage.removeItem('kv_current_user');
             location.reload();
         }
@@ -6546,11 +6525,7 @@ window.initApp = async function() {
     setTimeout(() => {
         if (typeof renderICCreatorFilter === 'function') renderICCreatorFilter();
         if (typeof renderInvCreatorFilter === 'function') renderInvCreatorFilter();
-        
-        // THÊM DÒNG NÀY ĐỂ VỪA F5/TẢI TRANG LÀ CẬP NHẬT UI NÚT OFFLINE LUÔN
-        if (typeof window.updateOfflineIndicator === 'function') {
-            window.updateOfflineIndicator();
-        }
+        if (typeof window.updateOfflineIndicator === 'function') window.updateOfflineIndicator();
     }, 1000);
 };
 // ==========================================
